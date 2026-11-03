@@ -1036,6 +1036,52 @@ function cssOf(s: string): CSSProperties {
 	return out as CSSProperties;
 }
 
+/**
+ * An HTML block on the canvas: its HTML in a frame where nothing runs (no scripts, forms or
+ * navigation), so a design saved by another member or through the API can't act as whoever opens
+ * it. Same-origin only so the canvas can read its height; scripts stay off, which is what matters.
+ */
+function HtmlBlockPreview({ html, theme: t }: { html: string; theme: Theme }) {
+	const ref = useRef<HTMLIFrameElement>(null);
+	const [height, setHeight] = useState(40);
+	const doc = useMemo(
+		() =>
+			`<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: http: data:; style-src 'unsafe-inline'; font-src https: data:"><style>html,body{margin:0;background:transparent;overflow:hidden}body{font-family:${bodyStack(t).replace(/</g, "")};font-size:${t.size}px;line-height:1.65;color:${t.text}}img{max-width:100%}</style></head><body>${html}</body></html>`,
+		[html, t],
+	);
+	useEffect(() => {
+		const frame = ref.current;
+		if (!frame) return;
+		let observer: ResizeObserver | null = null;
+		const measure = () => {
+			const body = frame.contentDocument?.body;
+			if (!body) return;
+			setHeight(Math.max(20, Math.ceil(body.scrollHeight)));
+			observer?.disconnect();
+			observer = new ResizeObserver(() =>
+				setHeight(Math.max(20, Math.ceil(body.scrollHeight))),
+			);
+			observer.observe(body);
+		};
+		frame.addEventListener("load", measure);
+		measure();
+		return () => {
+			frame.removeEventListener("load", measure);
+			observer?.disconnect();
+		};
+	}, []);
+	return (
+		<iframe
+			ref={ref}
+			title="HTML block"
+			srcDoc={doc}
+			sandbox="allow-same-origin"
+			className="pointer-events-none block w-full border-0"
+			style={{ height }}
+		/>
+	);
+}
+
 function BlockBody({ block: b, inner }: { block: Block; inner: number }) {
 	const { doc, patch, phone } = useB();
 	const t = doc.theme;
@@ -1139,10 +1185,10 @@ function BlockBody({ block: b, inner }: { block: Block; inner: number }) {
 		);
 	if (b.type === "html")
 		return (
-			<div className="relative">
-				{/* biome-ignore lint/security/noDangerouslySetInnerHtml: the organization's own HTML, shown as it will be sent */}
-				<div dangerouslySetInnerHTML={{ __html: b.html }} />
-			</div>
+			<HtmlBlockPreview
+				html={b.html}
+				theme={t}
+			/>
 		);
 	return (
 		<div
