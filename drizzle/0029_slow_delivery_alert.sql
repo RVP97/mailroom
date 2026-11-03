@@ -1,0 +1,1 @@
+ALTER TABLE `org_sending` ADD `slow_alerted_at` text;

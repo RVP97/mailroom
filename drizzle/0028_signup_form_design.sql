@@ -1,0 +1,1 @@
+ALTER TABLE `signup_forms` ADD `design` text DEFAULT '{}' NOT NULL;

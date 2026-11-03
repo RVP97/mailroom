@@ -1,0 +1,20 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"lib": ["dom", "dom.iterable", "esnext"],
+		"types": ["./worker-configuration.d.ts", "vite/client", "@cloudflare/vitest-pool-workers/types"],
+		"skipLibCheck": true,
+		"strict": true,
+		"noEmit": true,
+		"esModuleInterop": true,
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"jsx": "react-jsx",
+		"noUncheckedIndexedAccess": true,
+		"paths": { "@/*": ["./src/*"] }
+	},
+	"include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "*.ts"],
+	"exclude": ["node_modules", "dist"]
+}

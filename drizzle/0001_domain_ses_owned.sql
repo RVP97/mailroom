@@ -1,0 +1,1 @@
+ALTER TABLE `domains` ADD `ses_owned` integer DEFAULT false NOT NULL;

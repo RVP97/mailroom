@@ -1,0 +1,98 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	// The repo's generic configuration. Edit it for your deployment, or keep your values out of the
+	// repo in MAILROOM_WRANGLER_CONFIG, merged over this file at deploy (scripts/deployment-config.mjs).
+	"name": "mailroom",
+	"main": "src/server.ts",
+	"compatibility_date": "2026-08-20",
+	"compatibility_flags": ["nodejs_compat"],
+	"observability": { "enabled": true },
+	"assets": { "binding": "ASSETS" },
+	// On your own domain (without it: mailroom.<your subdomain>.workers.dev):
+	// "routes": [{ "pattern": "mailroom.example.com", "custom_domain": true }],
+	// Runs next to the D1 database instead of next to the visitor.
+	"placement": { "mode": "smart" },
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "mailroom",
+			// "database_id": the database's id (bunx wrangler d1 create mailroom).
+			"migrations_dir": "drizzle"
+		}
+	],
+	// The MCP server's OAuth grants and tokens (src/server/mcp/oauth.ts).
+	// "id": the namespace's id (bunx wrangler kv namespace create OAUTH_KV).
+	"kv_namespaces": [{ "binding": "OAUTH_KV" }],
+	// One Dispatcher per deployment: the AWS account's send rate and the queue of batch and
+	// scheduled emails (src/server/dispatcher.ts). SQLite-backed, so it also runs on the free plan.
+	"durable_objects": { "bindings": [{ "name": "DISPATCHER", "class_name": "Dispatcher" }] },
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Dispatcher"] }],
+	// The API's rate limits (src/server/rate-limit.ts): requests per 10 seconds, per API key and,
+	// without a valid key, per IP.
+	"ratelimits": [
+		{
+			"name": "API_KEY_LIMIT",
+			"namespace_id": "1001",
+			"simple": { "limit": 100, "period": 10 }
+		},
+		{ "name": "API_IP_LIMIT", "namespace_id": "1002", "simple": { "limit": 20, "period": 10 } },
+		// Public sign-up forms: per IP.
+		{ "name": "SIGNUP_LIMIT", "namespace_id": "1003", "simple": { "limit": 5, "period": 60 } }
+	],
+	// Received emails, whole (src/server/inbound.ts): SES drops each in S3, Mailroom moves it here.
+	"r2_buckets": [{ "binding": "INBOUND", "bucket_name": "mailroom-inbound" }],
+	// Cloudflare's Email Sending (Workers Paid), for the platform's own emails.
+	"send_email": [{ "name": "SYSTEM_EMAIL" }],
+	// Every minute: scheduled emails, webhook retries; once a day: clean-up (src/server/cron.ts).
+	"triggers": { "crons": ["* * * * *"] },
+	"vars": {
+		// Your deployment's public URL (sign-in links, passkeys, the SNS endpoint).
+		"BETTER_AUTH_URL": "https://mailroom.example.com",
+		"AWS_REGION": "us-east-1",
+		// Days in the dashboard and the daily counters are this time zone's days.
+		"TIMEZONE": "UTC",
+		// The platform's own emails (sign-in codes, invitations, alerts): sent by Cloudflare's Email
+		// Sending (SYSTEM_EMAIL) from SYSTEM_FROM, a domain onboarded in Email Service in this
+		// account; if that fails, by SES from SYSTEM_FROM_SES, a domain verified in Mailroom or SES.
+		"SYSTEM_FROM": "",
+		"SYSTEM_FROM_SES": "",
+		// Who may sign in without an invitation (comma separated). They run the deployment.
+		"ADMIN_EMAILS": "you@example.com",
+		// Where errors go (src/server/sentry.ts, src/lib/sentry.ts): the Sentry project's DSN, also
+		// built into the dashboard's code. Empty: no error tracking.
+		"SENTRY_DSN": "",
+		// Sign-up forms make their Turnstile widgets in this account (the API token needs Turnstile: Edit).
+		"CLOUDFLARE_ACCOUNT_ID": "",
+		// The AWS account's maximum send rate (emails per second), from the SES console.
+		"MAX_SEND_RATE": "14",
+		// Days kept: email bodies (compressed), API request logs and everything else.
+		"BODY_RETENTION_DAYS": "7",
+		"REQUEST_LOG_RETENTION_DAYS": "30",
+		"LOG_RETENTION_DAYS": "90",
+		// Organizations that turn the archive on in Settings keep what retention deletes in R2
+		// (the ARCHIVE bucket if bound, else INBOUND). "false" turns it off for everyone.
+		"ARCHIVE_EMAILS": "true",
+		// Open and click tracking on each domain's own links.<domain> (src/server/tracking.ts):
+		// Cloudflare for SaaS on this zone, whose fallback origin is TRACKING_CNAME_TARGET. Empty
+		// zone: tracked links use this deployment's own address.
+		"TRACKING_ZONE_ID": "",
+		"TRACKING_CNAME_TARGET": "",
+		// Where domains send DMARC aggregate reports (rua=): Cloudflare Email Routing on that
+		// address's domain sends it to the Worker's email handler. Empty: off.
+		"DMARC_REPORTS_ADDRESS": "",
+		// Receiving: each brand's Mailroom address is <brand slug>@INBOUND_DOMAIN (an SES identity
+		// with its MX at SES; AWS account page › Set up receiving). Empty: no Mailroom addresses.
+		"INBOUND_DOMAIN": "",
+		// Days received emails are kept (the row and the whole message in R2).
+		"INBOUND_RETENTION_DAYS": "30",
+		// One-click DNS (src/server/domain-connect.ts): the providerId of the Domain Connect template
+		// you onboarded (domain-connect/README.md), with DOMAIN_CONNECT_PRIVATE_KEY. Empty: off.
+		"DOMAIN_CONNECT_PROVIDER_ID": "",
+		// Who runs this deployment, named on the public About, Privacy and Terms pages.
+		"OPERATOR_NAME": "",
+		"CONTACT_EMAIL": ""
+	}
+	// Secrets (wrangler secret put …): BETTER_AUTH_SECRET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY;
+	// optional: DOMAIN_CONNECT_PRIVATE_KEY (scripts/domain-connect-key.sh), CLOUDFLARE_API_TOKEN
+	// (Zone › SSL and Certificates: Edit and Workers Routes: Edit on the tracking zone).
+}

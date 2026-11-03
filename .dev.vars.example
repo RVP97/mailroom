@@ -1,0 +1,5 @@
+# Secrets. Locally: copy to .dev.vars. Deployed: `bunx wrangler secret put <NAME>` (or the
+# Deploy to Cloudflare form, which asks for each one here).
+BETTER_AUTH_SECRET=change-me-to-a-long-random-string # openssl rand -base64 32
+AWS_ACCESS_KEY_ID= # the Mailroom IAM user's access key (README: Amazon SES)
+AWS_SECRET_ACCESS_KEY=
