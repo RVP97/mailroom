@@ -14,25 +14,37 @@ const r = schema.apiRequests;
 /** Bodies are cut at this many characters; an email's HTML doesn't need to be kept twice. */
 const MAX_BODY = 16_000;
 
-/** Attachments' base64 isn't kept, only how big it was. */
+/** Fields holding a credential (an API key's token, a webhook's signing secret, a password…). */
+const SECRET_KEY =
+	/^(token|secret|signing_secret|password|private_key|api_key|access_key_id|secret_access_key|authorization)$/i;
+/** Values that are credentials whatever they're called: Mailroom keys and webhook secrets. */
+const SECRET_VALUE = /^(mr_|whsec_)[A-Za-z0-9_+/=-]{16,}$/;
+
+/**
+ * Attachments' base64 isn't kept, only how big it was; credentials aren't kept at all (anyone
+ * who can read the logs could otherwise copy a new API key or webhook secret from them).
+ */
 function redact(value: unknown): unknown {
+	if (typeof value === "string") return SECRET_VALUE.test(value) ? "[redacted]" : value;
 	if (Array.isArray(value)) return value.map(redact);
 	if (!value || typeof value !== "object") return value;
 	const out: Record<string, unknown> = {};
 	for (const [k, v] of Object.entries(value))
 		out[k] =
-			k === "attachments" && Array.isArray(v)
-				? v.map((a) =>
-						a &&
-						typeof a === "object" &&
-						typeof (a as { content?: unknown }).content === "string"
-							? {
-									...(a as object),
-									content: `[${Math.round(((a as { content: string }).content.length * 3) / 4)} bytes]`,
-								}
-							: a,
-					)
-				: redact(v);
+			SECRET_KEY.test(k) && v !== null && v !== undefined && v !== ""
+				? "[redacted]"
+				: k === "attachments" && Array.isArray(v)
+					? v.map((a) =>
+							a &&
+							typeof a === "object" &&
+							typeof (a as { content?: unknown }).content === "string"
+								? {
+										...(a as object),
+										content: `[${Math.round(((a as { content: string }).content.length * 3) / 4)} bytes]`,
+									}
+								: a,
+						)
+					: redact(v);
 	return out;
 }
 

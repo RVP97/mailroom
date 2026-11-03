@@ -132,13 +132,13 @@ function createAuth() {
 							prompt: "select_account" as const,
 						},
 					},
-					// Google verifies its addresses: the same person's existing account (made by an
-					// emailed code or invitation) gets Google as another way in. Unlinking it is always
-					// fine: an emailed code still signs them in.
+					// The same person's existing account (made by an emailed code or invitation) gets
+					// Google as another way in, when Google says it verified the address (not trusted
+					// blindly: a Google account can carry an address its owner never proved). Unlinking
+					// it is always fine: an emailed code still signs them in.
 					account: {
 						accountLinking: {
 							enabled: true,
-							trustedProviders: ["google"],
 							allowUnlinkingAll: true,
 						},
 					},

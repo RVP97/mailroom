@@ -237,6 +237,13 @@ type DnsRecord = Domain["records"][number];
 function groups(d: Domain) {
 	return [
 		{
+			key: "ownership",
+			title: "Ownership",
+			tag: "TXT",
+			description: `Amazon SES already had ${d.name} before you added it here, so its DKIM records may be someone else's. This record proves the domain is yours; it can send once it's found.`,
+			records: d.records.filter((r) => r.record === "Ownership"),
+		},
+		{
 			key: "dkim",
 			title: "Domain verification",
 			tag: "DKIM",

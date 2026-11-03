@@ -92,6 +92,8 @@ describe("MIME", () => {
 		expect(encodeHeader("a\r\nBcc: x@y.z")).toBe("a Bcc: x@y.z");
 		expect(encodeAddress("Globex <hola@globex.test>")).toBe('"Globex" <hola@globex.test>');
 		expect(encodeAddress("ana@cliente.test")).toBe("ana@cliente.test");
+		expect(encodeAddress("<a@x.test>\r\nX-Evil: 1")).not.toMatch(/[\r\n]/);
+		expect(encodeAddress("Ana\r\nBcc: spy@evil.test <ana@cliente.test>")).not.toMatch(/[\r\n]/);
 		expect(bareAddress("Ana Pérez <ana@cliente.test>")).toBe("ana@cliente.test");
 	});
 });

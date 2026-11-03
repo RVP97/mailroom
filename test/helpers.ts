@@ -62,6 +62,8 @@ export interface FakeAws {
 export function fakeOutside(
 	o: {
 		deadDomains?: string[];
+		/** TXT records DNS answers, by name. */
+		txt?: Record<string, string[]>;
 		extra?: (
 			url: URL,
 			init?: RequestInit,
@@ -94,6 +96,11 @@ export function fakeOutside(
 		if (url.host === "cloudflare-dns.com") {
 			const name = url.searchParams.get("name") ?? "";
 			if (o.deadDomains?.includes(name)) return Response.json({ Status: 3 });
+			if (url.searchParams.get("type") === "TXT")
+				return Response.json({
+					Status: 0,
+					Answer: (o.txt?.[name] ?? []).map((data) => ({ type: 16, data: `"${data}"` })),
+				});
 			return Response.json({ Status: 0, Answer: [{ type: 15, data: `10 mx.${name}.` }] });
 		}
 		const extra = await o.extra?.(url, init);

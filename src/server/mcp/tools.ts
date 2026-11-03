@@ -197,6 +197,8 @@ const TOOL_NEEDS: Record<string, Permission> = {
 	delete_contact: "contacts:delete",
 	save_broadcast: "broadcasts:edit",
 	send_broadcast: "broadcasts:send",
+	// One email to anyone, from the organization's domains: as much a send as a broadcast.
+	send_email: "broadcasts:send",
 	cancel_broadcast: "broadcasts:send",
 	save_automation: "automations:edit",
 	send_event: "automations:edit",
@@ -525,7 +527,7 @@ export const TOOLS: Tool[] = [
 		readOnly: true,
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization);
-			return listEmails(await scopeOf(org.id, a.brand), {
+			const page = await listEmails(await scopeOf(org.id, a.brand), {
 				status: a.status as never,
 				day: a.day as string | undefined,
 				domain: a.domain as string | undefined,
@@ -536,6 +538,13 @@ export const TOOLS: Tool[] = [
 				after: a.after as string | undefined,
 				limit: (a.limit as number | undefined) ?? 25,
 			});
+			// As the dashboard shows them: digits as dots without "see emails unmasked".
+			return org.masked
+				? {
+						...page,
+						data: page.data.map((e) => ({ ...e, subject: maskDigits(e.subject) })),
+					}
+				: page;
 		},
 	},
 	{
@@ -551,6 +560,7 @@ export const TOOLS: Tool[] = [
 			const evs = await emailEvents(row.id);
 			return {
 				...row,
+				...(org.masked ? { subject: maskDigits(row.subject) } : {}),
 				events: evs.map((e) => ({
 					type: e.type,
 					at: e.at,
@@ -740,7 +750,7 @@ export const TOOLS: Tool[] = [
 		},
 		openWorld: true,
 		run: async (a, ctx) => {
-			const org = orgFor(ctx, a.organization);
+			const org = orgFor(ctx, a.organization, "manage");
 			const input = parseSend(
 				await applyTemplate(org.id, {
 					from: a.from,

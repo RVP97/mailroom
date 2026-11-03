@@ -41,7 +41,8 @@ const address = z
 	.trim()
 	.max(320)
 	.refine(
-		(a) => /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(bareAddress(a)),
+		// No line breaks anywhere: "Name <a@b>\r\nBcc: …" would add a header to the message.
+		(a) => !/[\r\n\0]/.test(a) && /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(bareAddress(a)),
 		"is not a valid email address",
 	);
 const addresses = z
@@ -164,10 +165,35 @@ export interface Prepared {
 const b64Size = (b64: string) =>
 	Math.floor((b64.length * 3) / 4) - (b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0);
 
+/** SES takes messages up to 40 MB; an attachment fetched by its path can't be bigger. */
+const MAX_FETCHED = 40 * 1024 * 1024;
+
 async function fetchAttachment(path: string): Promise<string> {
+	if (!/^https?:\/\//i.test(path)) throw validation("attachment path must be an http(s) URL");
 	const res = await fetch(path, { signal: AbortSignal.timeout(15_000) });
 	if (!res.ok) throw validation(`attachment ${path} answered ${res.status}`);
-	return utf8Base64(new Uint8Array(await res.arrayBuffer()));
+	const tooBig = () => validation(`attachment ${path} is over 40 MB`);
+	if (Number(res.headers.get("content-length") ?? 0) > MAX_FETCHED) throw tooBig();
+	const parts: Uint8Array[] = [];
+	let total = 0;
+	const reader = res.body?.getReader();
+	while (reader) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		total += value.length;
+		if (total > MAX_FETCHED) {
+			await reader.cancel();
+			throw tooBig();
+		}
+		parts.push(value);
+	}
+	const bytes = new Uint8Array(total);
+	let at = 0;
+	for (const p of parts) {
+		bytes.set(p, at);
+		at += p.length;
+	}
+	return utf8Base64(bytes);
 }
 
 function parseSchedule(value: string | undefined, now: number): number | null {

@@ -55,7 +55,11 @@ export async function smtpPassword(secretAccessKey: string, smtpRegion: string) 
 	return btoa(String.fromCharCode(4, ...key));
 }
 
-/** What the user may send: any address at the organization's domains or their subdomains. */
+/**
+ * What the user may send: any address at the organization's verified domains or their
+ * subdomains. Only verified ones: a pending domain proves nothing, and its subdomains could be
+ * another brand's.
+ */
 export async function smtpPolicy(organizationId: string) {
 	const domains = await db
 		.select({ name: schema.domains.name })
@@ -64,6 +68,7 @@ export async function smtpPolicy(organizationId: string) {
 			and(
 				eq(schema.domains.organization_id, organizationId),
 				eq(schema.domains.sending, true),
+				eq(schema.domains.status, "verified"),
 			),
 		);
 	const from = domains.flatMap((d) => [`*@${d.name}`, `*@*.${d.name}`]);

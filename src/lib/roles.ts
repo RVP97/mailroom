@@ -1,10 +1,5 @@
 import { createAccessControl } from "better-auth/plugins/access";
-import {
-	adminAc,
-	defaultStatements,
-	memberAc,
-	ownerAc,
-} from "better-auth/plugins/organization/access";
+import { defaultStatements, memberAc, ownerAc } from "better-auth/plugins/organization/access";
 import { STARTER_ROLES } from "./permissions";
 
 /**
@@ -14,9 +9,12 @@ import { STARTER_ROLES } from "./permissions";
  */
 export const ac = createAccessControl(defaultStatements);
 
+// Admin is only a member to Better Auth: its own team endpoints (/api/auth/organization/invite-member,
+// update-member-role, remove-member, update) would otherwise skip the permissions an owner set
+// in Mailroom. The team is managed through Mailroom's server functions, which check them.
 export const roles = {
 	owner: ac.newRole(ownerAc.statements),
-	admin: ac.newRole(adminAc.statements),
+	admin: ac.newRole(memberAc.statements),
 	member: ac.newRole(memberAc.statements),
 	...Object.fromEntries(
 		STARTER_ROLES.filter((r) => !["admin", "member"].includes(r.slug)).map((r) => [

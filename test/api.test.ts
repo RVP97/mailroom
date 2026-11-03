@@ -47,6 +47,21 @@ describe("API", () => {
 		expect(await bad.json()).toMatchObject({ name: "invalid_api_key" });
 	});
 
+	it("refuses an address with a line break, which would add a header to the message", async () => {
+		fakeOutside();
+		const org = await orgWithKey();
+		for (const field of ["to", "cc", "reply_to"]) {
+			const res = await call(org.token, "POST", "/emails", {
+				from: `x@${org.domain}`,
+				to: "ana@cliente.test",
+				subject: "s",
+				text: "t",
+				[field]: "<ana@cliente.test>\r\nBcc: spy@evil.test",
+			});
+			expect(res.status).toBe(422);
+		}
+	});
+
 	it("limits requests without a valid key per IP, and leaves other IPs alone", async () => {
 		const ip = { "cf-connecting-ip": "203.0.113.7" };
 		const statuses: number[] = [];
@@ -360,6 +375,26 @@ describe("API", () => {
 		expect(log?.request_body).toContain('"content": "[6 bytes]"');
 		expect(log?.request_body).not.toContain("aGVsbG8=");
 		expect(log?.response_body).toContain("gone@example.com");
+	});
+
+	it("keeps no API key or webhook secret in the logs, though the client gets them", async () => {
+		const org = await orgWithKey();
+		const keyRes = await call(org.token, "POST", "/api-keys", { name: "app" });
+		const { token } = (await keyRes.json()) as { token: string };
+		expect(token).toMatch(/^mr_/);
+		const hookRes = await call(org.token, "POST", "/webhooks", {
+			endpoint: "https://hooks.example.com/mailroom",
+			events: ["email.sent"],
+		});
+		const hook = await hookRes.text();
+		await settleRequestLogs();
+		const r = schema.apiRequests;
+		const rows = await db.select().from(r).where(eq(r.organization_id, org.id));
+		const kept = rows.map((x) => `${x.request_body}\n${x.response_body}`).join("\n");
+		expect(kept).not.toContain(token);
+		expect(kept).toContain("[redacted]");
+		const secret = /whsec_[A-Za-z0-9+/=]+/.exec(hook)?.[0];
+		if (secret) expect(kept).not.toContain(secret);
 	});
 
 	it("links every email of a batch, not only the first, to the call that sent it", async () => {

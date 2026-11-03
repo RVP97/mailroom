@@ -66,6 +66,7 @@ import { errorMessage } from "@/lib/errors";
 import { formatAgo, formatDateTime, formatDay } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { usePendingSearch } from "@/lib/pending";
+import { allows } from "@/lib/permissions";
 import { PROVIDER_LABEL, PROVIDERS, type Provider } from "@/lib/providers";
 import {
 	ago,
@@ -327,7 +328,7 @@ function Emails() {
 								{ title: "Retrieve an email", method: "GET", path: "/emails/{id}" },
 							]}
 						/>
-						<SendTest />
+						{allows(me.active?.access, "broadcasts:send") && <SendTest />}
 					</>
 				}
 			/>

@@ -7,7 +7,7 @@ import { viewScope } from "@/server/brands";
 import { db, schema } from "@/server/db";
 import { kickDispatcher, rateGate } from "@/server/dispatcher";
 import { ApiError } from "@/server/errors";
-import { orgMiddleware } from "@/server/middleware";
+import { can, orgMiddleware } from "@/server/middleware";
 import {
 	dailyStats,
 	emailEvents,
@@ -275,9 +275,9 @@ export const getEmailFn = createServerFn({ method: "GET" })
 		};
 	});
 
-/** «Send test email» from the dashboard. */
+/** «Send test email» from the dashboard: one email to anyone, so only for those who may send. */
 export const sendEmailFn = createServerFn({ method: "POST" })
-	.middleware([orgMiddleware])
+	.middleware([can("broadcasts:send")])
 	.validator(
 		z.object({
 			from: z.string(),
@@ -304,7 +304,7 @@ export const sendEmailFn = createServerFn({ method: "POST" })
 	});
 
 export const cancelEmailFn = createServerFn({ method: "POST" })
-	.middleware([orgMiddleware])
+	.middleware([can("broadcasts:send")])
 	.validator(z.object({ id: z.string() }))
 	.handler(async ({ data, context }) => {
 		const [row] = await db

@@ -1,7 +1,10 @@
 /** Saves rows as a CSV file in the browser: the first row is the header. */
 export function downloadCsv(filename: string, rows: (string | number | null | undefined)[][]) {
 	const cell = (v: string | number | null | undefined) => {
-		const s = v == null ? "" : String(v);
+		let s = v == null ? "" : String(v);
+		// Text a spreadsheet would run as a formula (a subject or name starting "=HYPERLINK(…"),
+		// kept as text with a leading apostrophe. Numbers stay numbers.
+		if (typeof v === "string" && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
 		return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 	};
 	const csv = rows.map((r) => r.map(cell).join(",")).join("\r\n");

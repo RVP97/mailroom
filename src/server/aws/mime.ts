@@ -66,7 +66,9 @@ export function encodeHeader(value: string): string {
 }
 
 /** "Name" <a@b> with the display name encoded; the address stays as it is. */
-export function encodeAddress(address: string): string {
+export function encodeAddress(raw: string): string {
+	// A header value is one line: a line break in an address would start a header of its own.
+	const address = raw.replace(/[\r\n\0]+/g, " ");
 	const m = /^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/.exec(address);
 	if (!m) return address.trim();
 	const name = (m[1] ?? "").trim();

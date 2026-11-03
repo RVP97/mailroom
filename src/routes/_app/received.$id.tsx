@@ -109,12 +109,9 @@ function ReceivedSketch() {
 const csp = (images: boolean) =>
 	`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: cid:${images ? " https: http:" : ""}; font-src data:">`;
 const BASE = '<base target="_blank">';
-const preview = (html: string, images: boolean) => {
-	const head = `${csp(images)}${BASE}`;
-	return /<head[^>]*>/i.test(html)
-		? html.replace(/<head[^>]*>/i, (h) => `${h}${head}`)
-		: `${head}${html}`;
-};
+// First thing in the document, always: a sender's "<head>" inside a comment or a string can't
+// push it past their own content (the parser puts a leading <meta> in the head either way).
+const preview = (html: string, images: boolean) => `${csp(images)}${BASE}${html}`;
 const hasRemoteImages = (html: string) => /<img[^>]+src\s*=\s*["']?https?:/i.test(html);
 
 const VERDICTS = [

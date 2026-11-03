@@ -451,7 +451,16 @@ export async function refreshTenantStatus(organizationId: string) {
 const DOMAIN = /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
 export interface DnsRecord {
-	record: "DKIM" | "SPF" | "MX" | "DMARC" | "BIMI" | "Tracking" | "Receiving" | "Gmail";
+	record:
+		| "DKIM"
+		| "SPF"
+		| "MX"
+		| "DMARC"
+		| "BIMI"
+		| "Tracking"
+		| "Receiving"
+		| "Gmail"
+		| "Ownership";
 	type: "CNAME" | "TXT" | "MX";
 	name: string;
 	value: string;
@@ -483,6 +492,9 @@ export function dnsRecords(
 		sending?: boolean;
 		move_dkim_tokens?: string[] | null;
 		move_status?: string | null;
+		organization_id?: string;
+		status?: string;
+		ses_owned?: boolean;
 	},
 ): DnsRecord[] {
 	const records: DnsRecord[] = d.dkim_tokens.map((t) => ({
@@ -492,6 +504,16 @@ export function dnsRecords(
 		value: `${t}.dkim.amazonses.com`,
 		status: d.dkim_status ?? undefined,
 	}));
+	// A domain SES already had (its DKIM records may be someone else's): proof it's this brand's.
+	if (needsOwnershipProof(d) && d.organization_id)
+		records.unshift({
+			record: "Ownership",
+			type: "TXT",
+			name: ownershipHost(d.name),
+			value: `"${ownershipValue(d.organization_id)}"`,
+			status: "PENDING",
+			note: "SES already had this domain, so Mailroom asks for proof that it's yours",
+		});
 	// Moving to another SES account: its DKIM records there too (both sets can stay).
 	for (const t of d.move_dkim_tokens ?? [])
 		records.push({
@@ -562,8 +584,31 @@ export function dnsRecords(
 		});
 	// A domain only for receiving: SES's verification (DKIM) and its MX.
 	if (d.sending === false)
-		return records.filter((r) => r.record === "DKIM" || r.record === "Receiving");
+		return records.filter(
+			(r) => r.record === "DKIM" || r.record === "Receiving" || r.record === "Ownership",
+		);
 	return records;
+}
+
+/**
+ * A domain whose SES identity was there before Mailroom added it (another app's, or one another
+ * brand removed) is verified in SES already, with DKIM records anyone can't be asked to prove.
+ * Before it can send, its brand shows it controls the domain's DNS: a TXT record at
+ * _mailroom.<domain> naming the brand. Domains verified before this check keep sending.
+ */
+export const ownershipHost = (name: string) => `_mailroom.${name}`;
+export const ownershipValue = (brandId: string) => `mailroom-verification=${brandId}`;
+export const needsOwnershipProof = (d: { ses_owned?: boolean; status?: string }) =>
+	d.ses_owned === false && d.status !== undefined && d.status !== "verified";
+
+async function ownsDomain(name: string, brandId: string) {
+	try {
+		const { txtRecords } = await import("../lib/dmarc");
+		const want = ownershipValue(brandId);
+		return (await txtRecords(ownershipHost(name))).some((t) => t.trim() === want);
+	} catch {
+		return false;
+	}
 }
 
 /** SES's receiving host in a region: where a receiving domain's MX points. */
@@ -742,7 +787,14 @@ export async function verifyDomain(organizationId: string, id: string) {
 	if (!d) throw new ApiError(404, "not_found", "Domain not found");
 	const identity = await getIdentity(await awsFor(organizationId), d.name);
 	const dkim = identity.DkimAttributes?.Status ?? "PENDING";
-	const status = identity.VerifiedForSendingStatus ? "verified" : (STATUS[dkim] ?? "pending");
+	let status = identity.VerifiedForSendingStatus ? "verified" : (STATUS[dkim] ?? "pending");
+	// SES's word isn't enough for an identity that was there before: the brand's TXT proof is.
+	if (
+		status === "verified" &&
+		needsOwnershipProof(d) &&
+		!(await ownsDomain(d.name, d.organization_id))
+	)
+		status = "pending";
 	const update = {
 		status,
 		dkim_status: dkim,
@@ -761,6 +813,11 @@ export async function verifyDomain(organizationId: string, id: string) {
 	}
 	await db.update(schema.domains).set(update).where(eq(schema.domains.id, id));
 	forgetOrg(organizationId);
+	// SMTP may send only from verified domains: the policy follows the change.
+	if (d.sending && (status === "verified") !== (d.status === "verified"))
+		await syncSmtpPolicy(d.organization_id).catch((error) =>
+			console.error("provision: SMTP policy not synced", error),
+		);
 	return { ...d, ...update };
 }
 

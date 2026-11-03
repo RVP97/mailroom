@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { XMLParser } from "fast-xml-parser";
-import { gunzipSync, strFromU8, unzipSync } from "fflate";
+import { Gunzip, strFromU8, unzipSync } from "fflate";
 import PostalMime from "postal-mime";
 import { db, schema } from "./db";
 import { dmarcReportsAddress } from "./dmarc-address";
@@ -97,11 +97,34 @@ export function parseAggregateReport(xml: string): AggregateReport | null {
 	};
 }
 
+/** A report unpacked is at most this big: a few KB compressed can't grow into gigabytes. */
+const MAX_XML = 20 * 1024 * 1024;
+
+function gunzipCapped(bytes: Uint8Array): Uint8Array {
+	const parts: Uint8Array[] = [];
+	let total = 0;
+	const g = new Gunzip((chunk) => {
+		total += chunk.length;
+		if (total > MAX_XML) throw new Error("DMARC report too big unpacked");
+		parts.push(chunk);
+	});
+	g.push(bytes, true);
+	const out = new Uint8Array(total);
+	let at = 0;
+	for (const p of parts) {
+		out.set(p, at);
+		at += p.length;
+	}
+	return out;
+}
+
 /** The XML in a report file: .xml, .xml.gz or .zip (what providers attach). */
 export function reportXml(name: string, bytes: Uint8Array): string | null {
-	if (bytes[0] === 0x1f && bytes[1] === 0x8b) return strFromU8(gunzipSync(bytes));
+	if (bytes[0] === 0x1f && bytes[1] === 0x8b) return strFromU8(gunzipCapped(bytes));
 	if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
-		const files = unzipSync(bytes, { filter: (f) => /\.xml$/i.test(f.name) });
+		const files = unzipSync(bytes, {
+			filter: (f) => /\.xml$/i.test(f.name) && f.originalSize <= MAX_XML,
+		});
 		const first = Object.values(files)[0];
 		return first ? strFromU8(first) : null;
 	}
