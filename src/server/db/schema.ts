@@ -165,6 +165,9 @@ export const domains = sqliteTable(
 		/** Mailroom created the SES identity, so removing the domain deletes it. An identity that
 		 * was already in SES is only unlinked from the tenant. */
 		ses_owned: integer("ses_owned", { mode: "boolean" }).notNull().default(false),
+		/** For an identity SES already had: its brand proved the domain with the _mailroom TXT
+		 * record (src/server/provision.ts), or it was verified before that check existed. */
+		owner_proven: integer("owner_proven", { mode: "boolean" }).notNull().default(false),
 		created_at: text("created_at").notNull(),
 		checked_at: text("checked_at"),
 		/** The brand logo inboxes show beside its emails (BIMI), as SVG Tiny PS; served at

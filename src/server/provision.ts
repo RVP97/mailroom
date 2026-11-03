@@ -493,8 +493,8 @@ export function dnsRecords(
 		move_dkim_tokens?: string[] | null;
 		move_status?: string | null;
 		organization_id?: string;
-		status?: string;
 		ses_owned?: boolean;
+		owner_proven?: boolean;
 	},
 ): DnsRecord[] {
 	const records: DnsRecord[] = d.dkim_tokens.map((t) => ({
@@ -594,12 +594,13 @@ export function dnsRecords(
  * A domain whose SES identity was there before Mailroom added it (another app's, or one another
  * brand removed) is verified in SES already, with DKIM records anyone can't be asked to prove.
  * Before it can send, its brand shows it controls the domain's DNS: a TXT record at
- * _mailroom.<domain> naming the brand. Domains verified before this check keep sending.
+ * _mailroom.<domain> naming the brand. Once found it's kept (owner_proven), and domains verified
+ * before this check counted as proven (migration 0040), so they never stop sending over it.
  */
 export const ownershipHost = (name: string) => `_mailroom.${name}`;
 export const ownershipValue = (brandId: string) => `mailroom-verification=${brandId}`;
-export const needsOwnershipProof = (d: { ses_owned?: boolean; status?: string }) =>
-	d.ses_owned === false && d.status !== undefined && d.status !== "verified";
+export const needsOwnershipProof = (d: { ses_owned?: boolean; owner_proven?: boolean }) =>
+	d.ses_owned === false && d.owner_proven === false;
 
 async function ownsDomain(name: string, brandId: string) {
 	try {
@@ -724,6 +725,7 @@ export async function addDomain(
 		sending: sends,
 		region: target.region,
 		ses_owned: owned,
+		owner_proven: owned,
 		purpose,
 		created_at: iso(),
 	};
@@ -789,14 +791,14 @@ export async function verifyDomain(organizationId: string, id: string) {
 	const dkim = identity.DkimAttributes?.Status ?? "PENDING";
 	let status = identity.VerifiedForSendingStatus ? "verified" : (STATUS[dkim] ?? "pending");
 	// SES's word isn't enough for an identity that was there before: the brand's TXT proof is.
-	if (
-		status === "verified" &&
-		needsOwnershipProof(d) &&
-		!(await ownsDomain(d.name, d.organization_id))
-	)
-		status = "pending";
+	let ownerProven = d.owner_proven;
+	if (needsOwnershipProof(d)) {
+		ownerProven = await ownsDomain(d.name, d.organization_id);
+		if (!ownerProven && status === "verified") status = "pending";
+	}
 	const update = {
 		status,
+		owner_proven: ownerProven,
 		dkim_status: dkim,
 		dkim_tokens: identity.DkimAttributes?.Tokens?.length
 			? identity.DkimAttributes.Tokens

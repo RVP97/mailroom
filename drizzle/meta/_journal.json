@@ -281,6 +281,13 @@
       "when": 1793740093737,
       "tag": "0039_brand_inbound_address",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1793745423270,
+      "tag": "0040_domain_owner_proven",
+      "breakpoints": true
     }
   ]
 }
