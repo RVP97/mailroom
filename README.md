@@ -34,7 +34,8 @@ own configuration set, so one business's bounces or complaints never pause anoth
 An organization that should be fully apart can optionally use its own SES account instead.
 
 **Contents:** [Features](#features) · [Deploy](#deploy) ([1. Amazon SES](#1-amazon-ses) ·
-[2. Cloudflare](#2-cloudflare) · [3. First sign-in](#3-first-sign-in)) ·
+[2. Cloudflare](#2-cloudflare) · [3. First sign-in](#3-first-sign-in) ·
+[4. Smoke test](#4-smoke-test) · [When something goes wrong](#when-something-goes-wrong)) ·
 [Configuration](#configuration) · [Optional extras](#optional-extras) · [Sending](#sending) ·
 [Development](#development) · [License](#license)
 
@@ -153,6 +154,18 @@ review of SES production access (usually within a day; you can do everything els
 
 The order: create the AWS side first (its keys are asked for when you deploy), deploy to
 Cloudflare, then sign in and finish in Mailroom's own pages.
+
+**What's automatic and what isn't.** The Deploy button only does the Cloudflare part:
+
+| | Who does it |
+| --- | --- |
+| Copy the repo to your GitHub/GitLab, build it, deploy it, redeploy on every push (Workers Builds) | The button |
+| Create the D1 database (and apply its migrations), the KV namespace `OAUTH_KV` and the R2 bucket `mailroom-inbound` | The button |
+| The Durable Object, the cron trigger and the rate limits | The button (they come with the Worker) |
+| Create the IAM user and its access key, and request SES production access | You, in AWS ([step 1](#1-amazon-ses)) |
+| The SNS topic for events, each organization's SES tenant and configuration set, domain identities, receipt rules | Mailroom, when you click **Set up events**, **Set up sending**, **Add domain** ([step 3](#3-first-sign-in)) |
+| The DNS records for each domain (DKIM, MAIL FROM, DMARC, MX for receiving) | You, at your DNS host. Mailroom lists them, checks them, and adds them in one click only where the host supports Domain Connect |
+| Leave the SES sandbox | AWS, after your request. Until then you can only send to addresses verified in SES |
 
 ### 1. Amazon SES
 
@@ -334,6 +347,43 @@ asks at most once a day, and only when an admin opens the page. Without the `Mai
 statement the page simply says so. Under it, **Cost by organization** splits the month's bill
 (and last month's) by each organization's share of the emails sent and received, with its brands
 under it: what to charge each business you host.
+
+### 4. Smoke test
+
+Five minutes that prove each part works. SES's mailbox simulator addresses work even in the
+sandbox, and they don't count against your bounce rate.
+
+1. **Send.** With your API key, send to your own inbox:
+   ```sh
+   curl https://<your url>/api/emails \
+     -H "Authorization: Bearer mr_..." -H "Content-Type: application/json" \
+     -d '{"from":"test@mail.example.com","to":"you@example.com","subject":"Smoke test","text":"Hello"}'
+   ```
+   **Emails** shows it as *sent*, then *delivered* within seconds. If it stays *sent*, events
+   aren't arriving: run **AWS account › Set up events** again.
+2. **Delivered.** The same request to `success@simulator.amazonses.com` ends *delivered*.
+3. **Bounce.** To `bounce@simulator.amazonses.com`: it ends *bounced*, with SES's reason on the
+   email's page, and the address appears in **Suppressions** (a second send to it is left out,
+   not sent).
+4. **Complaint.** To `complaint@simulator.amazonses.com`: *delivered*, then *complained*, and
+   suppressed too.
+5. **Receive** (if you set up [receiving](#receiving)). Email the brand's Mailroom address, shown
+   on **Received**. It appears there within a minute, and your webhooks get `email.received`.
+
+### When something goes wrong
+
+| What you see | Where to look | Usually |
+| --- | --- | --- |
+| The API answers `403 invalid_from_address`: *"The mail.example.com domain is not verified yet."* | **Domains ›** the domain: each DNS record shows found or missing, and **Verify** checks again | A DKIM CNAME or the MAIL FROM MX/TXT isn't published yet, or was added under the wrong name (some DNS hosts append the domain themselves). A domain SES already had also needs its **Ownership** TXT record. |
+| `403 invalid_from_address`: *"… is not added to this brand"* | **Domains** | The From address's domain belongs to another brand, or wasn't added. |
+| An email ends *failed* | The email's page: SES's error, word for word | In the sandbox, *"Email address is not verified"* means the recipient isn't verified in SES. Request production access ([step 1](#1-amazon-ses)). |
+| An email ends *bounced* or *soft bounced* | The email's page explains the bounce in plain words (with the receiving provider's message); **Recipients** shows that address's whole history | *Bounced* is permanent (no such mailbox), and the address is suppressed. *Soft bounced* is the server giving up for now (full, down); the address isn't suppressed. |
+| A brand's sending is paused | **Overview** shows its bounce and complaint rates against SES's lines; **Admin › Sending limits** shows which limit was hit | A list with bad addresses. Clean it, then resume from the brand's page. |
+| Emails stay *sent*, never *delivered* | **AWS account**: the events topic and its subscription | **Set up events** wasn't run, or `BETTER_AUTH_URL` doesn't match the address the Worker is really on. |
+| Sign-in codes never arrive | **Workers & Pages › mailroom › Logs** (the code is printed there) | `SYSTEM_FROM` isn't set yet, or its domain isn't onboarded in Cloudflare Email Sending. |
+
+Every API request (body and answer, with secrets redacted) is in **Logs**, and every email's
+SES events are on its page.
 
 ## Configuration
 
