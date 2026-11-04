@@ -58,7 +58,10 @@ An organization that should be fully apart can optionally use its own SES accoun
 - **Rate limits** on the API: 100 requests per 10 seconds per API key, so a leaked key can't take
   the whole account's sending.
 - **Suppressions**: hard bounces and complaints are suppressed automatically; misspelled domains
-  (`gmial.com`) and domains that take no email are left out before SES sees them.
+  (`gmial.com`) and domains that take no email are left out before SES sees them. With
+  `EMAILABLE_API_KEY` set, a recipient nobody has delivered to yet is checked once with
+  [Emailable](https://emailable.com) and left out if its mailbox doesn't exist (at most 5 checks
+  per send and `EMAILABLE_MONTHLY_LIMIT`, default 1000, a month; answers are kept and shared).
 - **Unsubscribe groups**: send with `unsubscribe_group` (an id of yours) and Mailroom adds the
   one-click link and `List-Unsubscribe` headers, and leaves people who left that group out of its
   later emails (other groups still reach them).

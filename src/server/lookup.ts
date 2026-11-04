@@ -7,6 +7,7 @@ import { brandIds, brandNames } from "./brands";
 import { db, schema } from "./db";
 import { validation } from "./errors";
 import { type FirewallRule, firewallBlocks, getFirewall, RULE_LABEL } from "./firewall";
+import { mailboxRejected } from "./mailbox-checks";
 import { inScope, listEmails } from "./queries";
 
 /**
@@ -23,7 +24,7 @@ export async function lookupRecipient(
 	const a = address.trim().toLowerCase();
 	if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a)) throw validation("That isn't an email address");
 	const ids = await brandIds(organizationId);
-	const [names, suppressions, unsubscribes, emails, blocked, dead] = await Promise.all([
+	const [names, suppressions, unsubscribes, emails, blocked, dead, rejected] = await Promise.all([
 		brandNames(ids),
 		db
 			.select()
@@ -52,6 +53,8 @@ export async function lookupRecipient(
 		o.skipDns
 			? Promise.resolve({} as Record<string, string>)
 			: undeliverable([a], { now: o.now }),
+		// What Emailable already said of it; a lookup never pays for a check.
+		mailboxRejected([a], { now: o.now, cachedOnly: true }),
 	]);
 	await logAccess({
 		organizationId,
@@ -78,7 +81,11 @@ export async function lookupRecipient(
 			([id, rule]) =>
 				`Blocked by ${ids.length > 1 ? `${names.get(id) ?? "a brand"}'s` : "the"} firewall: ${RULE_LABEL[rule]}`,
 		),
-		...(dead[a] ? [`The address ${dead[a]}`] : []),
+		...(dead[a]
+			? [`The address ${dead[a]}`]
+			: rejected[a]
+				? [`The address: ${rejected[a]}`]
+				: []),
 	];
 	return {
 		object: "recipient" as const,

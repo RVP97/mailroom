@@ -18,6 +18,7 @@ import { kickDispatcher } from "./dispatcher";
 import { awsConfigured, bodyRetentionDays, logRetentionDays, requestLogRetentionDays } from "./env";
 import { refreshDisposableIfDue } from "./firewall";
 import { checkPendingReceiving, purgeReceived } from "./inbound";
+import { purgeMailboxChecks } from "./mailbox-checks";
 import { runFeeds } from "./newsletters";
 import { syncPostmaster } from "./postmaster";
 import { checkPendingDomains, refreshTenantStatus, syncEventDestinations } from "./provision";
@@ -163,5 +164,6 @@ export async function purge(now: number) {
 		iso(now - requestLogRetentionDays() * 86_400_000),
 	);
 	await purgeMailDomains(now);
+	await purgeMailboxChecks(now);
 	await purgeReceived(now);
 }

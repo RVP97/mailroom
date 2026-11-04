@@ -685,6 +685,23 @@ export const mailDomains = sqliteTable("mail_domains", {
 });
 
 /**
+ * Recipients whose mailbox is known (src/server/mailbox-checks.ts), across all organizations:
+ * "delivered" once SES delivered to them, else what Emailable said of a first-time address
+ * ("deliverable" | "undeliverable" | "risky" | "unknown"), so each address is paid for once.
+ */
+export const mailboxChecks = sqliteTable(
+	"mailbox_checks",
+	{
+		address: text("address").primaryKey(),
+		state: text("state").notNull(),
+		/** Emailable's reason (rejected_email, invalid_domain…); null for "delivered". */
+		reason: text("reason"),
+		checked_at: text("checked_at").notNull(),
+	},
+	(t) => [index("mailbox_checks_checked_idx").on(t.checked_at)],
+);
+
+/**
  * DMARC aggregate reports (src/server/dmarc-reports.ts): mailbox providers email them daily to
  * the address in a domain's rua=, one per provider and day. Kept by the policy domain's name,
  * not a brand, so a domain moved between brands keeps its history.

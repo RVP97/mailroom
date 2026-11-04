@@ -46,6 +46,11 @@ export interface MailroomEnv {
 	 * for Gmail Postmaster Tools (src/server/postmaster.ts). Secrets. */
 	GOOGLE_CLIENT_ID?: string;
 	GOOGLE_CLIENT_SECRET?: string;
+	/** Emailable (src/server/mailbox-checks.ts): checks first-time recipients' mailboxes before
+	 * their first email. Secret; empty: off. */
+	EMAILABLE_API_KEY?: string;
+	/** Emailable checks a month at most (default 1000). */
+	EMAILABLE_MONTHLY_LIMIT?: string;
 }
 
 export const cfg = () => env as unknown as MailroomEnv;

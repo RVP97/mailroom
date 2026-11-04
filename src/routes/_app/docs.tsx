@@ -505,9 +505,11 @@ function Docs() {
 								Errors come back as <C>{"{ statusCode, name, message }"}</C>.
 							</li>
 							<li>
-								Suppressed recipients, and those whose domain takes no email, are
-								left out and listed in <C>dropped_recipients</C>. An email with
-								nobody left is recorded as suppressed and not sent.
+								Suppressed recipients, those whose domain takes no email, and
+								first-time addresses whose mailbox doesn't exist (checked once with
+								Emailable, when the deployment has it on) are left out and listed in{" "}
+								<C>dropped_recipients</C>. An email with nobody left is recorded as
+								suppressed and not sent.
 							</li>
 						</Notes>
 					</Section>

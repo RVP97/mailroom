@@ -4,6 +4,7 @@ import { type SnsMessage, trustedSnsUrl, verifySns } from "./aws/sns";
 import { bump } from "./counters";
 import { batch, db, raw, schema } from "./db";
 import type { EmailStatus } from "./db/schema";
+import { markDelivered } from "./mailbox-checks";
 import { brandsOfOrganization, ownAccountByTopic } from "./org-aws";
 import { getSetting, setSetting } from "./settings";
 import { advanceStatus } from "./status";
@@ -293,6 +294,7 @@ export async function applySesEvent(
 		case "Delivery":
 			set.delivered_at = sql`COALESCE(${em.delivered_at}, ${at})`;
 			queries.push(...bump(org, day, from, "delivered"));
+			queries.push(...markDelivered(e.delivery?.recipients ?? [], at));
 			break;
 		case "DeliveryDelay":
 			queries.push(...bump(org, day, from, "delayed"));

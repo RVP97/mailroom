@@ -12,6 +12,7 @@ import type { AttachmentInfo, EmailStatus } from "./db/schema";
 import { ApiError, validation } from "./errors";
 import { firewallBlocks, getFirewall, RULE_LABEL } from "./firewall";
 import { gunzipJson, gzipJson } from "./gzip";
+import { mailboxRejected } from "./mailbox-checks";
 import { domainFor, type OrgContext, orgContext } from "./org";
 import { awsFor } from "./org-aws";
 import { onOwnHost, ownHostBase } from "./public-host";
@@ -334,7 +335,8 @@ async function describeAttachments(files: Prepared["files"]) {
 }
 
 /**
- * Leaves out recipients that are suppressed or whose domain takes no email (they'd bounce). An
+ * Leaves out recipients that are suppressed, whose domain takes no email, or whose mailbox
+ * Emailable says doesn't exist (first-time addresses only; they'd bounce). An
  * email left with nobody to send to is recorded as suppressed (or failed) and never sent.
  */
 async function dropRecipients(ctx: OrgContext, prepared: Prepared[], o: SendOptions) {
@@ -350,7 +352,12 @@ async function dropRecipients(ctx: OrgContext, prepared: Prepared[], o: SendOpti
 	const walled = Object.fromEntries(
 		Object.entries(blocked).map(([a, rule]) => [a, `firewall: ${RULE_LABEL[rule]}`]),
 	);
-	const why = { ...dead, ...walled, ...suppressed };
+	// Emailable only for those still in, so a suppressed or dead-domain address is never paid for.
+	const still = bare.filter((a) => !dead[a] && !walled[a] && !suppressed[a]);
+	const rejected = o.skipDns
+		? {}
+		: await mailboxRejected(still, { now: o.now, cachedOnly: o.sandbox });
+	const why = { ...rejected, ...dead, ...walled, ...suppressed };
 	// Who left each email's unsubscribe group (only that group's emails skip them).
 	const left = new Map<string, Set<string>>();
 	for (const g of new Set(prepared.map((p) => p.row.unsubscribe_group).filter(Boolean)))

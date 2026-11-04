@@ -95,4 +95,6 @@
 	// Secrets (wrangler secret put …): BETTER_AUTH_SECRET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY;
 	// optional: DOMAIN_CONNECT_PRIVATE_KEY (scripts/domain-connect-key.sh), CLOUDFLARE_API_TOKEN
 	// (Zone › SSL and Certificates: Edit and Workers Routes: Edit on the tracking zone).
+	// EMAILABLE_API_KEY: checks first-time recipients' mailboxes (src/server/mailbox-checks.ts);
+	// EMAILABLE_MONTHLY_LIMIT (a var, default 1000) caps the checks a month.
 }
