@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { withRetry } from "./retry";
 import * as schema from "./schema";
 
-const d1 = withRetry(env.DB as D1Database);
+const d1 = withRetry(() => env.DB as D1Database);
 
 export const db = drizzle(d1, { schema });
 export type Db = typeof db;

@@ -56,10 +56,17 @@ function wrapStatement(stmt: D1PreparedStatement, query: string): D1PreparedStat
 	return wrapped;
 }
 
-/** The D1 binding with reads retried on transient errors. */
-export function withRetry(d1: D1Database): D1Database {
-	return new Proxy(d1, {
-		get(target, prop) {
+/**
+ * The D1 binding with reads retried on transient errors. Pass a function to read the binding on
+ * first use: at startup (and when Cloudflare checks the Worker on deploy) `env.DB` may not be an
+ * object yet, and a Proxy needs one.
+ */
+export function withRetry(d1: D1Database | (() => D1Database)): D1Database {
+	const binding = typeof d1 === "function" ? d1 : () => d1;
+	return new Proxy({} as D1Database, {
+		get(_, prop) {
+			const target = binding();
+			if (!target) return undefined;
 			if (prop === "prepare")
 				return (query: string) => wrapStatement(target.prepare(query), query);
 			if (prop === "batch")
