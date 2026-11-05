@@ -169,7 +169,7 @@ describe("broadcasts", () => {
 		const form = new FormData();
 		form.set("action", "preferences");
 		const saved = await handleUnsubscribePage(new Request(url, { method: "POST", body: form }));
-		expect(await saved.text()).toContain("Preferences saved");
+		expect(await saved.text()).toContain("Your preferences are saved.");
 		const topics = await call(org.token, "GET", "/contacts/ana@guest.test/topics");
 		expect(JSON.stringify(topics.body)).toContain("opt_out");
 	});
