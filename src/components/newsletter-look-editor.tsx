@@ -80,6 +80,32 @@ export function LookEditor({
 								onChange={(url) => set("logo", url || "brand")}
 							/>
 						)}
+						{logoKind !== "none" && (
+							<>
+								<Row label="Shape">
+									<Choice
+										value={look.logo_shape}
+										onChange={(v) => set("logo_shape", v)}
+										options={[
+											["original", "As is"],
+											["rounded", "Rounded"],
+											["circle", "Circle"],
+										]}
+									/>
+								</Row>
+								<Row label="Size">
+									<Choice
+										value={look.logo_size}
+										onChange={(v) => set("logo_size", v)}
+										options={[
+											["small", "Small"],
+											["medium", "Medium"],
+											["large", "Large"],
+										]}
+									/>
+								</Row>
+							</>
+						)}
 					</Part>
 					<Part
 						title="Cover image"
@@ -166,6 +192,43 @@ export function LookEditor({
 						</Row>
 					</Part>
 					<Part
+						title="Style"
+						hint="Corners and lines of cards, pictures and buttons, and the bar at the top."
+					>
+						<Row label="Corners">
+							<Choice
+								value={look.corners}
+								onChange={(v) => set("corners", v)}
+								options={[
+									["square", "Square"],
+									["soft", "Soft"],
+									["round", "Round"],
+								]}
+							/>
+						</Row>
+						<Row label="Edges">
+							<Choice
+								value={look.borders ? "line" : "shadow"}
+								onChange={(v) => set("borders", v === "line")}
+								options={[
+									["line", "Thin line"],
+									["shadow", "Shadow"],
+								]}
+							/>
+						</Row>
+						<Row label="Top bar">
+							<Choice
+								value={look.bar}
+								onChange={(v) => set("bar", v)}
+								options={[
+									["glass", "Glass"],
+									["solid", "Solid"],
+									["none", "Plain"],
+								]}
+							/>
+						</Row>
+					</Part>
+					<Part
 						title="Links"
 						hint="Buttons under the description: your website, Instagram, booking page…"
 					>
@@ -244,7 +307,7 @@ export function LookEditor({
 	);
 }
 
-function Part({
+export function Part({
 	title,
 	hint,
 	children,
@@ -264,16 +327,16 @@ function Part({
 	);
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+export function Row({ label, children }: { label: string; children: React.ReactNode }) {
 	return (
-		<div className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-3">
+		<div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-3">
 			<span className="text-sm text-muted-foreground">{label}</span>
 			{children}
 		</div>
 	);
 }
 
-function FontPick({
+export function FontPick({
 	label,
 	value,
 	fonts,
@@ -312,29 +375,57 @@ function FontPick({
 	);
 }
 
-/** The public page, drawn from the server with what's set, a moment after each change. */
-function Preview({ id, fields }: { id: string; fields: Record<string, unknown> }) {
+/**
+ * A public page, drawn by the server (`load`) with what's set, a moment after each change. Its
+ * look's theme "auto" is shown light or dark as picked here.
+ */
+export function Preview({
+	id,
+	fields,
+	load,
+	theme,
+	toolbar,
+	height = 640,
+}: {
+	id?: string;
+	fields: Record<string, unknown>;
+	/** Draws the page from these fields (the newsletter's by default). */
+	load?: (fields: Record<string, unknown>) => Promise<string>;
+	/** The theme when it isn't the look's (fields.look.theme). */
+	theme?: "auto" | "light" | "dark";
+	/** More buttons in the preview's bar (which state to show…). */
+	toolbar?: React.ReactNode;
+	height?: number;
+}) {
 	const [html, setHtml] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [phone, setPhone] = useState(false);
 	const [dark, setDark] = useState(false);
 	// A page that follows the reader's device: the preview shows the side picked here.
-	const follows = (fields.look as Look | undefined)?.theme === "auto";
-	const sent = follows
-		? { ...fields, look: { ...(fields.look as Look), theme: dark ? "dark" : "light" } }
-		: fields;
+	const look = fields.look as Look | undefined;
+	const follows = (theme ?? look?.theme) === "auto";
+	const sent = !follows
+		? fields
+		: look
+			? { ...fields, look: { ...look, theme: dark ? "dark" : "light" } }
+			: { ...fields, theme: dark ? "dark" : "light" };
 	const key = JSON.stringify(sent);
 	const seq = useRef(0);
+	const loadRef = useRef(load);
+	loadRef.current = load;
 	// biome-ignore lint/correctness/useExhaustiveDependencies: key stands for fields
 	useEffect(() => {
 		const n = ++seq.current;
 		setBusy(true);
 		const t = setTimeout(() => {
-			previewNewsletterFn({ data: { id, fields: sent } })
-				.then((r) => n === seq.current && setHtml(r.html))
+			(loadRef.current
+				? loadRef.current(sent)
+				: previewNewsletterFn({ data: { id: id ?? "", fields: sent } }).then((r) => r.html)
+			)
+				.then((h) => n === seq.current && setHtml(h))
 				.catch(() => {})
 				.finally(() => n === seq.current && setBusy(false));
-		}, 350);
+		}, 300);
 		return () => clearTimeout(t);
 	}, [id, key]);
 	const shown = html;
@@ -344,6 +435,7 @@ function Preview({ id, fields }: { id: string; fields: Record<string, unknown> }
 				<span className="text-sm font-medium">Preview</span>
 				{busy && <Spinner className="size-3.5 text-muted-foreground" />}
 				<span className="flex-1" />
+				{toolbar}
 				<div className="flex items-center gap-0.5 rounded-lg bg-muted p-0.5">
 					{[
 						{ on: false, icon: Monitor, label: "Desktop" },
@@ -385,13 +477,17 @@ function Preview({ id, fields }: { id: string; fields: Record<string, unknown> }
 						title="Public page preview"
 						sandbox=""
 						srcDoc={shown}
+						style={{ height }}
 						className={cn(
-							"h-[640px] rounded-lg border border-border/70 bg-white transition-[width]",
+							"max-w-full rounded-lg border border-border/70 bg-white transition-[width] duration-300 ease-out",
 							phone ? "w-[390px]" : "w-full",
 						)}
 					/>
 				) : (
-					<div className="flex h-[640px] w-full items-center justify-center">
+					<div
+						style={{ height }}
+						className="flex w-full items-center justify-center"
+					>
 						<Spinner className="text-muted-foreground" />
 					</div>
 				)}

@@ -81,11 +81,11 @@ export async function votersToSegment(
 
 const POLL_CSS = `
 main{max-width:500px;margin:0 auto;padding:48px 16px 64px}
-.box{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:28px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.box{background:var(--card);border:var(--bw) solid var(--line);border-radius:var(--r-card);padding:28px;box-shadow:var(--shadow)}
 h1{margin:0 0 6px;font-size:22px;line-height:1.3;letter-spacing:-.01em}
 .box>p{margin:0 0 20px;color:var(--soft);font-size:15px;line-height:1.55}
 ol{list-style:none;margin:0;padding:0;display:grid;gap:10px}
-li a,li div{position:relative;display:block;overflow:hidden;border:1px solid var(--line);border-radius:12px;padding:13px 16px;color:inherit;text-decoration:none;font-size:15px}
+li a,li div{position:relative;display:block;overflow:hidden;border:1px solid var(--line);border-radius:var(--r-sm);padding:13px 16px;color:inherit;text-decoration:none;font-size:15px}
 li a:hover{border-color:var(--mute)}
 .bar{position:absolute;inset:0 auto 0 0;background:color-mix(in srgb,var(--accent) 14%,transparent);z-index:0;transition:width .6s ease}
 .row{position:relative;z-index:1;display:flex;gap:12px;align-items:center}.row span:first-child{flex:1}

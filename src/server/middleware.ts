@@ -1,7 +1,7 @@
 import { createMiddleware } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 import { and, asc, eq } from "drizzle-orm";
-import { NO_PERMISSION_MESSAGE, type Permission, PERMISSION_LABEL } from "../lib/permissions";
+import { NO_PERMISSION_MESSAGE, PERMISSION_LABEL, type Permission } from "../lib/permissions";
 import { accessColumns, accessFromRow, roleJoin } from "./access";
 import { logActivity } from "./activity";
 import { auth } from "./auth";
@@ -130,12 +130,17 @@ const LOGGED: Record<string, [action: string, subject: string]> = {
 	saveSectionFn: ["section.saved", "section"],
 	deleteSectionFn: ["section.deleted", "section"],
 	saveKitFn: ["brand_kit.edited", "brand"],
+	saveSubscriberPageFn: ["unsubscribe_page.edited", "brand"],
+	resetSubscriberPageFn: ["unsubscribe_page.reset", "brand"],
 };
 
 /** What a call is about, from its input: an id and a name people read. */
 function subjectOf(data: unknown) {
 	const d = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
-	const inner = (d.fields && typeof d.fields === "object" ? d.fields : {}) as Record<string, unknown>;
+	const inner = (d.fields && typeof d.fields === "object" ? d.fields : {}) as Record<
+		string,
+		unknown
+	>;
 	const pick = (...keys: string[]) => {
 		for (const k of keys) {
 			const v = d[k] ?? inner[k];

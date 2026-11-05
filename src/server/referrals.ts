@@ -61,7 +61,7 @@ export async function referralPageUrl(code: string) {
 
 const SHARE_CSS = `
 main{max-width:560px;margin:0 auto;padding:40px 16px 64px}
-.box{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:28px}
+.box{background:var(--card);border:var(--bw) solid var(--line);box-shadow:var(--shadow);border-radius:var(--r-card);padding:28px}
 .box+.box{margin-top:16px}
 .eyebrow{margin:0 0 6px;font:600 12px/1 var(--font);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
 h1{margin:0;font-size:clamp(24px,5vw,30px);line-height:1.2;letter-spacing:-.02em}
@@ -73,11 +73,11 @@ h1{margin:0;font-size:clamp(24px,5vw,30px);line-height:1.2;letter-spacing:-.02em
 .track{height:10px;border-radius:999px;background:color-mix(in srgb,var(--accent) 14%,var(--line));overflow:hidden}
 .track i{display:block;height:100%;background:var(--accent);border-radius:999px}
 .copy{display:flex;gap:8px;margin-top:22px}
-.copy input{flex:1;min-width:0;height:44px;border:1px solid var(--line);border-radius:12px;padding:0 14px;font:500 14px/1 var(--font);color:var(--ink);background:var(--bg)}
+.copy input{flex:1;min-width:0;height:44px;border:1px solid var(--line);border-radius:var(--r-sm);padding:0 14px;font:500 14px/1 var(--font);color:var(--ink);background:var(--bg)}
 .share{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 h2{margin:0 0 14px;font-size:17px}
 ol{list-style:none;margin:0;padding:0;display:grid;gap:10px}
-li{display:flex;align-items:center;gap:14px;padding:12px 14px;border:1px solid var(--line);border-radius:14px}
+li{display:flex;align-items:center;gap:14px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r-sm)}
 li .n{flex-shrink:0;display:flex;align-items:center;justify-content:center;min-width:40px;height:40px;border-radius:12px;background:var(--bg);font:700 15px/1 var(--font);font-variant-numeric:tabular-nums;color:var(--soft)}
 li.got{border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
 li.got .n{background:var(--accent);color:var(--on-accent)}

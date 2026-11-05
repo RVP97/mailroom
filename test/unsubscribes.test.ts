@@ -11,6 +11,7 @@ import {
 	unsubscribedAmong,
 	unsubscribeToken,
 } from "@/server/unsubscribes";
+import { saveSubscriberPage } from "@/server/subscriber-pages";
 import { createWebhook } from "@/server/webhook-admin";
 import { fakeOutside, seedOrg } from "./helpers";
 
@@ -246,6 +247,46 @@ describe("unsubscribe groups", () => {
 		expect(await (await post("action=resubscribe")).text()).toContain("volverá a recibir");
 		expect(await unsubscribedAmong(org.id, "g", ["ana@cliente.test"])).toEqual(new Set());
 		expect((await send(org, "ana@cliente.test", { group: "g" })).status).toBe("sent");
+	});
+
+	it("the page wears the brand's own look and words", async () => {
+		const aws = fakeOutside();
+		const org = await seedOrg();
+		await saveSubscriberPage(
+			org.id,
+			{
+				accent: "#0d9488",
+				font: "fraunces",
+				corners: "square",
+				language: "es",
+				texts: { ask: "¿Nos deja, {email}?", sorry: "Lo vamos a extrañar." },
+				resubscribe: false,
+				link: { label: "Volver al hotel", url: "https://hotel.test" },
+				footer: "Hotel Catedral · Centro",
+			},
+			null,
+		);
+		await send(org, "ana@cliente.test", { group: "g" });
+		const url = linkIn(plain(rawOf(aws.sends[0] as never)));
+		const asked = await (await handleUnsubscribePage(new Request(url))).text();
+		expect(asked).toContain("¿Nos deja, ana@cliente.test?");
+		expect(asked).toContain("--btn:#0d9488");
+		expect(asked).toContain("Fraunces");
+		expect(asked).toContain("--r-btn:4px");
+		expect(asked).toContain('href="https://hotel.test"');
+		expect(asked).toContain("Hotel Catedral · Centro");
+		const done = await (
+			await handleUnsubscribePage(
+				new Request(url, {
+					method: "POST",
+					headers: { "content-type": "application/x-www-form-urlencoded" },
+					body: "action=unsubscribe",
+				}),
+			)
+		).text();
+		expect(done).toContain("Lo vamos a extrañar.");
+		expect(done).not.toContain("Volver a recibirlos");
+		await db.delete(schema.subscriberPages);
 	});
 
 	it("checks a send to 150 people against the group in one go", async () => {

@@ -45,6 +45,8 @@ const VERB: Record<string, string> = {
 	"brand.updated": "changed the brand",
 	"brand.removed": "removed the brand",
 	"brand_kit.edited": "edited the brand kit of",
+	"unsubscribe_page.edited": "edited the unsubscribe page of",
+	"unsubscribe_page.reset": "reset the unsubscribe page of",
 	"api_key.created": "created the API key",
 	"api_key.deleted": "deleted the API key",
 	"smtp.created": "created SMTP credentials",
@@ -138,9 +140,13 @@ export function ActivityFeed({ rows, compact }: { rows: ActivityRow[]; compact?:
 							<span className="font-medium text-foreground">
 								<Ph>{r.actor}</Ph>
 							</span>{" "}
-							{compact ? verbOf(r.action).replace(/ the (broadcast|template)$/, "") : verbOf(r.action)}
+							{compact
+								? verbOf(r.action).replace(/ the (broadcast|template)$/, "")
+								: verbOf(r.action)}
 							{!compact && name ? <> {name}</> : null}
-							{r.detail && typeof r.detail.to === "string" && r.action === "member.changed" ? (
+							{r.detail &&
+							typeof r.detail.to === "string" &&
+							r.action === "member.changed" ? (
 								<> (now {r.detail.to})</>
 							) : null}
 						</p>

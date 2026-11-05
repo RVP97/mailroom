@@ -1616,6 +1616,16 @@ export type NewsletterLook = {
 	form_position?: "top" | "bottom" | null;
 	/** Links in the header (their website, Instagram…). */
 	links?: { label: string; url: string }[] | null;
+	/** "original" | "rounded" | "circle". */
+	logo_shape?: string | null;
+	/** "small" | "medium" | "large". */
+	logo_size?: string | null;
+	/** "square" | "soft" | "round": cards, pictures and buttons. */
+	corners?: string | null;
+	/** Lines around cards (else a soft shadow). On by default. */
+	borders?: boolean | null;
+	/** The top bar: "glass" (default), "solid" or "none". */
+	bar?: "glass" | "solid" | "none" | null;
 };
 
 /**
@@ -2052,6 +2062,20 @@ export const savedSections = sqliteTable(
 	},
 	(t) => [index("saved_sections_org_idx").on(t.organization_id, t.updated_at)],
 );
+
+/**
+ * How a brand's unsubscribe and preferences page looks and what it says (src/lib/subscriber-page.ts
+ * SubscriberPage); missing keys take the defaults (the brand's logo and kit colors).
+ */
+export const subscriberPages = sqliteTable("subscriber_pages", {
+	/** The brand's id. */
+	organization_id: text("organization_id")
+		.primaryKey()
+		.references(() => organization.id, { onDelete: "cascade" }),
+	look: text("look", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
+	updated_by: text("updated_by"),
+	updated_at: text("updated_at").notNull(),
+});
 
 /** A brand's kit (src/lib/brand-kit.ts): its colors, fonts and buttons, for every email. */
 export const brandKits = sqliteTable("brand_kits", {

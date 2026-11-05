@@ -60,10 +60,12 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { UnsubscribePageCard } from "@/components/unsubscribe-page-card";
 import { getBrandFn, removeBrandFn, updateBrandFn } from "@/functions/brands";
 import { kitFn } from "@/functions/collab";
 import { firewallFn } from "@/functions/recipients";
 import { sendingStatusFn, setUpSendingFn } from "@/functions/settings";
+import { subscriberPageFn } from "@/functions/subscriber-pages";
 import { errorMessage } from "@/lib/errors";
 import { formatDateTime, formatNumber, formatPercent, formatRelative } from "@/lib/format";
 import { forgetMe, useMe } from "@/lib/me";
@@ -74,14 +76,15 @@ import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/brands/$id")({
 	loader: async ({ params }) => {
-		const [data, sending, firewall, kit] = await Promise.all([
+		const [data, sending, firewall, kit, unsubscribePage] = await Promise.all([
 			getBrandFn({ data: { id: params.id } }).catch(() => null),
 			sendingStatusFn({ data: { brand: params.id } }).catch(() => null),
 			firewallFn({ data: { brand: params.id } }).catch(() => null),
 			kitFn({ data: { brand: params.id } }).catch(() => null),
+			subscriberPageFn({ data: { brand: params.id } }).catch(() => null),
 		]);
 		if (!data) throw notFound();
-		return { ...data, sending, firewall, kit };
+		return { ...data, sending, firewall, kit, unsubscribePage };
 	},
 	head: ({ loaderData }) => ({
 		meta: [{ title: `${loaderData?.brand.name ?? "Brand"} · Mailroom` }],
@@ -138,6 +141,7 @@ function BrandSketch() {
 				sending: { tenant_name: "organization-0000000" },
 				firewall: null,
 				kit: null,
+				unsubscribePage: null,
 			}}
 		>
 			<BrandPage />
@@ -569,6 +573,18 @@ function BrandPage() {
 				kit={data.kit}
 				canEdit={allows(me.active?.access, "library:edit")}
 			/>
+
+			{data.unsubscribePage && (
+				<UnsubscribePageCard
+					key={`unsub-${brand.id}`}
+					brand={brand.id}
+					page={data.unsubscribePage.page}
+					isSaved={data.unsubscribePage.saved}
+					kitAccent={data.kit?.accent ?? null}
+					brandLogo={!!me.active?.logo?.url}
+					canEdit={allows(me.active?.access, "brands:edit")}
+				/>
+			)}
 
 			{firewall && (
 				<FirewallCard

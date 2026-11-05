@@ -57,7 +57,20 @@ export type Look = {
 	align: "center" | "left";
 	form_position: "top" | "bottom";
 	links: { label: string; url: string }[];
+	/** The logo as it is, in a rounded square, or cut to a circle. */
+	logo_shape: LogoShape;
+	logo_size: LogoSize;
+	/** How round cards, pictures and buttons are. */
+	corners: Corners;
+	/** Thin lines around cards and boxes (else a soft shadow). */
+	borders: boolean;
+	/** The top bar: see-through over the page, solid, or none at all. */
+	bar: "glass" | "solid" | "none";
 };
+
+export type LogoShape = "original" | "rounded" | "circle";
+export type LogoSize = "small" | "medium" | "large";
+export type Corners = "square" | "soft" | "round";
 
 export const DEFAULT_LOOK: Look = {
 	logo: "brand",
@@ -70,7 +83,43 @@ export const DEFAULT_LOOK: Look = {
 	align: "center",
 	form_position: "top",
 	links: [],
+	logo_shape: "original",
+	logo_size: "medium",
+	corners: "round",
+	borders: true,
+	bar: "glass",
 };
+
+export const logoShapeOf = (v: unknown): LogoShape =>
+	v === "rounded" || v === "circle" ? v : "original";
+export const logoSizeOf = (v: unknown): LogoSize => (v === "small" || v === "large" ? v : "medium");
+export const cornersOf = (v: unknown, d: Corners = "round"): Corners =>
+	v === "square" || v === "soft" || v === "round" ? v : d;
+
+/**
+ * The shape CSS variables every public page uses: --r-card (cards and boxes), --r-btn (buttons),
+ * --r-sm (inputs, rows, small pictures), --bw (their border width), --shadow (instead of a border),
+ * --logo-h/--logo-w/--logo-r/--logo-fit for a logo `scale` times the size picked.
+ */
+export function shapeVars(
+	o: { corners: Corners; borders: boolean; logo_shape: LogoShape; logo_size: LogoSize },
+	logoBase = 34,
+) {
+	const r = { square: [4, 4, 3], soft: [12, 8, 8], round: [18, 999, 12] }[o.corners];
+	const h = Math.round(logoBase * { small: 0.75, medium: 1, large: 1.4 }[o.logo_size]);
+	const round = o.logo_shape === "circle";
+	return [
+		`--r-card:${r[0]}px`,
+		`--r-btn:${r[1]}px`,
+		`--r-sm:${r[2]}px`,
+		`--bw:${o.borders ? 1 : 0}px`,
+		`--shadow:${o.borders ? "none" : "0 1px 2px rgba(0,0,0,.05),0 6px 24px -6px rgba(0,0,0,.12)"}`,
+		`--logo-h:${h}px`,
+		`--logo-w:${round ? `${h}px` : "auto"}`,
+		`--logo-r:${round ? "50%" : o.logo_shape === "rounded" ? `${Math.round(h * 0.24)}px` : "0px"}`,
+		`--logo-fit:${round ? "cover" : "contain"}`,
+	].join(";");
+}
 
 const HEX = /^#[0-9a-f]{6}$/i;
 const font = (v: unknown, d: PageFont): PageFont =>
@@ -105,6 +154,11 @@ export function lookOf(raw: NewsletterLook | null | undefined): Look {
 			}))
 			.filter((l): l is { label: string; url: string } => !!l.label && !!l.url)
 			.slice(0, 6),
+		logo_shape: logoShapeOf(v.logo_shape),
+		logo_size: logoSizeOf(v.logo_size),
+		corners: cornersOf(v.corners),
+		borders: v.borders !== false,
+		bar: v.bar === "solid" || v.bar === "none" ? v.bar : "glass",
 	};
 }
 
@@ -159,7 +213,7 @@ export function lookCss(l: Look, accent: string | null) {
 	// A dark accent (the default black) would vanish on a dark page: buttons go light instead.
 	const da = luminance(a) < 0.08 ? "#f4f4f5" : a;
 	const dark = `--ink:#f4f4f5;--soft:#a1a1aa;--mute:#71717a;--line:#27272a;--bg:#09090b;--card:#18181b;--accent:${da};--on-accent:${inkOn(da)};--link:${luminance(da) < 0.2 ? "#f4f4f5" : da}`;
-	const fonts = `--font:${PAGE_FONTS[l.font].stack};--heading-font:${PAGE_FONTS[l.heading_font].stack}`;
+	const fonts = `--font:${PAGE_FONTS[l.font].stack};--heading-font:${PAGE_FONTS[l.heading_font].stack};${shapeVars(l)}`;
 	if (l.theme === "light") return `:root{${light};${fonts};color-scheme:light}`;
 	if (l.theme === "dark") return `:root{${dark};${fonts};color-scheme:dark}`;
 	return `:root{${light};${fonts};color-scheme:light dark}@media (prefers-color-scheme:dark){:root{${dark}}}`;

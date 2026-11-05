@@ -1,11 +1,13 @@
 import { env } from "cloudflare:workers";
 import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
+import { pageLang, pageOf, pageText, type TextKey } from "../lib/subscriber-page";
 import { bareAddress } from "./aws/mime";
 import { unsubscribeSync } from "./contacts";
 import { db, schema } from "./db";
 import { validation } from "./errors";
 import { publicUrl } from "./public-host";
 import { inScope, type Scope } from "./queries";
+import type { PageState } from "./subscriber-pages";
 import { iso } from "./time";
 import { emitEvent } from "./webhooks";
 
@@ -304,59 +306,23 @@ export async function withUnsubscribe<T extends Content>(
 
 // ── The page behind the link ──
 
-const WORDS = {
-	en: {
-		title: "Unsubscribe",
-		ask: (n: string) => `Stop getting these emails from ${n}?`,
-		who: (a: string) => `${a} won't get this sender's emails of this kind any more.`,
-		out: "Unsubscribe",
-		done: (n: string) => `Done: you won't get these emails from ${n} any more.`,
-		back: "Subscribe again",
-		backDone: (n: string) => `Done: you'll get these emails from ${n} again.`,
-		invalid: "This link isn't valid. Use the unsubscribe link of a recent email.",
-		someone: "this sender",
-		prefs: "Or choose what you get",
-		save: "Save preferences",
-		saved: "Preferences saved.",
-	},
-	es: {
-		title: "Darse de baja",
-		ask: (n: string) => `¿Dejar de recibir estos correos de ${n}?`,
-		who: (a: string) => `A ${a} ya no le llegarán estos correos de este remitente.`,
-		out: "Darme de baja",
-		done: (n: string) => `Listo: ya no recibirá estos correos de ${n}.`,
-		back: "Volver a recibirlos",
-		backDone: (n: string) => `Listo: volverá a recibir estos correos de ${n}.`,
-		invalid:
-			"Este enlace no es válido. Use el enlace para darse de baja de un correo reciente.",
-		someone: "este remitente",
-		prefs: "O elija qué recibir",
-		save: "Guardar preferencias",
-		saved: "Preferencias guardadas.",
-	},
-};
-
 const esc = (s: string) =>
 	s.replace(
 		/[&<>"]/g,
 		(c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] as string,
 	);
 
-function page(lang: "en" | "es", body: string, status = 200) {
-	return new Response(
-		`<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${WORDS[lang].title}</title><style>:root{color-scheme:light dark;--bg:#f6f7f9;--card:#fff;--ink:#14161a;--mut:#5f6672;--line:#e3e6ea;--btn:#14161a;--btnInk:#fff}@media (prefers-color-scheme:dark){:root{--bg:#0d0f12;--card:#16191e;--ink:#eceef1;--mut:#9aa1ac;--line:#262a31;--btn:#eceef1;--btnInk:#14161a}}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}main{max-width:30rem;margin:12vh auto 2rem;padding:28px 32px;background:var(--card);border:1px solid var(--line);border-radius:14px}@media (max-width:520px){main{margin:16px;padding:24px 20px}}h1{margin:0 0 8px;font-size:20px;font-weight:600;line-height:1.3;text-wrap:balance}p{margin:0 0 16px;color:var(--mut)}button{font:inherit;font-weight:600;padding:10px 18px;border-radius:8px;border:1px solid var(--btn);background:var(--btn);color:var(--btnInk);cursor:pointer}button.quiet{background:transparent;color:var(--ink);border-color:var(--line);font-weight:500}form{margin:0}section{margin-top:24px;padding-top:20px;border-top:1px solid var(--line)}h2{margin:0 0 12px;font-size:15px;font-weight:600}label.topic{display:flex;gap:10px;align-items:flex-start;margin:0 0 12px;cursor:pointer}label.topic input{margin-top:5px;width:16px;height:16px;flex:none}label.topic small{display:block;color:var(--mut);font-size:13px}.ok{color:var(--ink);font-weight:500}</style></head><body><main>${body}</main></body></html>`,
-		{
-			status,
-			headers: {
-				"content-type": "text/html; charset=utf-8",
-				"cache-control": "no-store",
-				"x-robots-tag": "noindex",
-				"content-security-policy":
-					"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
-			},
+const html = (body: string, status = 200) =>
+	new Response(body, {
+		status,
+		headers: {
+			"content-type": "text/html; charset=utf-8",
+			"cache-control": "no-store",
+			"x-robots-tag": "noindex",
+			"content-security-policy":
+				"default-src 'none'; img-src * data:; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
 		},
-	);
-}
+	});
 
 /** The sender's name from its From ("Acme" <hola@…> → Acme). */
 const senderName = (from: string) =>
@@ -376,7 +342,7 @@ async function preferencesOf(ref: { organizationId: string; address: string }) {
 async function preferencesForm(
 	ref: { organizationId: string; address: string },
 	t: string,
-	w: (typeof WORDS)["en"],
+	say: (k: TextKey) => string,
 	saved = false,
 ) {
 	const prefs = await preferencesOf(ref);
@@ -387,7 +353,7 @@ async function preferencesForm(
 				`<label class="topic"><input type="checkbox" name="topic" value="${esc(x.id)}"${x.subscription === "opt_in" ? " checked" : ""}><span>${esc(x.name)}${x.description ? `<small>${esc(x.description)}</small>` : ""}</span></label>`,
 		)
 		.join("");
-	return `<section><h2>${w.prefs}</h2><form method="post" action="?t=${esc(encodeURIComponent(t))}"><input type="hidden" name="action" value="preferences">${boxes}${saved ? `<p class="ok">${w.saved}</p>` : ""}<button type="submit" class="quiet">${w.save}</button></form></section>`;
+	return `<section><h2>${say("prefs")}</h2><form method="post" action="?t=${esc(encodeURIComponent(t))}"><input type="hidden" name="action" value="preferences">${boxes}${saved ? `<p class="ok">${say("saved")}</p>` : ""}<button type="submit" class="quiet">${say("save")}</button></form></section>`;
 }
 
 /**
@@ -398,21 +364,26 @@ async function preferencesForm(
 export async function handleUnsubscribePage(request: Request) {
 	const url = new URL(request.url);
 	const t = url.searchParams.get("t") ?? "";
-	const lang: "en" | "es" = /^es\b/i.test(request.headers.get("accept-language") ?? "")
-		? "es"
-		: "en";
-	const w = WORDS[lang];
 	const ref = await readUnsubscribeToken(t);
+	const { getSubscriberPage, brandDress, subscriberPageHtml } = await import(
+		"./subscriber-pages"
+	);
+	const [{ page: look }, dress] = ref
+		? await Promise.all([getSubscriberPage(ref.organizationId), brandDress(ref.organizationId)])
+		: [{ page: pageOf(null) }, { name: "", logo: null, accent: null }];
+	const lang = pageLang(look, request.headers.get("accept-language"));
+	const someone = lang === "es" ? "este remitente" : "this sender";
+	const name = (ref && senderName(ref.from)) || dress.name || someone;
+	const email = ref?.address ?? "";
+	const say = (k: TextKey) => pageText(look, lang, k, { name, email });
 	const form = (action: "unsubscribe" | "resubscribe", label: string, quiet = false) =>
 		`<form method="post" action="?t=${esc(encodeURIComponent(t))}"><input type="hidden" name="action" value="${action}"><button type="submit"${quiet ? ' class="quiet"' : ""}>${label}</button></form>`;
+	const page = (state: PageState, prefs = "", status = 200) =>
+		html(subscriberPageHtml(look, { lang, state, name, email, dress, form, prefs }), status);
 	if (request.method === "POST") {
 		const fields = await request.formData().catch(() => null);
 		const oneClick = fields?.get("List-Unsubscribe") === "One-Click";
-		if (!ref)
-			return oneClick
-				? new Response(null, { status: 404 })
-				: page(lang, `<h1>${w.title}</h1><p>${w.invalid}</p>`, 404);
-		const name = esc(senderName(ref.from) || w.someone);
+		if (!ref) return oneClick ? new Response(null, { status: 404 }) : page("invalid", "", 404);
 		if (fields?.get("action") === "preferences") {
 			const prefs = await preferencesOf(ref);
 			if (prefs) {
@@ -428,34 +399,22 @@ export async function handleUnsubscribePage(request: Request) {
 				);
 			}
 			const out = await isUnsubscribed(ref.organizationId, ref.group, ref.address);
-			return page(
-				lang,
-				`<h1>${out ? w.done(name) : w.ask(name)}</h1>${out ? form("resubscribe", w.back, true) : form("unsubscribe", w.out)}${await preferencesForm(ref, t, w, true)}`,
-			);
+			return page(out ? "done" : "ask", await preferencesForm(ref, t, say, true));
 		}
 		if (fields?.get("action") === "resubscribe") {
 			await resubscribe(ref.organizationId, ref.group, ref.address);
-			return page(
-				lang,
-				`<h1>${w.backDone(name)}</h1>${form("unsubscribe", w.out, true)}${await preferencesForm(ref, t, w)}`,
-			);
+			return page("back", await preferencesForm(ref, t, say));
 		}
 		await unsubscribe(ref);
 		if (oneClick) return new Response(null, { status: 200 });
-		return page(
-			lang,
-			`<h1>${w.done(name)}</h1>${form("resubscribe", w.back, true)}${await preferencesForm(ref, t, w)}`,
-		);
+		return page("done", await preferencesForm(ref, t, say));
 	}
 	if (request.method !== "GET" && request.method !== "HEAD")
 		return new Response("Method not allowed", { status: 405 });
-	if (!ref) return page(lang, `<h1>${w.title}</h1><p>${w.invalid}</p>`, 404);
-	const name = esc(senderName(ref.from) || w.someone);
-	const prefs = await preferencesForm(ref, t, w);
-	return (await isUnsubscribed(ref.organizationId, ref.group, ref.address))
-		? page(lang, `<h1>${w.done(name)}</h1>${form("resubscribe", w.back, true)}${prefs}`)
-		: page(
-				lang,
-				`<h1>${w.ask(name)}</h1><p>${w.who(esc(ref.address))}</p>${form("unsubscribe", w.out)}${prefs}`,
-			);
+	if (!ref) return page("invalid", "", 404);
+	const prefs = await preferencesForm(ref, t, say);
+	return page(
+		(await isUnsubscribed(ref.organizationId, ref.group, ref.address)) ? "done" : "ask",
+		prefs,
+	);
 }

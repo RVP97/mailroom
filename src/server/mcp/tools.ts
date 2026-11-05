@@ -196,6 +196,7 @@ export async function memberships(userId: string): Promise<Membership[]> {
 const TOOL_NEEDS: Record<string, Permission> = {
 	create_brand: "brands:edit",
 	update_brand: "brands:edit",
+	update_unsubscribe_page: "brands:edit",
 	set_domain_receiving: "domains:manage",
 	set_up_sending: "domains:manage",
 	add_domain: "domains:manage",
@@ -320,6 +321,65 @@ export const TOOLS: Tool[] = [
 			if (a.paused !== undefined)
 				await setBrandPaused(org.id, id, a.paused as boolean, { isAdmin: ctx.isAdmin });
 			return getBrand(org.id, id);
+		},
+	},
+	{
+		name: "get_unsubscribe_page",
+		title: "A brand's unsubscribe page",
+		description:
+			"How a brand's unsubscribe and preferences page looks and what it says (what people see after an email's unsubscribe link): logo, colors, fonts, shape, its lines and the link under it. saved: false means it still has the defaults.",
+		input: { organization, brand: z.string() },
+		readOnly: true,
+		run: async (a, ctx) => {
+			const org = orgFor(ctx, a.organization);
+			const id = await brandIn(org.id, a.brand as string);
+			const { getSubscriberPage } = await import("../subscriber-pages");
+			const { PAGE_TEXTS } = await import("../../lib/subscriber-page");
+			const r = await getSubscriberPage(id);
+			return {
+				...r,
+				default_texts: Object.fromEntries(
+					Object.entries(PAGE_TEXTS).map(([k, v]) => [k, { en: v.en, es: v.es }]),
+				),
+			};
+		},
+	},
+	{
+		name: "update_unsubscribe_page",
+		title: "Customize a brand's unsubscribe page",
+		description:
+			'Changes a brand\'s unsubscribe and preferences page; only the fields given change (texts merge, an empty text goes back to the default). reset: true goes back to the defaults. Fields: logo ("brand", "none" or an https:// image), logo_shape (original|rounded|circle), logo_size (small|medium|large), align (center|left), theme (auto|light|dark), background, card, text, accent (#rrggbb; accent null = the brand kit\'s), font and heading_font (system, inter, dm-sans, space-grotesk, fraunces, playfair, lora, georgia, mono), corners (square|soft|round), borders (true: thin line, false: shadow), layout (card|plain), language (auto|en|es), texts { ask, who, out, done, sorry, back, backDone, prefs, save, saved } where {name} is the brand and {email} the reader, resubscribe (offer "Subscribe again"), link { label, url } or null, footer.',
+		input: {
+			organization,
+			brand: z.string(),
+			reset: z.boolean().optional(),
+			page: z
+				.record(z.string(), z.unknown())
+				.optional()
+				.describe("The fields to change (see the description)"),
+		},
+		run: async (a, ctx) => {
+			const org = orgFor(ctx, a.organization, "manage");
+			const id = await brandIn(org.id, a.brand as string);
+			const { getSubscriberPage, resetSubscriberPage, saveSubscriberPage } = await import(
+				"../subscriber-pages"
+			);
+			if (a.reset) {
+				await resetSubscriberPage(id);
+				return getSubscriberPage(id);
+			}
+			const { page } = await getSubscriberPage(id);
+			const patch = (a.page ?? {}) as Record<string, unknown>;
+			const texts =
+				patch.texts && typeof patch.texts === "object"
+					? { ...page.texts, ...(patch.texts as Record<string, unknown>) }
+					: page.texts;
+			const saved = await saveSubscriberPage(
+				id,
+				{ ...page, ...patch, texts },
+				ctx.userId ?? null,
+			);
+			return { page: saved, saved: true };
 		},
 	},
 	{
