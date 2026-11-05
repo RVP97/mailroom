@@ -74,6 +74,14 @@ function mailroomChat(c) {
 		plus: '<path d="M12 5v14M5 12h14"/>',
 		retry: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
 		check: '<path d="M20 6 9 17l-5-5"/>',
+		message:
+			'<path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/><path d="M8 9h8M8 13h5"/>',
+		help: '<circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
+		headset:
+			'<path d="M3 14v-2a9 9 0 0 1 18 0v2"/><path d="M21 15a2 2 0 0 1-2 2h-1v-6h1a2 2 0 0 1 2 2ZM3 15a2 2 0 0 0 2 2h1v-6H5a2 2 0 0 0-2 2Z"/><path d="M18 17v1a3 3 0 0 1-3 3h-3"/>',
+		sparkle:
+			'<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9Z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8Z"/>',
+		hand: '<path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8a8 8 0 0 0 16 0v-3a2 2 0 0 0-4 0"/>',
 	};
 	function fmtTime(at) {
 		try {
@@ -259,8 +267,188 @@ function mailroomChat(c) {
 			".note a{color:inherit}" +
 			".drop{position:absolute;inset:8px;border-radius:14px;border:2px dashed var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--panel));display:none;place-items:center;font-weight:600;color:var(--accent);z-index:3}.drop.on{display:grid}" +
 			".ts{margin:8px auto 0;display:none}.ts.on{display:block}" +
-			".sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}"
+			".sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}" +
+			extras(cfg) +
+			// The brand's own CSS goes last (it only reaches inside the widget).
+			(cfg.custom_css ? String(cfg.custom_css) : "")
 		);
+	}
+
+	var FONTS = {
+		system: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif",
+		rounded:
+			"ui-rounded,'SF Pro Rounded','Nunito','Varela Round','Quicksand',-apple-system,'Segoe UI',sans-serif",
+		serif: "ui-serif,Georgia,'Iowan Old Style','Palatino Linotype',Cambria,serif",
+		mono: "ui-monospace,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace",
+	};
+	/** The site's own font (the widget's styles don't inherit it). */
+	function siteFont() {
+		try {
+			return (
+				getComputedStyle(document.body || document.documentElement).fontFamily ||
+				FONTS.system
+			);
+		} catch (_) {
+			return FONTS.system;
+		}
+	}
+	/** Hex to "r,g,b" for rgba(). */
+	function rgb(hex) {
+		var n = parseInt(String(hex || "#2563eb").slice(1), 16);
+		return ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255);
+	}
+
+	/** The look's choices over the base styles: corners, header, background, type, sizes. */
+	function extras(cfg) {
+		var out = "";
+		// Corners: the panel's radius; bubbles, fields and buttons follow it.
+		var R = {
+			square: [4, 6, 4, 8],
+			soft: [12, 12, 8, 14],
+			rounded: [18, 18, 10, 28],
+			pill: [26, 22, 20, 999],
+		}[cfg.corners || "rounded"] || [18, 18, 10, 28];
+		out +=
+			"@media (min-width:481px){.panel{border-radius:" +
+			R[0] +
+			"px}}" +
+			".msg,.typing{border-radius:" +
+			R[1] +
+			"px}" +
+			".grp:not(.me) .msg:not(:last-of-type){border-bottom-left-radius:" +
+			Math.min(6, R[1]) +
+			"px}" +
+			".me .msg:not(:last-of-type){border-bottom-right-radius:" +
+			Math.min(6, R[1]) +
+			"px}" +
+			".in,.btn,.hb,.tool,.send,.logo{border-radius:" +
+			R[2] +
+			"px}" +
+			".box{border-radius:" +
+			Math.min(R[2] + 6, 28) +
+			"px}" +
+			".card,.file,.img,.nudge,.menu,.sys{border-radius:" +
+			Math.min(R[1], 16) +
+			"px}" +
+			".launcher{border-radius:" +
+			R[3] +
+			"px}";
+		// Sizes.
+		var L = { small: 48, medium: 56, large: 64 }[cfg.launcher_size || "medium"] || 56;
+		out +=
+			".launcher{height:" +
+			L +
+			"px;min-width:" +
+			L +
+			"px}" +
+			".open .launcher.label{width:" +
+			L +
+			"px}" +
+			"@media (min-width:481px){.panel{bottom:calc(" +
+			(cfg.offset_y == null ? 20 : cfg.offset_y) +
+			"px + " +
+			(L + 16) +
+			"px)}}" +
+			".nudge{bottom:calc(" +
+			(cfg.offset_y == null ? 20 : cfg.offset_y) +
+			"px + " +
+			(L + 12) +
+			"px)}";
+		var W = { compact: [340, 560], regular: [380, 640], wide: [440, 720] }[
+			cfg.width || "regular"
+		] || [380, 640];
+		out +=
+			"@media (min-width:481px){.panel{width:" +
+			W[0] +
+			"px;height:min(" +
+			W[1] +
+			"px,calc(100vh - " +
+			((cfg.offset_y == null ? 20 : cfg.offset_y) + L + 40) +
+			"px))}}";
+		var T = { small: 14, medium: 15, large: 16.5 }[cfg.text_size || "medium"] || 15;
+		out +=
+			".root{font-size:" +
+			T +
+			"px}textarea{font-size:" +
+			Math.max(T, 16) +
+			"px}@media (min-width:481px){textarea{font-size:" +
+			T +
+			"px}}";
+		// Type.
+		var font = cfg.font === "site" ? siteFont() : FONTS[cfg.font] || FONTS.system;
+		out += ".root{font-family:" + font + "}";
+		// Header.
+		if (cfg.header === "gradient")
+			out +=
+				".head{background:linear-gradient(135deg," +
+				cfg.color +
+				" 0%," +
+				(cfg.color2 || cfg.color) +
+				" 100%)}" +
+				(cfg.color2
+					? ""
+					: ".head{background:linear-gradient(135deg," +
+						cfg.color +
+						",color-mix(in srgb," +
+						cfg.color +
+						" 55%,#000))}");
+		else if (cfg.header === "plain")
+			out +=
+				".head{background:var(--panel);color:var(--text);border-bottom:1px solid var(--line)}" +
+				".head .logo{background:var(--accent);color:var(--on-accent)}" +
+				".head .hb:hover{background:var(--soft)}.head .dot{box-shadow:0 0 0 2px var(--panel)}";
+		// The conversation's background.
+		var tint = "rgba(" + rgb(cfg.color) + ",";
+		if (cfg.background === "tint")
+			out +=
+				".body{background:linear-gradient(180deg," +
+				tint +
+				".08)," +
+				tint +
+				".02) 60%),var(--bg)}";
+		else if (cfg.background === "dots")
+			out +=
+				".body{background-color:var(--bg);background-image:radial-gradient(" +
+				tint +
+				".22) 1px,transparent 1.2px);background-size:16px 16px}";
+		else if (cfg.background === "grid")
+			out +=
+				".body{background-color:var(--bg);background-image:linear-gradient(" +
+				tint +
+				".08) 1px,transparent 1px),linear-gradient(90deg," +
+				tint +
+				".08) 1px,transparent 1px);background-size:22px 22px}";
+		else if (cfg.background === "gradient")
+			out +=
+				".body{background:radial-gradient(120% 60% at 50% 0%," +
+				tint +
+				".16),transparent 70%),var(--bg)}";
+		// The visitor's bubbles.
+		if (cfg.bubbles === "soft")
+			out +=
+				".me .msg{background:color-mix(in srgb,var(--accent) 16%,var(--panel));color:var(--text)}";
+		else if (cfg.bubbles === "outline")
+			out +=
+				".me .msg{background:transparent;color:var(--text);box-shadow:inset 0 0 0 1.5px var(--accent)}";
+		// The team's bubbles.
+		if (cfg.team_bubbles === "outline")
+			out +=
+				".grp:not(.me) .msg,.typing{background:var(--panel);box-shadow:inset 0 0 0 1px var(--line)}";
+		else if (cfg.team_bubbles === "accent")
+			out +=
+				".grp:not(.me) .msg{background:color-mix(in srgb,var(--accent) 10%,var(--panel))}";
+		// Depth.
+		if (cfg.shadow === "none")
+			out += ".panel,.nudge{box-shadow:0 0 0 1px var(--line)}.launcher{box-shadow:none}";
+		else if (cfg.shadow === "strong")
+			out +=
+				".panel{box-shadow:0 40px 90px -16px rgba(0,0,0,.45),0 8px 24px rgba(0,0,0,.18)}";
+		// Showing it.
+		if (cfg.launcher === "hidden") out += ".launcher{display:none!important}";
+		if (cfg.hide_mobile)
+			out += "@media (max-width:480px){.launcher,.nudge{display:none!important}}";
+		if (cfg.z_index) out += ".launcher,.panel,.nudge{z-index:" + (cfg.z_index | 0) + "}";
+		return out;
 	}
 
 	// ── The widget ─────────────────────────────────────────────────────────────
@@ -295,6 +483,17 @@ function mailroomChat(c) {
 	shadow.appendChild(root);
 
 	// Launcher
+	/** The launcher's icon (the brand's logo, or one of a few), and the arrow it turns into. */
+	function launcherIcon() {
+		var mark = cfg.brand_logo || cfg.logo;
+		var a =
+			cfg.launcher_icon === "logo" && mark
+				? '<img src="' +
+					String(mark).replace(/"/g, "&quot;") +
+					'" alt="" style="width:30px;height:30px;border-radius:50%;object-fit:cover;background:#fff">'
+				: svg(ICON[cfg.launcher_icon] || ICON.chat, 24);
+		return '<span class="a">' + a + '</span><span class="b">' + svg(ICON.down, 26) + "</span>";
+	}
 	var badge = h("span", { class: "badge", "aria-hidden": "true" });
 	var launcher = h(
 		"button",
@@ -308,15 +507,7 @@ function mailroomChat(c) {
 			},
 		},
 		[
-			h("span", {
-				class: "ic",
-				html:
-					'<span class="a">' +
-					svg(ICON.chat, 24) +
-					'</span><span class="b">' +
-					svg(ICON.down, 26) +
-					"</span>",
-			}),
+			h("span", { class: "ic", html: launcherIcon() }),
 			cfg.launcher === "label"
 				? h("span", { class: "lt", text: cfg.launcher_text || "Chat" })
 				: null,
@@ -1433,6 +1624,7 @@ function mailroomChat(c) {
 		if (lg) lg.replaceWith(logoEl("logo"));
 		input.placeholder = cfg.placeholder || "Write a message…";
 		launcher.className = "launcher" + (cfg.launcher === "label" ? " label" : "");
+		launcher.querySelector(".ic").innerHTML = launcherIcon();
 		var lt = launcher.querySelector(".lt");
 		if (cfg.launcher === "label") {
 			if (!lt)
@@ -1466,7 +1658,21 @@ function mailroomChat(c) {
 			},
 		];
 		window.addEventListener("message", (e) => {
-			if (e.data && e.data.type === "mailroom-chat-design") applyDesign(e.data.config || {});
+			if (!e.data) return;
+			if (e.data.type === "mailroom-chat-design") applyDesign(e.data.config || {});
+			// What the preview shows: the chat open, closed, or the greeting popped up.
+			if (e.data.type === "mailroom-chat-view") {
+				nudge.classList.remove("on");
+				if (e.data.view === "open") openPanel();
+				else {
+					closePanel();
+					if (e.data.view === "nudge") {
+						cfg.preview = false;
+						showNudge({ name: null, text: cfg.greeting || "Hi! How can we help?" });
+						cfg.preview = true;
+					}
+				}
+			}
 		});
 	}
 
@@ -1486,6 +1692,22 @@ function mailroomChat(c) {
 			connect();
 		}
 		if (location.hash === "#mailroom-chat") openPanel();
+		else greetLater();
+	}
+	/** The greeting pops up by the launcher after a while (once a visit, never mid-chat). */
+	function greetLater() {
+		var s = Number(cfg.nudge_after) || 0;
+		if (s <= 0 || stored.token || !cfg.greeting) return;
+		try {
+			if (sessionStorage.getItem(STORE + ":greeted")) return;
+		} catch (_) {}
+		setTimeout(() => {
+			if (state.open || stored.token) return;
+			try {
+				sessionStorage.setItem(STORE + ":greeted", "1");
+			} catch (_) {}
+			showNudge({ name: null, text: cfg.greeting });
+		}, s * 1000);
 	}
 	mount();
 

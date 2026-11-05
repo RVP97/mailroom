@@ -99,8 +99,8 @@ export const chatDesign = z.object({
 	color: hex.optional(),
 	position: z.enum(["right", "left"]).optional(),
 	theme: z.enum(["auto", "light", "dark"]).optional(),
-	/** The launcher: a round bubble, or a pill with a label. */
-	launcher: z.enum(["bubble", "label"]).optional(),
+	/** The launcher: a round bubble, a pill with a label, or none (your own button opens it). */
+	launcher: z.enum(["bubble", "label", "hidden"]).optional(),
 	launcher_text: shortText(40).nullish(),
 	/** Show the brand's logo in the header. */
 	show_logo: z.boolean().optional(),
@@ -113,6 +113,34 @@ export const chatDesign = z.object({
 	/** Spacing from the corner, in pixels. */
 	offset_x: z.number().int().min(0).max(200).optional(),
 	offset_y: z.number().int().min(0).max(200).optional(),
+	/** How round everything is: the panel, bubbles, fields, the launcher. */
+	corners: z.enum(["square", "soft", "rounded", "pill"]).optional(),
+	/** The header: the accent, a gradient (to color2), or plain like the panel. */
+	header: z.enum(["solid", "gradient", "plain"]).optional(),
+	color2: hex.nullish(),
+	/** Behind the messages. */
+	background: z.enum(["plain", "tint", "gradient", "dots", "grid"]).optional(),
+	/** The visitor's bubbles and the team's. */
+	bubbles: z.enum(["filled", "soft", "outline"]).optional(),
+	team_bubbles: z.enum(["gray", "accent", "outline"]).optional(),
+	/** The website's own font, or one of a few that every device has. */
+	font: z.enum(["system", "site", "rounded", "serif", "mono"]).optional(),
+	text_size: z.enum(["small", "medium", "large"]).optional(),
+	/** The panel's size on computers (phones always get the whole screen). */
+	width: z.enum(["compact", "regular", "wide"]).optional(),
+	shadow: z.enum(["none", "soft", "strong"]).optional(),
+	launcher_size: z.enum(["small", "medium", "large"]).optional(),
+	launcher_icon: z
+		.enum(["chat", "message", "help", "headset", "sparkle", "hand", "logo"])
+		.optional(),
+	/** No launcher on phones (MailroomChat.open() and #mailroom-chat links still open it). */
+	hide_mobile: z.boolean().optional(),
+	/** The greeting pops up by the launcher after this many seconds (0: never). */
+	nudge_after: z.number().int().min(0).max(300).optional(),
+	/** Above the site's own popups. */
+	z_index: z.number().int().min(1).max(2147483647).nullish(),
+	/** The brand's own CSS, inside the widget only (the page can't be reached from it). */
+	custom_css: z.string().max(10_000).nullish(),
 });
 export type ChatDesign = z.infer<typeof chatDesign>;
 
@@ -134,6 +162,22 @@ export const DESIGN_DEFAULTS: Required<{
 	ask_name: false,
 	offset_x: 20,
 	offset_y: 20,
+	corners: "rounded",
+	header: "solid",
+	color2: null,
+	background: "plain",
+	bubbles: "filled",
+	team_bubbles: "gray",
+	font: "system",
+	text_size: "medium",
+	width: "regular",
+	shadow: "soft",
+	launcher_size: "medium",
+	launcher_icon: "chat",
+	hide_mobile: false,
+	nudge_after: 0,
+	z_index: null,
+	custom_css: null,
 };
 
 export const designOf = (w: Pick<ChatWidget, "design">) => {

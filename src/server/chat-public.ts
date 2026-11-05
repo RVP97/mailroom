@@ -329,12 +329,14 @@ export async function publicConfig(w: NonNullable<Awaited<ReturnType<typeof widg
 		.from(schema.organization)
 		.where(eq(schema.organization.id, w.inbox.organization_id))
 		.get();
-	let logo: string | null = null;
-	if (d.show_logo) {
+	// The brand's logo: in the header (show_logo) and on the launcher (launcher_icon "logo").
+	let brandLogo: string | null = null;
+	if (d.show_logo || d.launcher_icon === "logo") {
 		const { orgLogos } = await import("./org-logos");
 		const l = (await orgLogos([w.inbox.organization_id])).get(w.inbox.organization_id);
-		if (l) logo = l.url.startsWith("http") ? l.url : `${baseUrl()}${l.url}`;
+		if (l) brandLogo = l.url.startsWith("http") ? l.url : `${baseUrl()}${l.url}`;
 	}
+	const logo = d.show_logo ? brandLogo : null;
 	const { brandWidget } = await import("./turnstile");
 	const turnstile = await brandWidget(w.inbox.organization_id);
 	const days = w.inbox.retention_days ?? inboundRetentionDays();
@@ -351,11 +353,28 @@ export async function publicConfig(w: NonNullable<Awaited<ReturnType<typeof widg
 		launcher: d.launcher,
 		launcher_text: d.launcher_text,
 		logo,
+		brand_logo: brandLogo,
 		away: d.away,
 		ask_email: w.widget.ask_email,
 		ask_name: d.ask_name,
 		offset_x: d.offset_x,
 		offset_y: d.offset_y,
+		corners: d.corners,
+		header: d.header,
+		color2: d.color2,
+		background: d.background,
+		bubbles: d.bubbles,
+		team_bubbles: d.team_bubbles,
+		font: d.font,
+		text_size: d.text_size,
+		width: d.width,
+		shadow: d.shadow,
+		launcher_size: d.launcher_size,
+		launcher_icon: d.launcher_icon,
+		hide_mobile: d.hide_mobile,
+		nudge_after: d.nudge_after,
+		z_index: d.z_index,
+		custom_css: d.custom_css,
 		retention: d.show_retention && days > 0 ? days : null,
 		turnstile: turnstile?.sitekey ?? null,
 		address: w.inbox.address.includes("+") ? null : w.inbox.address,
