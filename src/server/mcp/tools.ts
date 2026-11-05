@@ -348,24 +348,16 @@ export const TOOLS: Tool[] = [
 		name: "update_unsubscribe_page",
 		title: "Customize a brand's unsubscribe page",
 		description:
-			'Changes a brand\'s unsubscribe and preferences page; only the fields given change (texts merge, an empty text goes back to the default). reset: true goes back to the defaults. Fields: logo ("brand", "none" or an https:// image), logo_shape (original|rounded|circle), logo_size (small|medium|large), align (center|left), theme (auto|light|dark), background, card, text, accent (#rrggbb; accent null = the brand kit\'s), font and heading_font (system, inter, dm-sans, space-grotesk, fraunces, playfair, lora, georgia, mono), corners (square|soft|round), borders (true: thin line, false: shadow), layout (card|plain|banner|split), mark above the heading (eyebrow: a small title, icon, none), heading_size (md|lg), language (auto|en|es), texts { eyebrow, ask, who, out, done, sorry, back, backDone, backBody, prefs, save, saved } where {name} is the brand and {email} the reader, resubscribe (offer "Subscribe again"), link { label, url } or null, footer.',
+			'Changes a brand\'s unsubscribe and preferences page; only the fields given change (texts merge, an empty text goes back to the default). reset: true goes back to the defaults. Fields: logo ("brand", "none" or an https:// image), logo_shape (original|rounded|circle), logo_size (small|medium|large), align (center|left), theme (auto|light|dark), background, card, text, accent (#rrggbb; accent null = the brand kit\'s), font and heading_font (system, inter, dm-sans, space-grotesk, fraunces, playfair, lora, georgia, mono, geist, instrument-sans, bricolage, jost, instrument-serif, newsreader, cormorant), corners (square|soft|round), borders (true: thin line, false: shadow), layout (card|plain|banner|split), mark above the heading (eyebrow: a small title, icon, none), heading_size (md|lg), language (auto|en|es), texts { eyebrow, ask, who, out, done, sorry, back, backDone, backBody, prefs, save, saved, tagline, taglineBody (on the side of the split layout) } where {name} is the brand and {email} the reader, resubscribe (offer "Subscribe again"), link { label, url } or null, footer.',
 		input: {
 			organization,
 			brand: z.string(),
 			reset: z.boolean().optional(),
 			template: z
-				.enum([
-					"classic",
-					"editorial",
-					"banner",
-					"split",
-					"boutique",
-					"minimal",
-					"midnight",
-				])
+				.enum(["classic", "editorial", "studio", "bold", "boutique", "minimal", "midnight"])
 				.optional()
 				.describe(
-					"A ready-made look to put on first (keeps the logo, accent, words and links): classic (calm card), editorial (big serif, magazine-like), banner (a band in the brand color), split (brand color down one side), boutique (cream and elegant serif), minimal (just the words), midnight (dark with a glow)",
+					"A ready-made look to put on first (keeps the logo, accent, words and links): classic (calm, crisp card), editorial (masthead and big serif type), studio (brand color down one side with a big line), bold (big band in the brand color), boutique (sand and fine serif, quiet luxury), minimal (just the words), midnight (dark with a soft glow)",
 				),
 			page: z
 				.record(z.string(), z.unknown())

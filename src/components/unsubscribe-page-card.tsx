@@ -39,6 +39,8 @@ type State = "ask" | "done" | "back";
 /** Which lines show in which state of the preview, so editing one shows it. */
 const SHOWN_IN: Record<TextKey, State> = {
 	eyebrow: "ask",
+	tagline: "ask",
+	taglineBody: "ask",
 	ask: "ask",
 	who: "ask",
 	out: "ask",
@@ -393,7 +395,10 @@ export function UnsubscribePageCard({
 										]}
 									/>
 								</Row>
-								{page.mark === "eyebrow" && textField("eyebrow")}
+								{(page.mark === "eyebrow" || page.template === "editorial") &&
+									textField("eyebrow")}
+								{page.layout === "split" && textField("tagline")}
+								{page.layout === "split" && textField("taglineBody", true)}
 								{textField("ask")}
 								{textField("who", true)}
 								{textField("out")}

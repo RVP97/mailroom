@@ -376,6 +376,41 @@ export function FontPick({
 }
 
 /**
+ * Turns the open preview into `html` by changing only what differs, so nothing blinks: its fonts,
+ * images and styles stay loaded while a word or a color changes.
+ */
+function patchDocument(doc: Document, html: string) {
+	const next = new DOMParser().parseFromString(html, "text/html");
+	if (doc.title !== next.title) doc.title = next.title;
+	morph(doc.documentElement, next.documentElement);
+}
+
+function morph(from: Node, to: Node) {
+	if (from.nodeType !== Node.ELEMENT_NODE) {
+		if (from.nodeValue !== to.nodeValue) from.nodeValue = to.nodeValue;
+		return;
+	}
+	const a = from as Element;
+	const b = to as Element;
+	for (const at of [...a.attributes]) if (!b.hasAttribute(at.name)) a.removeAttribute(at.name);
+	for (const at of [...b.attributes])
+		if (a.getAttribute(at.name) !== at.value) a.setAttribute(at.name, at.value);
+	const olds = [...a.childNodes];
+	const news = [...b.childNodes];
+	news.forEach((n, i) => {
+		const o = olds[i];
+		if (!o) a.appendChild(a.ownerDocument.importNode(n, true));
+		else if (
+			o.nodeType === n.nodeType &&
+			(o.nodeType !== Node.ELEMENT_NODE || (o as Element).tagName === (n as Element).tagName)
+		)
+			morph(o, n);
+		else o.replaceWith(a.ownerDocument.importNode(n, true));
+	});
+	for (const o of olds.slice(news.length)) o.remove();
+}
+
+/**
  * A public page, drawn by the server (`load`) with what's set, a moment after each change. Its
  * look's theme "auto" is shown light or dark as picked here.
  */
@@ -422,11 +457,13 @@ export function Preview({
 	useEffect(() => {
 		const doc = frame.current?.contentDocument;
 		if (drawn === null || !doc) return;
-		const y = doc.scrollingElement?.scrollTop ?? 0;
-		doc.open();
-		doc.write(drawn);
-		doc.close();
-		if (doc.scrollingElement) doc.scrollingElement.scrollTop = y;
+		if (!doc.body?.childElementCount) {
+			doc.open();
+			doc.write(drawn);
+			doc.close();
+			return;
+		}
+		patchDocument(doc, drawn);
 	}, [drawn]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: key stands for fields
 	useEffect(() => {

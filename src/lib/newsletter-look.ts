@@ -38,6 +38,37 @@ export const PAGE_FONTS = {
 	},
 	lora: { label: "Lora", stack: "Lora,Georgia,serif", google: "Lora:wght@400;600;700" },
 	georgia: { label: "Georgia", stack: "Georgia,'Times New Roman',serif" },
+	geist: {
+		label: "Geist",
+		stack: "Geist,system-ui,sans-serif",
+		google: "Geist:wght@400;500;600",
+	},
+	"instrument-sans": {
+		label: "Instrument Sans",
+		stack: "'Instrument Sans',system-ui,sans-serif",
+		google: "Instrument+Sans:wght@400;500;600;700",
+	},
+	bricolage: {
+		label: "Bricolage Grotesque",
+		stack: "'Bricolage Grotesque',system-ui,sans-serif",
+		google: "Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800",
+	},
+	jost: { label: "Jost", stack: "Jost,system-ui,sans-serif", google: "Jost:wght@300;400;500" },
+	"instrument-serif": {
+		label: "Instrument Serif",
+		stack: "'Instrument Serif',Georgia,serif",
+		google: "Instrument+Serif:ital@0;1",
+	},
+	newsreader: {
+		label: "Newsreader",
+		stack: "Newsreader,Georgia,serif",
+		google: "Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600",
+	},
+	cormorant: {
+		label: "Cormorant",
+		stack: "'Cormorant Garamond',Georgia,serif",
+		google: "Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400",
+	},
 	mono: {
 		label: "Mono",
 		stack: "'JetBrains Mono','SF Mono',Menlo,Consolas,monospace",
