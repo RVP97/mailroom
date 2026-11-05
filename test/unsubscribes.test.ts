@@ -262,7 +262,7 @@ describe("unsubscribe groups", () => {
 				texts: { ask: "¿Nos deja, {email}?", sorry: "Lo vamos a extrañar." },
 				resubscribe: false,
 				link: { label: "Volver al hotel", url: "https://hotel.test" },
-				footer: "Hotel Catedral · Centro",
+				footer: "Harbor Inn · 12 Ocean Drive",
 			},
 			null,
 		);
@@ -274,7 +274,7 @@ describe("unsubscribe groups", () => {
 		expect(asked).toContain("Fraunces");
 		expect(asked).toContain("--r-btn:4px");
 		expect(asked).toContain('href="https://hotel.test"');
-		expect(asked).toContain("Hotel Catedral · Centro");
+		expect(asked).toContain("Harbor Inn · 12 Ocean Drive");
 		const done = await (
 			await handleUnsubscribePage(
 				new Request(url, {
