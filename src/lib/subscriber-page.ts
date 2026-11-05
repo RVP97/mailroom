@@ -22,38 +22,47 @@ import {
 export const PAGE_TEXTS = {
 	ask: {
 		label: "Heading",
-		en: "Stop getting these emails from {name}?",
-		es: "¿Dejar de recibir estos correos de {name}?",
+		en: "Unsubscribe from {name}?",
+		es: "¿Darse de baja de {name}?",
 	},
 	who: {
 		label: "Explanation",
-		en: "{email} won't get this sender's emails of this kind any more.",
-		es: "A {email} ya no le llegarán estos correos de este remitente.",
+		en: "You'll stop getting these emails at {email}. You can come back anytime.",
+		es: "Dejará de recibir estos correos en {email}. Puede volver cuando quiera.",
 	},
 	out: { label: "Unsubscribe button", en: "Unsubscribe", es: "Darme de baja" },
 	done: {
-		label: "After unsubscribing",
-		en: "Done: you won't get these emails from {name} any more.",
-		es: "Listo: ya no recibirá estos correos de {name}.",
+		label: "Heading after unsubscribing",
+		en: "You're unsubscribed",
+		es: "Listo, se dio de baja",
 	},
 	sorry: {
 		label: "Goodbye note",
-		en: "",
-		es: "",
+		en: "You won't get these emails from {name} anymore. Sorry to see you go.",
+		es: "Ya no recibirá estos correos de {name}. Lamentamos verle partir.",
 	},
-	back: { label: "Subscribe again button", en: "Subscribe again", es: "Volver a recibirlos" },
+	back: { label: "Subscribe again button", en: "Subscribe again", es: "Volver a suscribirme" },
 	backDone: {
-		label: "After subscribing again",
-		en: "Done: you'll get these emails from {name} again.",
-		es: "Listo: volverá a recibir estos correos de {name}.",
+		label: "Heading after subscribing again",
+		en: "Welcome back!",
+		es: "¡Qué gusto tenerle de vuelta!",
+	},
+	backBody: {
+		label: "Line after subscribing again",
+		en: "You'll get these emails from {name} again.",
+		es: "Volverá a recibir estos correos de {name}.",
 	},
 	prefs: {
 		label: "Preferences heading",
-		en: "Or choose what you get",
-		es: "O elija qué recibir",
+		en: "Or choose what you'd like to get",
+		es: "O elija qué quiere recibir",
 	},
 	save: { label: "Save button", en: "Save preferences", es: "Guardar preferencias" },
-	saved: { label: "After saving", en: "Preferences saved.", es: "Preferencias guardadas." },
+	saved: {
+		label: "After saving",
+		en: "Your preferences are saved.",
+		es: "Sus preferencias se guardaron.",
+	},
 } as const;
 export type TextKey = keyof typeof PAGE_TEXTS;
 
@@ -100,7 +109,7 @@ export const DEFAULT_PAGE: SubscriberPage = {
 	accent: null,
 	font: "system",
 	heading_font: "system",
-	corners: "soft",
+	corners: "round",
 	borders: true,
 	layout: "card",
 	language: "auto",
@@ -181,7 +190,7 @@ export function pageText(
 	const raw = p.texts[key] || PAGE_TEXTS[key][lang];
 	return esc(raw)
 		.replace(/\{\s*name\s*\}/g, esc(values.name))
-		.replace(/\{\s*email\s*\}/g, esc(values.email));
+		.replace(/\{\s*email\s*\}/g, values.email ? `<strong>${esc(values.email)}</strong>` : "");
 }
 
 /** The language the page speaks: the one picked, or the reader's (Spanish or English). */
@@ -207,7 +216,7 @@ function vars(p: SubscriberPage, accent: string) {
 	const light = `--bg:${p.background};--card:${p.card};--ink:${p.text};--mut:${mix(p.text, p.card, 0.62)};--line:${mix(p.text, p.card, 0.12)};--btn:${accent};--btnInk:${inkOn(accent)}`;
 	const da = lum(accent) < 0.08 ? "#eceef1" : accent;
 	const dark = `--bg:#0d0f12;--card:#16191e;--ink:#eceef1;--mut:#9aa1ac;--line:#262a31;--btn:${da};--btnInk:${inkOn(da)}`;
-	const rest = `--font:${PAGE_FONTS[p.font].stack};--heading-font:${PAGE_FONTS[p.heading_font].stack};${shapeVars(p, 40)}`;
+	const rest = `--font:${PAGE_FONTS[p.font].stack};--heading-font:${PAGE_FONTS[p.heading_font].stack};${shapeVars(p, 52)}`;
 	if (p.theme === "light") return `:root{${light};${rest};color-scheme:light}`;
 	if (p.theme === "dark") return `:root{${dark};${rest};color-scheme:dark}`;
 	return `:root{${light};${rest};color-scheme:light dark}@media (prefers-color-scheme:dark){:root{${dark}}}`;
@@ -242,35 +251,85 @@ export function renderSubscriberPage(
 	const left = p.align === "left";
 	const card = p.layout === "card";
 	const fonts = pageFontsHref(p);
+	// A colorful accent glows softly at the top; a black or gray one would only smudge it.
+	const n = Number.parseInt(accent.slice(1), 16);
+	const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+	const glow =
+		Math.max(r, g, b) - Math.min(r, g, b) > 40
+			? "radial-gradient(900px 420px at 50% -120px,color-mix(in srgb,var(--btn) 14%,transparent),transparent 70%),"
+			: "";
 	const css = `${vars(p, accent)}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 var(--font);-webkit-font-smoothing:antialiased}
-.wrap{max-width:32rem;margin:10vh auto 2rem;padding:0 16px;text-align:${left ? "left" : "center"}}
-main{${card ? "padding:32px 32px 28px;background:var(--card);border:var(--bw) solid var(--line);box-shadow:var(--shadow);border-radius:var(--r-card)" : "padding:8px 0"}}
-@media (max-width:520px){.wrap{margin-top:24px}main{${card ? "padding:24px 20px" : "padding:4px 0"}}}
-.logo{display:block;height:var(--logo-h);width:var(--logo-w);max-width:200px;object-fit:var(--logo-fit);border-radius:var(--logo-r);margin:${left ? "0 0 20px" : "0 auto 20px"}}
-h1{margin:0 0 8px;font:600 21px/1.3 var(--heading-font);text-wrap:balance}
-p{margin:0 0 18px;color:var(--mut)}
-.sorry{color:var(--ink)}
-.acts{display:flex;flex-wrap:wrap;gap:8px;justify-content:${left ? "flex-start" : "center"}}
-button{font:600 15px/1 var(--font);padding:12px 20px;border-radius:var(--r-btn);border:1px solid var(--btn);background:var(--btn);color:var(--btnInk);cursor:pointer}
-button:hover{filter:brightness(1.07)}
-button.quiet{background:transparent;color:var(--ink);border-color:var(--line);font-weight:500}
+html{background:var(--bg)}
+body{margin:0;min-height:100vh;background:${glow}var(--bg);color:var(--ink);font:15px/1.6 var(--font);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+.wrap{max-width:31rem;margin:0 auto;padding:clamp(28px,9vh,96px) 18px 40px;text-align:${left ? "left" : "center"}}
+.brand{display:flex;justify-content:${left ? "flex-start" : "center"};margin:0 0 22px;animation:rise .5s ease both}
+.logo{display:block;height:var(--logo-h);width:var(--logo-w);max-width:200px;object-fit:var(--logo-fit);border-radius:var(--logo-r)}
+.word{font:700 19px/1.2 var(--heading-font);letter-spacing:-.01em;color:var(--ink)}
+main{${card ? "padding:36px 36px 32px;background:var(--card);border:var(--bw) solid var(--line);box-shadow:var(--shadow),0 1px 0 rgba(0,0,0,.02);border-radius:var(--r-card)" : "padding:4px 0"};animation:rise .55s .05s ease both}
+@media (max-width:520px){.wrap{padding-top:28px}main{${card ? "padding:28px 22px 24px" : "padding:0"}}}
+.icon{display:flex;align-items:center;justify-content:center;width:52px;height:52px;margin:${left ? "0 0 18px" : "0 auto 18px"};border-radius:999px;background:color-mix(in srgb,var(--btn) 12%,transparent);color:var(--btn);animation:pop .5s .15s cubic-bezier(.2,.9,.3,1.3) both}
+.icon svg{width:24px;height:24px}
+h1{margin:0 0 10px;font:650 clamp(22px,5vw,26px)/1.22 var(--heading-font);letter-spacing:-.018em;text-wrap:balance}
+p{margin:0 0 24px;color:var(--mut);font-size:15.5px;text-wrap:pretty}
+p strong{color:var(--ink);font-weight:600;white-space:nowrap}
+@media (max-width:420px){p strong{white-space:normal;overflow-wrap:anywhere}}
+.acts{display:flex;flex-wrap:wrap;gap:10px;justify-content:${left ? "flex-start" : "center"}}
+.acts form{display:contents}
+button{display:inline-flex;align-items:center;justify-content:center;min-height:46px;min-width:180px;font:600 15px/1 var(--font);padding:0 24px;border-radius:var(--r-btn);border:1px solid var(--btn);background:var(--btn);color:var(--btnInk);cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.08),inset 0 1px 0 rgba(255,255,255,.12);transition:transform .15s,filter .15s,background .15s,border-color .15s}
+button:hover{filter:brightness(1.08);transform:translateY(-1px)}
+button:active{transform:none}
+button:focus-visible{outline:2px solid var(--btn);outline-offset:3px}
+button.quiet{background:var(--card);color:var(--ink);border-color:var(--line);font-weight:550;box-shadow:none}
+button.quiet:hover{filter:none;border-color:color-mix(in srgb,var(--ink) 30%,var(--line))}
+@media (max-width:520px){.acts button{width:100%}}
 form{margin:0}
-section{margin-top:26px;padding-top:22px;border-top:1px solid var(--line);text-align:left}
-h2{margin:0 0 12px;font:600 15px/1.4 var(--heading-font)}
-label.topic{display:flex;gap:10px;align-items:flex-start;margin:0 0 12px;cursor:pointer}
-label.topic input{margin-top:5px;width:16px;height:16px;flex:none;accent-color:var(--btn)}
-label.topic small{display:block;color:var(--mut);font-size:13px}
-.ok{color:var(--ink);font-weight:500}
-.after{margin-top:18px;font-size:14px}
-.after a{color:var(--ink);font-weight:500;text-decoration:none;border-bottom:1px solid var(--line)}
-.after a:hover{border-color:var(--ink)}
-.foot{margin-top:28px;font-size:12px;color:var(--mut);white-space:pre-line}`;
-	const logo = o.logo ? `<img class="logo" src="${esc(o.logo)}" alt="${esc(o.brand)}">` : "";
+section{margin-top:30px;padding-top:26px;border-top:1px solid var(--line);text-align:left}
+h2{margin:0 0 14px;font:600 12px/1.4 var(--font);letter-spacing:.07em;text-transform:uppercase;color:var(--mut)}
+.topics{border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden;margin:0 0 16px}
+label.topic{display:flex;gap:14px;align-items:center;justify-content:space-between;padding:14px 16px;cursor:pointer;transition:background .15s}
+label.topic+label.topic{border-top:1px solid var(--line)}
+label.topic:hover{background:color-mix(in srgb,var(--ink) 3%,transparent)}
+label.topic span{font-weight:550;line-height:1.4}
+label.topic small{display:block;margin-top:2px;color:var(--mut);font-size:13px;font-weight:400}
+label.topic input{appearance:none;-webkit-appearance:none;flex:none;position:relative;width:38px;height:22px;margin:0;border-radius:999px;background:color-mix(in srgb,var(--ink) 16%,transparent);cursor:pointer;transition:background .2s}
+label.topic input::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .2s cubic-bezier(.3,.7,.4,1)}
+label.topic input:checked{background:var(--btn)}
+label.topic input:checked::after{transform:translateX(16px)}
+label.topic input:focus-visible{outline:2px solid var(--btn);outline-offset:2px}
+section button{min-width:0;min-height:40px;font-size:14px}
+.ok{display:flex;align-items:center;gap:8px;margin:0 0 14px;color:var(--ink);font-weight:550;font-size:14px}
+.ok::before{content:"";width:18px;height:18px;flex:none;border-radius:50%;background:var(--btn) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center/12px no-repeat}
+.after{margin-top:22px;font-size:14px;animation:rise .55s .1s ease both}
+.after a{display:inline-flex;align-items:center;gap:6px;color:var(--ink);font-weight:550;text-decoration:none;opacity:.8;transition:opacity .15s}
+.after a:hover{opacity:1}
+.after a::after{content:"→";transition:transform .15s}
+.after a:hover::after{transform:translateX(2px)}
+.foot{margin-top:26px;font-size:12px;line-height:1.6;color:var(--mut);white-space:pre-line}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}}
+@keyframes pop{from{opacity:0;transform:scale(.6)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}`;
+	const brand = o.logo
+		? `<img class="logo" src="${esc(o.logo)}" alt="${esc(o.brand)}">`
+		: o.brand && p.logo !== "none"
+			? `<span class="word">${esc(o.brand)}</span>`
+			: "";
 	const link = p.link
 		? `<div class="after"><a href="${esc(p.link.url)}">${esc(p.link.label)}</a></div>`
 		: "";
 	const foot = p.footer ? `<div class="foot">${esc(p.footer)}</div>` : "";
-	return `<!doctype html><html lang="${o.lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(o.title)}</title>${fonts ? `<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="${esc(fonts)}">` : ""}<style>${css}</style></head><body><div class="wrap"><main>${logo}${o.body}</main>${link}${foot}</div></body></html>`;
+	return `<!doctype html><html lang="${o.lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(o.title)}</title>${fonts ? `<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="${esc(fonts)}">` : ""}<style>${css}</style></head><body><div class="wrap">${brand ? `<div class="brand">${brand}</div>` : ""}<main>${o.body}</main>${link}${foot}</div></body></html>`;
 }
+
+const svg = (d: string) =>
+	`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+
+/** The round picture above the heading, for each state. */
+export const PAGE_ICONS = {
+	ask: svg('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>'),
+	done: svg('<path d="M20 6 9 17l-5-5"/>'),
+	back: svg(
+		'<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
+	),
+	invalid: svg('<circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/>'),
+};

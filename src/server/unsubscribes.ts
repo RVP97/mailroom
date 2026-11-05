@@ -350,10 +350,10 @@ async function preferencesForm(
 	const boxes = prefs.topics
 		.map(
 			(x) =>
-				`<label class="topic"><input type="checkbox" name="topic" value="${esc(x.id)}"${x.subscription === "opt_in" ? " checked" : ""}><span>${esc(x.name)}${x.description ? `<small>${esc(x.description)}</small>` : ""}</span></label>`,
+				`<label class="topic"><span>${esc(x.name)}${x.description ? `<small>${esc(x.description)}</small>` : ""}</span><input type="checkbox" name="topic" value="${esc(x.id)}"${x.subscription === "opt_in" ? " checked" : ""}></label>`,
 		)
 		.join("");
-	return `<section><h2>${say("prefs")}</h2><form method="post" action="?t=${esc(encodeURIComponent(t))}"><input type="hidden" name="action" value="preferences">${boxes}${saved ? `<p class="ok">${say("saved")}</p>` : ""}<button type="submit" class="quiet">${say("save")}</button></form></section>`;
+	return `<section><h2>${say("prefs")}</h2><form method="post" action="?t=${esc(encodeURIComponent(t))}"><input type="hidden" name="action" value="preferences"><div class="topics">${boxes}</div>${saved ? `<p class="ok">${say("saved")}</p>` : ""}<button type="submit" class="quiet">${say("save")}</button></form></section>`;
 }
 
 /**

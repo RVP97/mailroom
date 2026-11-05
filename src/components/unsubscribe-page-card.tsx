@@ -48,6 +48,7 @@ const SHOWN_IN: Record<TextKey, State> = {
 	sorry: "done",
 	back: "done",
 	backDone: "back",
+	backBody: "back",
 };
 
 /**
@@ -75,7 +76,9 @@ export function UnsubscribePageCard({
 	const [lang, setLang] = useState<"en" | "es">("en");
 	const [busy, setBusy] = useState<"save" | "reset" | null>(null);
 	const [moreLines, setMoreLines] = useState(
-		["back", "backDone", "prefs", "save", "saved"].some((k) => saved.texts[k as TextKey]),
+		["back", "backDone", "backBody", "prefs", "save", "saved"].some(
+			(k) => saved.texts[k as TextKey],
+		),
 	);
 	const own = page.logo !== "brand" && page.logo !== "none";
 	const [custom, setCustom] = useState(own);
@@ -127,7 +130,7 @@ export function UnsubscribePageCard({
 		const props = {
 			id,
 			value: page.texts[k] ?? "",
-			placeholder: PAGE_TEXTS[k][shownLang] || (k === "sorry" ? "Sorry to see you go." : ""),
+			placeholder: PAGE_TEXTS[k][shownLang],
 			onFocus: () => setState(SHOWN_IN[k]),
 			onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
 				setText(k, e.target.value),
@@ -364,6 +367,7 @@ export function UnsubscribePageCard({
 									<>
 										{page.resubscribe && textField("back")}
 										{page.resubscribe && textField("backDone")}
+										{page.resubscribe && textField("backBody", true)}
 										{textField("prefs")}
 										{textField("save")}
 										{textField("saved")}

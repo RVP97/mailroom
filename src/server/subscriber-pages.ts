@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import {
+	PAGE_ICONS,
 	pageOf,
 	pageText,
 	renderSubscriberPage,
@@ -87,18 +88,21 @@ export function subscriberPageHtml(
 	const title = o.lang === "es" ? "Darse de baja" : "Unsubscribe";
 	let body: string;
 	if (o.state === "invalid")
-		body = `<h1>${title}</h1><p>${
+		body = `<h1>${o.lang === "es" ? "Este enlace ya no sirve" : "This link doesn't work"}</h1><p>${
 			o.lang === "es"
-				? "Este enlace no es válido. Use el enlace para darse de baja de un correo reciente."
-				: "This link isn't valid. Use the unsubscribe link of a recent email."
+				? "Use el enlace para darse de baja de un correo reciente."
+				: "Use the unsubscribe link in a recent email instead."
 		}</p>`;
 	else if (o.state === "ask")
 		body = `<h1>${t("ask")}</h1><p>${t("who")}</p><div class="acts">${o.form("unsubscribe", t("out"), false)}</div>`;
 	else if (o.state === "done") {
 		const sorry = t("sorry");
-		body = `<h1>${t("done")}</h1>${sorry ? `<p class="sorry">${sorry}</p>` : ""}${p.resubscribe ? `<div class="acts">${o.form("resubscribe", t("back"), true)}</div>` : ""}`;
-	} else
-		body = `<h1>${t("backDone")}</h1><div class="acts">${o.form("unsubscribe", t("out"), true)}</div>`;
+		body = `<h1>${t("done")}</h1>${sorry ? `<p>${sorry}</p>` : ""}${p.resubscribe ? `<div class="acts">${o.form("resubscribe", t("back"), true)}</div>` : ""}`;
+	} else {
+		const line = t("backBody");
+		body = `<h1>${t("backDone")}</h1>${line ? `<p>${line}</p>` : ""}<div class="acts">${o.form("unsubscribe", t("out"), true)}</div>`;
+	}
+	body = `<div class="icon">${PAGE_ICONS[o.state]}</div>${body}`;
 	const logo = p.logo === "none" ? null : p.logo === "brand" ? o.dress.logo : absolute(p.logo);
 	return renderSubscriberPage(p, {
 		lang: o.lang,
@@ -131,12 +135,14 @@ export async function previewSubscriberPage(
 					["News", "What's new, once a month."],
 					["Offers", "Special prices and promotions."],
 				];
-	const prefs = `<section><h2>${t("prefs")}</h2><form>${topics
+	const prefs = `<section><h2>${t("prefs")}</h2><form><div class="topics">${topics
 		.map(
 			([n, d], i) =>
-				`<label class="topic"><input type="checkbox"${i === 0 ? " checked" : ""}><span>${n}<small>${d}</small></span></label>`,
+				`<label class="topic"><span>${n}<small>${d}</small></span><input type="checkbox"${i === 0 ? " checked" : ""}></label>`,
 		)
-		.join("")}<button type="button" class="quiet">${t("save")}</button></form></section>`;
+		.join("")}</div><button type="button" class="quiet">${t("save")}</button></form></section>`;
+	// The preview draws again on every change: no entrance animation each time.
+	const still = "<style>*{animation:none!important}</style></head>";
 	return subscriberPageHtml(p, {
 		lang: l,
 		state,
@@ -146,5 +152,5 @@ export async function previewSubscriberPage(
 		form: (_a, label, quiet) =>
 			`<form><button type="button"${quiet ? ' class="quiet"' : ""}>${label}</button></form>`,
 		prefs: state === "back" ? "" : prefs,
-	});
+	}).replace("</head>", still);
 }

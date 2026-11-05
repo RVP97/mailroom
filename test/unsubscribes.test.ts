@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { db, schema } from "@/server/db";
 import { createEmails, parseSend } from "@/server/send";
+import { saveSubscriberPage } from "@/server/subscriber-pages";
 import {
 	handleUnsubscribePage,
 	listUnsubscribes,
@@ -11,7 +12,6 @@ import {
 	unsubscribedAmong,
 	unsubscribeToken,
 } from "@/server/unsubscribes";
-import { saveSubscriberPage } from "@/server/subscriber-pages";
 import { createWebhook } from "@/server/webhook-admin";
 import { fakeOutside, seedOrg } from "./helpers";
 
@@ -127,7 +127,7 @@ describe("unsubscribe groups", () => {
 		// A scanner opening the link changes nothing.
 		const get = await handleUnsubscribePage(new Request(url));
 		expect(get.status).toBe(200);
-		expect(await get.text()).toContain("Stop getting these emails from Acme Facturas?");
+		expect(await get.text()).toContain("Unsubscribe from Acme Facturas?");
 		expect(await unsubscribedAmong(org.id, "customer_1", ["ana@cliente.test"])).toEqual(
 			new Set(),
 		);
@@ -238,13 +238,13 @@ describe("unsubscribe groups", () => {
 				}),
 			);
 		expect(await (await post("action=unsubscribe")).text()).toContain(
-			"Listo: ya no recibirá estos correos de Acme Facturas.",
+			"Ya no recibirá estos correos de Acme Facturas.",
 		);
 		const shown = await handleUnsubscribePage(
 			new Request(url, { headers: { "accept-language": "es" } }),
 		);
-		expect(await shown.text()).toContain("Volver a recibirlos");
-		expect(await (await post("action=resubscribe")).text()).toContain("volverá a recibir");
+		expect(await shown.text()).toContain("Volver a suscribirme");
+		expect(await (await post("action=resubscribe")).text()).toContain("Volverá a recibir");
 		expect(await unsubscribedAmong(org.id, "g", ["ana@cliente.test"])).toEqual(new Set());
 		expect((await send(org, "ana@cliente.test", { group: "g" })).status).toBe("sent");
 	});
@@ -269,7 +269,7 @@ describe("unsubscribe groups", () => {
 		await send(org, "ana@cliente.test", { group: "g" });
 		const url = linkIn(plain(rawOf(aws.sends[0] as never)));
 		const asked = await (await handleUnsubscribePage(new Request(url))).text();
-		expect(asked).toContain("¿Nos deja, ana@cliente.test?");
+		expect(asked).toContain("¿Nos deja, <strong>ana@cliente.test</strong>?");
 		expect(asked).toContain("--btn:#0d9488");
 		expect(asked).toContain("Fraunces");
 		expect(asked).toContain("--r-btn:4px");
@@ -285,7 +285,7 @@ describe("unsubscribe groups", () => {
 			)
 		).text();
 		expect(done).toContain("Lo vamos a extrañar.");
-		expect(done).not.toContain("Volver a recibirlos");
+		expect(done).not.toContain("Volver a suscribirme");
 		await db.delete(schema.subscriberPages);
 	});
 
