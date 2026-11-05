@@ -621,7 +621,10 @@ ${checkCss(".T-editorial", { size: 20, radius: "0", on: "var(--ink)", tick: "var
 .T-studio label.topic span{font-weight:600;font-size:15px}
 .T-studio h2{color:var(--mut);font-size:13px}`;
 		case "bold":
-			return `.T-bold .wm{display:block}
+			return `.T-bold .band{height:auto;gap:22px;padding:clamp(32px,6vh,48px) 16px 132px}
+.T-bold .band .brand .name{display:none}
+.T-bold .wm{display:block;max-width:12ch;margin:0;font-size:clamp(48px,9vw,112px);line-height:.92;letter-spacing:-.05em;opacity:1;white-space:normal;text-align:center;text-wrap:balance}
+.T-bold.L-banner .wrap{margin-top:-92px}
 .T-bold main{border-radius:28px;padding:40px 40px 34px}
 @media (max-width:540px){.T-bold main{padding:28px 22px 24px;border-radius:22px}}
 .T-bold h1{font-weight:700;font-size:clamp(30px,5vw,36px);line-height:1.05;letter-spacing:-.035em}
