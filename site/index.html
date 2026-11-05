@@ -120,6 +120,14 @@ code, pre, kbd { font-family: var(--font-mono); font-feature-settings: normal; }
 }
 .btn:active { transform: scale(0.98); }
 .btn svg { width: 16px; height: 16px; flex: none; }
+/* Cloudflare's own orange, for the Deploy button. */
+.btn-cf {
+	background: linear-gradient(to bottom, #f6913b, #f38020 55%, #e8731a);
+	color: #fff; font-weight: 600; text-shadow: 0 1px 0 rgb(150 60 0 / 0.25);
+	box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.28), inset 0 -1px 0 rgb(120 45 0 / 0.25), 0 0 0 1px #d96a12, 0 4px 14px -4px rgb(243 128 32 / 0.55);
+}
+.btn-cf:hover { background: linear-gradient(to bottom, #f89c4d, #f58a2e 55%, #eb7b22); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.3), inset 0 -1px 0 rgb(120 45 0 / 0.25), 0 0 0 1px #d96a12, 0 6px 20px -4px rgb(243 128 32 / 0.7); }
+.btn-cf svg { width: 22px; height: 22px; margin-left: -2px; }
 .btn-light { background: oklch(0.985 0.002 265); color: oklch(0.17 0.006 268); box-shadow: inset 0 -1px 0 oklch(0 0 0 / 0.08), 0 1px 2px oklch(0 0 0 / 0.3); }
 .btn-light:hover { background: oklch(0.93 0.003 265); }
 .btn-ghost { background: oklch(1 0 0 / 0.04); color: oklch(0.965 0.003 270); box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.04), 0 0 0 1px oklch(1 0 0 / 0.12); }
@@ -145,6 +153,7 @@ code, pre, kbd { font-family: var(--font-mono); font-feature-settings: normal; }
 .nav .btn { height: 34px; padding: 0 12px; font-size: 13px; }
 .star-count { padding-left: 8px; margin-left: 2px; border-left: 1px solid oklch(1 0 0 / 0.14); color: oklch(1 0 0 / 0.6); font-variant-numeric: tabular-nums; }
 .star-count:empty { display: none; }
+.star-count { animation: fade-in 300ms var(--ease-out); }
 @media (max-width: 720px) { .nav-links { display: none; } .nav .wrap { justify-content: space-between; } }
 
 /* ---------- Hero: always dark, a window onto the product, like the sign-in page ---------- */
@@ -161,7 +170,6 @@ code, pre, kbd { font-family: var(--font-mono); font-feature-settings: normal; }
 	mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 25%, transparent 100%);
 }
 .glow { position: absolute; z-index: -1; left: 50%; top: 260px; width: 900px; height: 520px; transform: translateX(-50%); border-radius: 50%; background: oklch(0.55 0.21 263 / 0.32); filter: blur(130px); pointer-events: none; }
-.postmark { position: absolute; z-index: -1; top: 96px; right: max(24px, calc(50% - 560px)); width: 200px; color: oklch(1 0 0 / 0.08); }
 .hero-grid { display: grid; grid-template-columns: 1.05fr 1fr; gap: 56px; align-items: center; }
 @media (max-width: 960px) { .hero-grid { grid-template-columns: 1fr; gap: 48px; } }
 .eyebrow {
@@ -259,9 +267,14 @@ section { position: relative; }
 .calc { padding: 28px; }
 .calc-label { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 14px; color: var(--muted-foreground); }
 .calc-label output { font-size: 15px; font-weight: 600; color: var(--foreground); }
-input[type="range"] { width: 100%; margin: 18px 0 6px; accent-color: var(--brand); height: 20px; cursor: pointer; }
-.ticks { display: flex; justify-content: space-between; font-size: 12px; color: var(--faint); }
-.bill { margin-top: 26px; border-top: 1px solid var(--border); }
+/* A segmented control, like the dashboard's 7 / 30 / 90 days. */
+.seg { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; margin-top: 12px; padding: 3px; border-radius: 10px; background: var(--muted); box-shadow: inset 0 0 0 1px var(--border); }
+.seg button { height: 34px; border: 0; border-radius: 7px; background: transparent; color: var(--muted-foreground); font: 500 13.5px var(--font-sans); font-variant-numeric: tabular-nums; cursor: pointer; transition: background-color 150ms var(--ease-out), color 150ms, box-shadow 150ms; }
+.seg button:hover { color: var(--foreground); }
+.seg button[aria-checked="true"] { background: var(--card); color: var(--foreground); box-shadow: 0 0 0 1px var(--border-strong), 0 1px 2px var(--shadow-color); }
+.bill { margin-top: 22px; border-top: 1px solid var(--border); }
+.per { display: flex; justify-content: space-between; gap: 12px; margin-top: 14px; padding: 10px 12px; border-radius: 8px; background: color-mix(in oklch, var(--brand) 8%, transparent); font-size: 13px; color: var(--muted-foreground); }
+.per b { color: var(--brand); font-weight: 600; }
 .bill-row { display: flex; justify-content: space-between; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
 .bill-row span:first-child { color: var(--muted-foreground); }
 .bill-row.total { border: 0; padding-top: 18px; align-items: baseline; }
@@ -324,6 +337,17 @@ pre[hidden] { display: none; }
 .group li { position: relative; padding-left: 18px; font-size: 14px; line-height: 1.55; color: var(--muted-foreground); }
 .group li::before { content: ""; position: absolute; left: 2px; top: 9px; width: 5px; height: 5px; border-radius: 50%; background: var(--faint); }
 .group li b { color: var(--foreground); font-weight: 550; }
+
+/* Customization */
+.custom { padding-top: 0; }
+.custom-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 48px; }
+@media (max-width: 960px) { .custom-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 600px) { .custom-grid { grid-template-columns: 1fr; } }
+.cust { padding: 24px; }
+.cust h3 { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+.cust > p { margin-top: 6px; font-size: 14px; color: var(--muted-foreground); }
+.chips { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0 0; padding: 0; }
+.chips li { padding: 3px 9px; border-radius: 6px; font-size: 12.5px; line-height: 1.5; color: color-mix(in oklch, var(--foreground) 82%, transparent); background: var(--muted); box-shadow: inset 0 0 0 1px var(--border); }
 
 /* Agents */
 .agents { background: var(--ink); color: oklch(0.965 0.003 270); overflow: hidden; isolation: isolate; }
@@ -405,6 +429,7 @@ footer a:hover { color: oklch(1 0 0 / 0.9); }
 	<symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
 	<symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
 	<symbol id="i-cloud" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></symbol>
+	<symbol id="i-cf" viewBox="0 0 32 32"><path fill="#fff" d="M22.6 21.6c.2-.7.1-1.3-.2-1.8-.3-.4-.8-.7-1.4-.7l-11.3-.1c-.1 0-.1 0-.2-.1v-.2c0-.1.1-.2.2-.2l11.4-.1c1.3-.1 2.8-1.2 3.3-2.5l.7-1.7c0-.1 0-.1 0-.2-.7-3.3-3.7-5.8-7.2-5.8-3.3 0-6 2.1-7 5-.7-.5-1.5-.7-2.4-.7-1.6.2-2.8 1.5-3 3.1 0 .4 0 .8.1 1.2C3 17.4 1 19.4 1 22c0 .2 0 .5.1.7 0 .1.1.2.2.2h20.9c.1 0 .2-.1.3-.2l.1-1.1Z"/><path fill="#fff" fill-opacity=".85" d="M26.2 14.3h-.3c-.1 0-.1.1-.2.1l-.4 1.5c-.2.7-.1 1.3.2 1.8.3.4.8.7 1.4.7l2.4.1c.1 0 .1 0 .2.1v.2c0 .1-.1.2-.2.2l-2.5.1c-1.4.1-2.8 1.2-3.3 2.5l-.2.5c0 .1 0 .2.1.2h8.6c.1 0 .2-.1.2-.2.1-.5.2-1.1.2-1.7 0-3.4-2.8-6.1-6.2-6.1Z"/></symbol>
 	<symbol id="i-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></symbol>
 	<symbol id="i-megaphone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></symbol>
 	<symbol id="i-inbox" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
@@ -428,7 +453,6 @@ footer a:hover { color: oklch(1 0 0 / 0.9); }
 <main id="top">
 	<section class="hero">
 		<div class="glow" aria-hidden="true"></div>
-		<svg class="postmark" viewBox="0 0 180 72" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="36" cy="36" r="30"/><circle cx="36" cy="36" r="23" stroke-width="1.2"/><g id="waves"><path d="M64 8 Q 74 2 84 8 T 104 8 T 124 8 T 144 8 T 164 8 T 184 8"/><path d="M64 20 Q 74 14 84 20 T 104 20 T 124 20 T 144 20 T 164 20 T 184 20"/><path d="M64 32 Q 74 26 84 32 T 104 32 T 124 32 T 144 32 T 164 32 T 184 32"/><path d="M64 44 Q 74 38 84 44 T 104 44 T 124 44 T 144 44 T 164 44 T 184 44"/></g></svg>
 		<div class="wrap">
 			<div class="hero-grid">
 				<div>
@@ -436,7 +460,7 @@ footer a:hover { color: oklch(1 0 0 / 0.9); }
 					<h1>Every email,<br><span>accounted for.</span></h1>
 					<p class="lede">A <strong>Resend-style email platform</strong> on your own <strong>Amazon SES</strong> that runs on <strong>Cloudflare Workers</strong>. Transactional email, newsletters, automations, receiving and deliverability, for as many businesses as you like.</p>
 					<div class="cta">
-						<a class="btn btn-light" href="https://deploy.workers.cloudflare.com/?url=https://github.com/RVP97/mailroom"><svg><use href="#i-cloud"/></svg>Deploy to Cloudflare</a>
+						<a class="btn btn-cf" href="https://deploy.workers.cloudflare.com/?url=https://github.com/RVP97/mailroom"><svg><use href="#i-cf"/></svg>Deploy to Cloudflare</a>
 						<a class="btn btn-ghost" href="https://github.com/RVP97/mailroom"><svg><use href="#i-github"/></svg>View on GitHub</a>
 					</div>
 					<div class="hero-meta">
@@ -546,6 +570,48 @@ footer a:hover { color: oklch(1 0 0 / 0.9); }
 		</div>
 	</section>
 
+	<section class="section custom" id="customize">
+		<div class="wrap">
+			<div class="head-center reveal">
+				<p class="kicker">Make it yours</p>
+				<h2 class="h2">Everything people see looks like your brand.</h2>
+				<p class="sub">Emails, newsletter pages, sign-up forms and the website chat are all designed in Mailroom, with a live preview on desktop, phone and dark mode.</p>
+			</div>
+			<div class="custom-grid">
+				<article class="card cust reveal">
+					<h3>Emails and brand kits</h3>
+					<p>Every broadcast and template, built from blocks or raw HTML.</p>
+					<ul class="chips"><li>Headings, text, buttons, images</li><li>Columns, quotes, dividers</li><li>Logo, links, footer</li><li>Palettes and fonts</li><li>Your own web fonts</li><li>Corner radius</li><li>Saved sections</li><li>Personalization with fallbacks</li><li>Brand kit that locks colors and fonts</li><li>Dark-inbox preview</li></ul>
+				</article>
+				<article class="card cust reveal">
+					<h3>Newsletter pages</h3>
+					<p>A public archive, web versions and poll pages that share one look.</p>
+					<ul class="chips"><li>Logo and cover image</li><li>Colors</li><li>Light or dark</li><li>Fonts</li><li>List or cards</li><li>Header links</li><li>RSS feed</li><li>Blog-to-issue in three layouts</li><li>Referral page and rewards</li></ul>
+				</article>
+				<article class="card cust reveal">
+					<h3>Sign-up forms</h3>
+					<p>Drop one snippet on your site and design it from the dashboard.</p>
+					<ul class="chips"><li>In the page, pop-up, slide-in, top bar</li><li>Card, minimal, split, banner, spotlight</li><li>Color presets or your own</li><li>Button gradient</li><li>Font, corners, size, alignment</li><li>Outline, filled or underlined fields</li><li>Shadow</li><li>Message after sign-up</li><li>Topics and segments to join</li></ul>
+				</article>
+				<article class="card cust reveal">
+					<h3>Website chat</h3>
+					<p>A chat on your site, answered from the dashboard or straight from your email.</p>
+					<ul class="chips"><li>Six style presets</li><li>Accent color</li><li>Auto, light or dark</li><li>Solid, gradient or plain header</li><li>Bubble and background styles</li><li>Fonts and text size</li><li>Launcher shape, icon, text and size</li><li>Corner and spacing</li><li>Pop-up greeting</li><li>Hide on phones</li><li>Custom CSS</li><li>Your own messages</li></ul>
+				</article>
+				<article class="card cust reveal">
+					<h3>Your team</h3>
+					<p>People get exactly the access they need, per organization.</p>
+					<ul class="chips"><li>Owner, admin and custom roles</li><li>Permission by permission</li><li>Approvals before a send</li><li>Comments on drafts</li><li>Version history</li><li>Passkeys, codes, passwords, Google</li><li>Two-factor authentication</li><li>Activity log</li></ul>
+				</article>
+				<article class="card cust reveal">
+					<h3>Your rules</h3>
+					<p>How each organization and brand sends, receives and protects itself.</p>
+					<ul class="chips"><li>Sending limits: alert, or alert and pause</li><li>Email firewall for disposable, free and plus addresses</li><li>Unsubscribe groups and topics</li><li>Tracking domain on or off</li><li>BIMI logo</li><li>Inbound rules</li><li>Long-term archive to R2</li><li>Weekly digest</li><li>Its own SES account</li></ul>
+				</article>
+			</div>
+		</div>
+	</section>
+
 	<section class="section api" id="api">
 		<div class="wrap api-grid">
 			<div class="reveal">
@@ -571,29 +637,29 @@ footer a:hover { color: oklch(1 0 0 / 0.9); }
 <span class="k">const</span> resend = <span class="k">new</span> <span class="f">Resend</span>(process.env.MAILROOM_API_KEY);
 
 <span class="k">await</span> resend.emails.<span class="f">send</span>({
-  <span class="p">from</span>: <span class="s">"Harbor Inn &lt;bookings@mail.harborinn.com&gt;"</span>,
-  <span class="p">to</span>: [<span class="s">"guest@example.com"</span>],
-  <span class="p">subject</span>: <span class="s">"Your booking"</span>,
-  <span class="p">html</span>: <span class="s">"&lt;p&gt;See you soon.&lt;/p&gt;"</span>,
-  <span class="p">tags</span>: [{ <span class="p">name</span>: <span class="s">"kind"</span>, <span class="p">value</span>: <span class="s">"booking"</span> }],
+  <span class="p">from</span>: <span class="s">"Your app &lt;hello@mail.example.com&gt;"</span>,
+  <span class="p">to</span>: [<span class="s">"ana@example.com"</span>],
+  <span class="p">subject</span>: <span class="s">"Your order has shipped"</span>,
+  <span class="p">html</span>: <span class="s">"&lt;p&gt;It's on its way.&lt;/p&gt;"</span>,
+  <span class="p">tags</span>: [{ <span class="p">name</span>: <span class="s">"kind"</span>, <span class="p">value</span>: <span class="s">"order"</span> }],
 });</code></pre>
 <pre id="ex-curl" hidden><code><span class="f">curl</span> https://&lt;your url&gt;/api/emails \
   -H <span class="s">"Authorization: Bearer mr_..."</span> \
   -H <span class="s">"Content-Type: application/json"</span> \
   -d <span class="s">'{
-    "from": "bookings@mail.harborinn.com",
-    "to": "guest@example.com",
-    "subject": "Your booking",
-    "text": "See you soon."
+    "from": "hello@mail.example.com",
+    "to": "ana@example.com",
+    "subject": "Your order has shipped",
+    "text": "It is on its way."
   }'</span></code></pre>
 <pre id="ex-cli" hidden><code><span class="k">export</span> MAILROOM_API_KEY=mr_… MAILROOM_URL=https://mailroom.example.com
 
-<span class="f">mailroom</span> send --from hola@hotel.mx --to ana@example.com \
+<span class="f">mailroom</span> send --from hello@mail.example.com --to ana@example.com \
   --template welcome --var name=Ana
 <span class="f">mailroom</span> emails --status bounced
 <span class="f">mailroom</span> tail          <span class="c"># new emails and their events, live</span>
-<span class="f">mailroom</span> import guests.csv --segment &lt;id&gt;
-<span class="f">mailroom</span> check --subject <span class="s">"Your booking"</span> --html email.html</code></pre>
+<span class="f">mailroom</span> import contacts.csv --segment &lt;id&gt;
+<span class="f">mailroom</span> check --subject <span class="s">"Your order has shipped"</span> --html email.html</code></pre>
 			</div>
 		</div>
 	</section>
@@ -626,11 +692,11 @@ footer a:hover { color: oklch(1 0 0 / 0.9); }
 				<div class="card aws"><svg width="18" height="18" style="color:var(--brand)"><use href="#i-cloud"/></svg>Your AWS account <small>· us-east-1</small></div>
 				<div class="branches"><svg viewBox="0 0 920 44" preserveAspectRatio="none" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M460 0 V14 Q460 22 452 22 H161 Q153 22 153 30 V44"/><path d="M460 0 V44"/><path d="M460 14 Q460 22 468 22 H759 Q767 22 767 30 V44"/></svg></div>
 				<div class="orgs">
-					<div class="card org"><div class="org-top"><span class="av" style="background:oklch(0.55 0.21 263)">H</span><b>Harbor Inn</b><span class="badge l-green"><i></i>Healthy</span></div><dl><dt>Tenant</dt><dd>harbor-inn</dd><dt>Bounce rate</dt><dd>0.8%</dd><dt>Sent this month</dt><dd>41,210</dd></dl></div>
-					<div class="card org"><div class="org-top"><span class="av" style="background:oklch(0.6 0.13 165)">N</span><b>Northwind</b><span class="badge l-amber"><i></i>Watch</span></div><dl><dt>Tenant</dt><dd>northwind</dd><dt>Bounce rate</dt><dd>4.1%</dd><dt>Sent this month</dt><dd>8,930</dd></dl></div>
-					<div class="card org"><div class="org-top"><span class="av" style="background:oklch(0.62 0.17 40)">P</span><b>Pliego</b><span class="badge l-green"><i></i>Healthy</span></div><dl><dt>Tenant</dt><dd>pliego</dd><dt>Bounce rate</dt><dd>0.3%</dd><dt>Sent this month</dt><dd>126,404</dd></dl></div>
+					<div class="card org"><div class="org-top"><span class="av" style="background:oklch(0.55 0.21 263)">1</span><b>Organization</b><span class="badge l-green"><i></i>Sending</span></div><dl><dt>SES tenant</dt><dd>its own</dd><dt>Bounce rate</dt><dd>0.8%</dd><dt>Domains, keys</dt><dd>its own</dd></dl></div>
+					<div class="card org"><div class="org-top"><span class="av" style="background:oklch(0.62 0.17 40)">2</span><b>Organization</b><span class="badge l-amber"><i></i>Paused</span></div><dl><dt>SES tenant</dt><dd>its own</dd><dt>Bounce rate</dt><dd>6.2%</dd><dt>Domains, keys</dt><dd>its own</dd></dl></div>
+					<div class="card org"><div class="org-top"><span class="av" style="background:oklch(0.6 0.13 165)">3</span><b>Organization</b><span class="badge l-green"><i></i>Sending</span></div><dl><dt>SES tenant</dt><dd>its own</dd><dt>Bounce rate</dt><dd>0.3%</dd><dt>Domains, keys</dt><dd>its own</dd></dl></div>
 				</div>
-				<p class="tenant-note">Made-up businesses. Brands inside an organization split it further, each with its own domains, contacts and limits.</p>
+				<p class="tenant-note">When one organization crosses its bounce limit and pauses, the others keep sending. Brands inside an organization split it further, each with its own domains, contacts and limits.</p>
 			</div>
 		</div>
 	</section>
@@ -648,13 +714,19 @@ footer a:hover { color: oklch(1 0 0 / 0.9); }
 				</div>
 			</div>
 			<div class="card calc reveal">
-				<label class="calc-label" for="vol"><span>Emails a month</span><output id="vol-out" class="tabular">100,000</output></label>
-				<input type="range" id="vol" min="0" max="100" value="50" step="1">
-				<div class="ticks" aria-hidden="true"><span>1k</span><span>10k</span><span>100k</span><span>1M</span><span>10M</span></div>
+				<p class="calc-label" id="vol-label">Emails a month</p>
+				<div class="seg" role="radiogroup" aria-labelledby="vol-label">
+					<button type="button" role="radio" aria-checked="false" data-n="10000">10k</button>
+					<button type="button" role="radio" aria-checked="true" data-n="100000">100k</button>
+					<button type="button" role="radio" aria-checked="false" data-n="500000">500k</button>
+					<button type="button" role="radio" aria-checked="false" data-n="1000000">1M</button>
+					<button type="button" role="radio" aria-checked="false" data-n="5000000">5M</button>
+				</div>
 				<div class="bill">
 					<div class="bill-row"><span>Cloudflare Workers Paid</span><span class="tabular">$5.00</span></div>
 					<div class="bill-row"><span>Amazon SES</span><span class="tabular" id="ses-out">$10.00</span></div>
 					<div class="bill-row total"><span>A month</span><output id="total-out" class="tabular">$15.00</output></div>
+					<div class="per"><span>All in, per 1,000 emails</span><b class="tabular" id="per-out">$0.15</b></div>
 				</div>
 				<p class="bill-note">SES's list price for outgoing email. Attachments, receiving and dedicated IPs are billed by AWS as usual.</p>
 			</div>
@@ -685,7 +757,7 @@ footer a:hover { color: oklch(1 0 0 / 0.9); }
 <span class="f">bun</span> run deploy                                 <span class="c"># builds, migrates, deploys</span></code></pre>
 			</div>
 			<div class="deploy-cta reveal">
-				<a class="btn btn-ink" href="https://deploy.workers.cloudflare.com/?url=https://github.com/RVP97/mailroom"><svg><use href="#i-cloud"/></svg>Deploy to Cloudflare</a>
+				<a class="btn btn-cf" href="https://deploy.workers.cloudflare.com/?url=https://github.com/RVP97/mailroom"><svg><use href="#i-cf"/></svg>Deploy to Cloudflare</a>
 				<a class="btn btn-outline" href="https://github.com/RVP97/mailroom#deploy">Read the full guide<svg><use href="#i-arrow"/></svg></a>
 			</div>
 		</div>
@@ -699,7 +771,7 @@ footer a:hover { color: oklch(1 0 0 / 0.9); }
 			<p class="sub">Mailroom is free and open source under the MIT license. Run it, change it, and send as much as you like. Issues and pull requests are welcome.</p>
 			<div class="cta">
 				<a class="btn btn-light" href="https://github.com/RVP97/mailroom"><svg><use href="#i-github"/></svg>Star on GitHub</a>
-				<a class="btn btn-ghost" href="https://deploy.workers.cloudflare.com/?url=https://github.com/RVP97/mailroom"><svg><use href="#i-cloud"/></svg>Deploy your own</a>
+				<a class="btn btn-cf" href="https://deploy.workers.cloudflare.com/?url=https://github.com/RVP97/mailroom"><svg><use href="#i-cf"/></svg>Deploy to Cloudflare</a>
 			</div>
 		</div>
 	</section>
@@ -729,14 +801,14 @@ footer a:hover { color: oklch(1 0 0 / 0.9); }
 
 	// The live log, as on the sign-in page: emails arrive and walk through their lives.
 	const SAMPLES = [
-		["ana.lucia@lumen.travel", "Your reservation is confirmed"],
-		["billing@northwind.io", "Invoice A-1029 is ready"],
-		["marco@pliego.app", "482193 is your sign-in code"],
-		["sofia.paz@gmail.com", "Your receipt from Globex"],
-		["team@acme.com", "Weekly sending report"],
-		["diego.r@outlook.com", "Payment received, thank you"],
-		["laura@studionorte.co", "New sign-in from Safari on Mac"],
-		["ops@orbita.dev", "Your export is ready to download"],
+		["ana@example.com", "Your order has shipped"],
+		["billing@example.org", "Your invoice is ready"],
+		["marco@example.net", "482193 is your sign-in code"],
+		["sofia@gmail.com", "Thanks for your payment"],
+		["team@example.com", "Your weekly report"],
+		["diego@outlook.com", "Welcome aboard"],
+		["laura@icloud.com", "New sign-in from Safari on Mac"],
+		["ops@example.dev", "Your export is ready to download"],
 	];
 	const STAGES = ["queued", "sent", "delivered", "opened"];
 	const LABEL = { queued: "Queued", sent: "Sent", delivered: "Delivered", opened: "Opened" };
@@ -819,22 +891,27 @@ footer a:hover { color: oklch(1 0 0 / 0.9); }
 		} catch {}
 	});
 
-	// Cost: a log scale from 1,000 to 10 million emails a month.
-	const vol = document.getElementById("vol");
-	const money = (n) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-	const nice = (n) => {
-		const p = 10 ** Math.max(0, Math.floor(Math.log10(n)) - 1);
-		return Math.round(n / p) * p;
-	};
-	const update = () => {
-		const n = nice(10 ** (3 + (4 * vol.value) / 100));
+	// Cost: pick a monthly volume.
+	const money = (n, d = 2) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+	const segs = [...document.querySelectorAll(".seg button")];
+	const pick = (btn) => {
+		segs.forEach((b) => b.setAttribute("aria-checked", String(b === btn)));
+		const n = Number(btn.dataset.n);
 		const ses = (n / 1000) * 0.1;
-		document.getElementById("vol-out").textContent = n.toLocaleString("en-US");
 		document.getElementById("ses-out").textContent = money(ses);
 		document.getElementById("total-out").textContent = money(5 + ses);
+		document.getElementById("per-out").textContent = money(((5 + ses) / n) * 1000, 3);
 	};
-	vol.addEventListener("input", update);
-	update();
+	segs.forEach((b, i) => {
+		b.addEventListener("click", () => pick(b));
+		b.addEventListener("keydown", (e) => {
+			if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+			const to = segs[(i + (e.key === "ArrowRight" ? 1 : segs.length - 1)) % segs.length];
+			to.focus();
+			pick(to);
+		});
+	});
+	pick(segs[1]);
 
 	// Reveal sections as they come into view.
 	const els = document.querySelectorAll(".reveal");
@@ -845,11 +922,16 @@ footer a:hover { color: oklch(1 0 0 / 0.9); }
 		els.forEach((el) => io.observe(el));
 	} else els.forEach((el) => el.classList.add("in"));
 
-	// The repo's star count, when GitHub answers.
+	// The repo's star count: the last one seen shows at once, GitHub's answer replaces it.
+	const starsEl = document.getElementById("stars");
+	const showStars = (n) => { starsEl.textContent = n.toLocaleString("en-US"); };
+	try { const last = Number(localStorage.getItem("mailroom-stars")); if (last > 0) showStars(last); } catch {}
 	fetch("https://api.github.com/repos/RVP97/mailroom", { headers: { Accept: "application/vnd.github+json" } })
 		.then((r) => (r.ok ? r.json() : null))
 		.then((d) => {
-			if (d && d.stargazers_count > 0) document.getElementById("stars").textContent = d.stargazers_count.toLocaleString("en-US");
+			if (!d || !(d.stargazers_count > 0)) return;
+			showStars(d.stargazers_count);
+			try { localStorage.setItem("mailroom-stars", String(d.stargazers_count)); } catch {}
 		})
 		.catch(() => {});
 })();
