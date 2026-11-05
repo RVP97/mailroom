@@ -95,6 +95,10 @@
 	},
 	"overrides": [
 		{
+			"includes": ["demo/vite.config.ts"],
+			"linter": { "rules": { "suspicious": { "noTemplateCurlyInString": "off" } } }
+		},
+		{
 			"includes": [
 				"node_modules/**",
 				".next/**",
