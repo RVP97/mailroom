@@ -2,12 +2,7 @@ import { desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { checkContent } from "../../lib/content-check";
 import { EMAIL_FILTERS } from "../../lib/email-status";
-import {
-	type Access,
-	NO_PERMISSION_MESSAGE,
-	PERMISSION_LABEL,
-	type Permission,
-} from "../../lib/permissions";
+import type { Access, Permission } from "../../lib/permissions";
 import { maskDigits } from "../../lib/roles";
 import { accessColumns, accessFromRow, roleJoin } from "../access";
 import { logAccess } from "../access-log";
@@ -31,6 +26,7 @@ import {
 	sendingStatus,
 	setBrandPaused,
 } from "../brands";
+import { broadcastReport } from "../broadcast-report";
 import {
 	audienceSize,
 	broadcastStats,
@@ -42,6 +38,7 @@ import {
 	runBroadcasts,
 	sendBroadcast,
 	updateBroadcast,
+	variantStats,
 } from "../broadcasts";
 import {
 	contactView,
@@ -80,13 +77,13 @@ import { createRule, deleteRule, getRule, listRules, ruleView, updateRule } from
 import { createInbox, inboxView, logInbox } from "../inboxes";
 import { statsByStream, statsByTag, statsByTemplate, timeToInbox } from "../insights";
 import { lookupRecipient } from "../lookup";
+import { getNewsletter, webUrl } from "../newsletters";
 import { orgLogos, setOrgLogo, setOrgLogoBackground, svgDataUrl } from "../org-logos";
+import { pollResults } from "../polls";
 import { postmasterView } from "../postmaster";
 import {
 	accountStatus,
 	addDomain,
-	bimiLogoUrl,
-	dnsRecords,
 	removeDomain,
 	setBimiLogo,
 	setUpOrganization,
@@ -99,10 +96,12 @@ import {
 	inScope,
 	listEmails,
 	listSuppressions,
-	type Scope,
+	SUPPRESSION_REASONS,
 	statsByOrganization,
+	suppressionCounts,
 } from "../queries";
-import { brandForSend, createEmails, parseSend } from "../send";
+import { approvalRequired, contentHash } from "../reviews";
+import { brandForSend, createEmails, parseSend, storedContent } from "../send";
 import { addSuppression, removeSuppression } from "../suppressions";
 import {
 	applyTemplate,
@@ -115,11 +114,36 @@ import {
 	updateTemplate,
 } from "../templates";
 import { testReport } from "../test-report";
-import { addTrackingHost, removeTrackingHost, TRACKING_PREFIX } from "../tracking";
-import { listUnsubscribes, resubscribe } from "../unsubscribes";
+import {
+	addTrackingHost,
+	checkTrackingHost,
+	customTrackingConfigured,
+	removeTrackingHost,
+	TRACKING_PREFIX,
+} from "../tracking";
+import { listUnsubscribes, resubscribe, unsubscribeGroups } from "../unsubscribes";
+import { recordVersion, snapshotOf } from "../versions";
 import { createWebhook, deleteWebhook, updateWebhook } from "../webhook-admin";
 import { INBOX_EVENTS, replayFailed, sendTestEvent, WEBHOOK_EVENTS } from "../webhooks";
 import { INBOX_TOOLS, personActor } from "./inbox-tools";
+import {
+	brand,
+	brandOf,
+	DESIGN_HELP,
+	domainOf,
+	domainView,
+	logged,
+	oneBrand,
+	orgAt,
+	organization,
+	requires,
+	scopeOf,
+	type Tool,
+} from "./kit";
+import { AUDIENCE_TOOLS } from "./tools-audience";
+import { CONTENT_TOOLS } from "./tools-content";
+import { SETTINGS_TOOLS } from "./tools-settings";
+import { TEAM_TOOLS } from "./tools-team";
 
 /** Who is calling: the person behind the connection, read again on every call. */
 export interface McpContext {
@@ -209,109 +233,13 @@ const TOOL_NEEDS: Record<string, Permission> = {
 	create_inbox: "inbox:agents",
 };
 
-interface Tool {
-	name: string;
-	title: string;
-	description: string;
-	input: z.ZodRawShape;
-	readOnly?: boolean;
-	destructive?: boolean;
-	/** Reaches outside Mailroom (sends email, writes to Cloudflare). */
-	openWorld?: boolean;
-	/** Only the deployment's admins see it. */
-	adminOnly?: boolean;
-	run: (args: Record<string, unknown>, ctx: McpContext) => Promise<unknown>;
-}
-
-const organization = z
-	.string()
-	.optional()
-	.describe("The organization's slug, id or name. Optional when you belong to only one.");
-
-const brand = z
-	.string()
-	.optional()
-	.describe(
-		"One of the organization's brands (id, slug or external id; see list_brands). Without it, every brand.",
-	);
-
-const oneBrand = z
-	.string()
-	.optional()
-	.describe(
-		"One of the organization's brands (id, slug or external id; see list_brands). Without it, the organization's own brand.",
-	);
-
-/** One brand of the organization, or all of them. */
-const scopeOf = async (orgId: string, ref: unknown): Promise<Scope> =>
-	typeof ref === "string" && ref.trim() ? brandIn(orgId, ref) : { org: orgId };
-
-/** The brand a write names, or the organization's own. */
-const brandOf = async (orgId: string, ref: unknown) =>
-	typeof ref === "string" && ref.trim() ? brandIn(orgId, ref) : orgId;
-
 /** The organization a call names, and whether the person may do what it needs there. */
 function orgFor(ctx: McpContext, ref: unknown, need: "member" | "manage" | "support" = "member") {
-	const r = typeof ref === "string" ? ref.trim().toLowerCase() : "";
-	const list = ctx.organizations;
-	const org = r
-		? list.find((o) => o.id === ref || o.slug === r || o.name.toLowerCase() === r)
-		: list.length === 1
-			? list[0]
-			: undefined;
-	if (!org)
-		throw new ApiError(
-			404,
-			"not_found",
-			r
-				? `No organization "${String(ref)}" among yours: ${list.map((o) => o.slug).join(", ") || "none"}.`
-				: `Name the organization: ${list.map((o) => o.slug).join(", ") || "you aren't in any"}.`,
-		);
-	if (need !== "member") {
-		// A tool that changes something and isn't in TOOL_NEEDS is for owners only.
-		const p = ctx.tool ? TOOL_NEEDS[ctx.tool] : undefined;
-		if (p ? !org.access.can(p) : !org.access.owner)
-			throw new ApiError(
-				403,
-				"forbidden",
-				`${NO_PERMISSION_MESSAGE} (${org.name}${p ? `: ${PERMISSION_LABEL[p].toLowerCase()}` : ""}).`,
-			);
-	}
-	return org;
+	if (need === "member") return orgAt(ctx, ref);
+	// A tool that changes something and isn't in TOOL_NEEDS is for owners only.
+	const p = ctx.tool ? TOOL_NEEDS[ctx.tool] : undefined;
+	return orgAt(ctx, ref, p ?? "owner");
 }
-
-/** A domain of any of the organization's brands, by id or name. */
-async function domainOf(organizationId: string, ref: string) {
-	const d = schema.domains;
-	const rows = await db
-		.select()
-		.from(d)
-		.where(inScope(d.organization_id, { org: organizationId }));
-	const name = ref.trim().toLowerCase();
-	const row = rows.find((r) => r.id === ref || r.name === name);
-	if (!row) throw notFound("Domain");
-	return row;
-}
-
-const domainView = (d: typeof schema.domains.$inferSelect) => ({
-	id: d.id,
-	name: d.name,
-	brand_id: d.organization_id,
-	purpose: d.purpose,
-	sending: d.sending,
-	paused: d.paused_at ? { at: d.paused_at, reason: d.paused_reason } : null,
-	status: d.status,
-	region: d.region,
-	checked_at: d.checked_at,
-	open_tracking: d.open_tracking,
-	click_tracking: d.click_tracking,
-	tracking_domain: d.tracking_host ? { name: d.tracking_host, status: d.tracking_status } : null,
-	receiving: d.receiving
-		? { host: d.receiving_host ?? d.name, status: d.receiving_status ?? "pending" }
-		: null,
-	bimi_logo: d.bimi_logo ? { url: bimiLogoUrl(d), updated_at: d.bimi_updated_at } : null,
-	records: dnsRecords(d),
-});
 
 const events = z.array(z.enum(WEBHOOK_EVENTS)).optional();
 
@@ -553,17 +481,39 @@ export const TOOLS: Tool[] = [
 	{
 		name: "get_email",
 		title: "Get an email",
-		description: "One email with its timeline (sent, delivered, opened, bounced…).",
-		input: { organization, id: z.string() },
+		description:
+			"One email with its timeline (sent, delivered, opened, bounced…). content: true adds its text, HTML, headers and attachments' names while Mailroom still keeps its body.",
+		input: { organization, id: z.string(), content: z.boolean().optional() },
 		readOnly: true,
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization);
 			const row = await getEmail({ org: org.id }, a.id as string);
 			if (!row) throw notFound("Email");
 			const evs = await emailEvents(row.id);
+			const { idempotency_key: _k, request_hash: _h, locked_until: _l, ...rest } = row;
+			let content: Record<string, unknown> | undefined;
+			if (a.content) {
+				const stored = await storedContent(row.id);
+				const html = stored?.content.html ?? null;
+				const text = stored?.content.text ?? null;
+				content = {
+					kept: !!stored,
+					text: org.masked && text ? maskDigits(text) : text,
+					html:
+						org.masked && html
+							? html.replace(/>([^<]+)</g, (_, t: string) => `>${maskDigits(t)}<`)
+							: html,
+					headers: stored?.content.headers ?? null,
+					attachments: (stored?.attachments ?? []).map((x) => ({
+						filename: x.filename,
+						size: x.size,
+					})),
+				};
+			}
 			return {
-				...row,
+				...rest,
 				...(org.masked ? { subject: maskDigits(row.subject) } : {}),
+				...(content ? { content } : {}),
 				events: evs.map((e) => ({
 					type: e.type,
 					at: e.at,
@@ -732,9 +682,36 @@ export const TOOLS: Tool[] = [
 					'e.g. "Acme <hello@mail.acme.com>" (optional with a template that has one)',
 				),
 			to: z.array(z.string()).min(1).max(50),
+			cc: z.array(z.string()).max(50).optional(),
+			bcc: z.array(z.string()).max(50).optional(),
 			subject: z.string().optional(),
 			text: z.string().optional(),
 			html: z.string().optional(),
+			scheduled_at: z
+				.string()
+				.optional()
+				.describe("ISO 8601, up to 30 days ahead; cancel_email cancels it before then"),
+			tags: z
+				.array(z.object({ name: z.string(), value: z.string() }))
+				.max(40)
+				.optional()
+				.describe("Labels to filter by later (letters, numbers, _ and -)"),
+			headers: z.record(z.string(), z.string()).optional(),
+			attachments: z
+				.array(
+					z.object({
+						filename: z.string(),
+						content: z.string().optional().describe("base64"),
+						path: z.string().optional().describe("A public URL to fetch it from"),
+						content_type: z.string().optional(),
+					}),
+				)
+				.max(30)
+				.optional(),
+			sandbox: z
+				.boolean()
+				.optional()
+				.describe("Run every check and answer what would happen, without sending"),
 			template: z
 				.string()
 				.optional()
@@ -758,9 +735,16 @@ export const TOOLS: Tool[] = [
 				await applyTemplate(org.id, {
 					from: a.from,
 					to: a.to,
+					cc: a.cc,
+					bcc: a.bcc,
 					subject: a.subject,
 					text: a.text,
 					html: a.html,
+					scheduled_at: a.scheduled_at,
+					tags: a.tags,
+					headers: a.headers,
+					attachments: a.attachments,
+					sandbox: a.sandbox,
 					reply_to: a.reply_to,
 					unsubscribe_group: a.unsubscribe_group,
 					brand: a.brand,
@@ -771,8 +755,10 @@ export const TOOLS: Tool[] = [
 				source: "mcp",
 				kick: kickDispatcher,
 				gate: rateGate,
+				sandbox: input.sandbox,
 			});
 			if (r?.error) throw r.error;
+			if (r && "sandbox" in r && r.sandbox) return { sandbox: true, would_send: r.sandbox };
 			return { id: r?.id ?? null, status: r?.status ?? null };
 		},
 	},
@@ -836,12 +822,19 @@ export const TOOLS: Tool[] = [
 	{
 		name: "verify_domain",
 		title: "Check a domain",
-		description: "Asks SES again whether the domain's DNS records are in place.",
+		description:
+			"Asks SES again whether the domain's DNS records are in place (and Cloudflare whether its tracking domain is live).",
 		input: { organization, domain: z.string().describe("The domain's name or id") },
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization);
 			const d = await domainOf(org.id, a.domain as string);
-			await verifyDomain(d.organization_id, d.id);
+			const v = await verifyDomain(d.organization_id, d.id);
+			if (
+				v.tracking_hostname_id &&
+				v.tracking_status !== "active" &&
+				customTrackingConfigured()
+			)
+				await checkTrackingHost(d.organization_id, d.id).catch(() => null);
 			return domainView(await domainOf(org.id, d.id));
 		},
 	},
@@ -1101,14 +1094,28 @@ export const TOOLS: Tool[] = [
 		name: "list_suppressions",
 		title: "List suppressions",
 		description:
-			"Addresses the organization's brands won't send to (hard bounces, complaints, added by hand), each with its brand.",
-		input: { organization, brand, search: z.string().optional() },
+			"Addresses the organization's brands won't send to (hard bounces, complaints, added by hand), each with its brand, 100 at a time (page with offset), and how many there are by reason. get_suppression explains one.",
+		input: {
+			organization,
+			brand,
+			search: z.string().optional(),
+			reason: z.enum(SUPPRESSION_REASONS).optional(),
+			offset: z.number().int().min(0).optional(),
+		},
 		readOnly: true,
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization);
-			return listSuppressions(await scopeOf(org.id, a.brand), {
-				search: a.search as string | undefined,
-			});
+			const scope = await scopeOf(org.id, a.brand);
+			const [page, counts] = await Promise.all([
+				listSuppressions(scope, {
+					search: a.search as string | undefined,
+					reason: a.reason as never,
+					offset: (a.offset as number | undefined) ?? 0,
+					limit: 100,
+				}),
+				suppressionCounts(scope),
+			]);
+			return { ...page, counts };
 		},
 	},
 	{
@@ -1152,20 +1159,28 @@ export const TOOLS: Tool[] = [
 		name: "list_unsubscribes",
 		title: "List unsubscribes",
 		description:
-			"People who unsubscribed from one of the organization's unsubscribe groups (emails sent with unsubscribe_group). They still get that organization's emails without a group or in other groups.",
+			"People who unsubscribed from one of the organization's unsubscribe groups (emails sent with unsubscribe_group), 100 at a time (page with offset), and the groups there are. They still get that organization's emails without a group or in other groups.",
 		input: {
 			organization,
 			brand,
 			group: z.string().optional(),
 			search: z.string().optional(),
+			offset: z.number().int().min(0).optional(),
 		},
 		readOnly: true,
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization);
-			return listUnsubscribes(await scopeOf(org.id, a.brand), {
-				group: a.group as string | undefined,
-				search: a.search as string | undefined,
-			});
+			const scope = await scopeOf(org.id, a.brand);
+			const [page, groups] = await Promise.all([
+				listUnsubscribes(scope, {
+					group: a.group as string | undefined,
+					search: a.search as string | undefined,
+					offset: (a.offset as number | undefined) ?? 0,
+					limit: 100,
+				}),
+				unsubscribeGroups(scope),
+			]);
+			return { ...page, groups };
 		},
 	},
 	{
@@ -1310,6 +1325,7 @@ export const TOOLS: Tool[] = [
 			reply_to: z.string().optional(),
 			html: z.string().optional(),
 			text: z.string().optional(),
+			design: z.record(z.string(), z.unknown()).nullable().optional().describe(DESIGN_HELP),
 			variables: z
 				.array(
 					z.object({
@@ -1330,7 +1346,20 @@ export const TOOLS: Tool[] = [
 			let t = template
 				? await updateTemplate(org.id, template as string, defined)
 				: await createTemplate(org.id, defined);
+			await recordVersion({
+				organizationId: org.id,
+				type: "template",
+				id: t.id,
+				userId: ctx.userId,
+				snapshot: snapshotOf({ ...t.draft, design: t.draft.design ?? null }),
+			});
 			if (publish) t = await publishTemplate(org.id, t.id);
+			await logged(
+				ctx,
+				org,
+				publish ? "template.published" : template ? "template.edited" : "template.created",
+				{ type: "template", id: t.id, name: t.name },
+			);
 			return templateView(t);
 		},
 	},
@@ -1474,15 +1503,36 @@ export const TOOLS: Tool[] = [
 		name: "list_broadcasts",
 		title: "List broadcasts",
 		description:
-			"The organization's broadcasts (or one brand's), newest first: status (draft, scheduled, sending, sent, canceled), segment and how many emails were queued.",
-		input: { organization, brand: oneBrand },
+			"The organization's broadcasts (or one brand's), newest first: status (draft, scheduled, sending, sent, canceled), segment, newsletter, campaign and how many emails were queued. Filter by status, newsletter_id or campaign_id.",
+		input: {
+			organization,
+			brand: oneBrand,
+			status: z.enum(["draft", "scheduled", "sending", "sent", "canceled"]).optional(),
+			newsletter_id: z.string().optional(),
+			campaign_id: z.string().optional(),
+			limit: z.number().int().min(1).max(500).optional(),
+		},
 		readOnly: true,
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization);
 			const ids = a.brand ? [await brandOf(org.id, a.brand)] : await brandIds(org.id);
-			const rows = await listBroadcasts(ids, { limit: 100 });
+			const filtered = a.status || a.newsletter_id || a.campaign_id;
+			const limit = (a.limit as number | undefined) ?? 100;
+			const rows = (await listBroadcasts(ids, { limit: filtered ? 1000 : limit }))
+				.filter(
+					(x) =>
+						(!a.status || x.status === a.status) &&
+						(!a.newsletter_id || x.newsletter_id === a.newsletter_id) &&
+						(!a.campaign_id || x.campaign_id === a.campaign_id),
+				)
+				.slice(0, limit);
 			return rows.map((x) => {
-				const { html: _h, text: _t, ...v } = broadcastView(x);
+				const {
+					html: _h,
+					text: _t,
+					design: _d,
+					...v
+				} = broadcastView(x) as Record<string, unknown>;
 				return v;
 			});
 		},
@@ -1491,16 +1541,41 @@ export const TOOLS: Tool[] = [
 		name: "get_broadcast",
 		title: "Get a broadcast",
 		description:
-			"One broadcast with its content and what happened to its emails (sent, delivered, opened, clicked, bounced, unsubscribed).",
+			"One broadcast with its content (html, text and its block design when made in the editor) and what happened to its emails (sent, delivered, opened, clicked, bounced, unsubscribed); before it goes, its audience size; once sent, its report (clicks per link, by provider), A/B variants, poll results, how many didn't open (a resend's audience) and its web version; and whether it needs and has approval.",
 		input: { organization, broadcast: z.string().describe("Its id") },
 		readOnly: true,
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization);
 			const x = await getBroadcast(await brandIds(org.id), a.broadcast as string);
+			const went = !["draft", "scheduled"].includes(x.status);
+			const [stats, audience, variants, report, polls, nonOpeners, needsApproval, hash] =
+				await Promise.all([
+					broadcastStats(x.id),
+					went ? undefined : audienceSize(x),
+					x.ab_test ? variantStats(x.id) : undefined,
+					went ? broadcastReport(x.id, x.started_at) : undefined,
+					went ? pollResults(x.id, x.design) : undefined,
+					x.status === "sent" ? audienceSize({ ...x, resend_of: x.id }) : undefined,
+					approvalRequired(org.id),
+					contentHash(x),
+				]);
+			const newsletter = x.newsletter_id
+				? await getNewsletter(x.organization_id, x.newsletter_id).catch(() => null)
+				: null;
 			return {
 				...broadcastView(x),
-				stats: await broadcastStats(x.id),
-				audience: x.status === "draft" ? await audienceSize(x) : undefined,
+				stats,
+				audience,
+				variants,
+				report,
+				polls,
+				did_not_open: nonOpeners,
+				web_url: went ? webUrl(x, newsletter) : null,
+				approval: {
+					required: needsApproval,
+					review: x.review,
+					approved: x.review === "approved" && x.review_hash === hash,
+				},
 			};
 		},
 	},
@@ -1508,47 +1583,94 @@ export const TOOLS: Tool[] = [
 		name: "save_broadcast",
 		title: "Create or change a broadcast",
 		description:
-			"Creates a draft broadcast (no `broadcast`) or changes a draft: segment_id, topic_id, from, subject, preview_text, html/text, or template { id, variables } to copy a published template's content in. {{{FIRST_NAME}}}, {{{contact.<key>}}} and {{{UNSUBSCRIBE_URL}}} are filled per contact. It isn't sent: use send_broadcast.",
+			"Creates a draft broadcast (no `broadcast`) or changes a draft: segment_id, topic_id, from, subject, preview_text, reply_to, the content (html/text, a block `design` like the dashboard's editor makes, or template { id, variables } to copy a published template's content in), newsletter_id (an issue of that newsletter; web: on its public archive), campaign_id (part of that campaign; campaign_dedupe: skip who got another of its broadcasts). {{{FIRST_NAME}}}, {{{contact.<key>}}}, {{{UNSUBSCRIBE_URL}}} and {{{WEB_VERSION_URL}}} are filled per contact. Each save keeps a version (list_versions). It isn't sent: use send_broadcast.",
 		input: {
 			organization,
 			brand: oneBrand,
 			broadcast: z.string().optional().describe("A draft's id to change"),
 			name: z.string().optional(),
-			segment_id: z.string().optional(),
+			segment_id: z.string().nullable().optional(),
 			topic_id: z.string().nullable().optional(),
 			from: z.string().optional(),
 			subject: z.string().optional(),
 			reply_to: z.array(z.string()).optional(),
 			preview_text: z.string().optional(),
 			html: z.string().optional(),
-			text: z.string().optional(),
+			text: z.string().nullable().optional(),
+			design: z.record(z.string(), z.unknown()).nullable().optional().describe(DESIGN_HELP),
 			template: z
 				.object({ id: z.string(), variables: z.record(z.string(), z.unknown()).optional() })
 				.optional(),
+			newsletter_id: z.string().nullable().optional(),
+			web: z.boolean().optional(),
+			campaign_id: z.string().nullable().optional(),
+			campaign_dedupe: z.boolean().optional(),
 		},
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization, "manage");
 			const { organization: _o, brand: b, broadcast: id, ...fields } = a;
+			let row: Awaited<ReturnType<typeof getBroadcast>>;
 			if (id) {
 				const x = await getBroadcast(await brandIds(org.id), id as string);
-				return broadcastView(
-					await updateBroadcast(org.id, x.organization_id, x.id, fields),
+				row = await updateBroadcast(
+					org.id,
+					x.organization_id,
+					x.id,
+					fields,
+					Date.now(),
+					ctx.userId,
 				);
+			} else {
+				row = await createBroadcast(
+					org.id,
+					await brandOf(org.id, b),
+					{ name: "Untitled broadcast", html: "", ...fields },
+					Date.now(),
+					ctx.userId,
+				);
+				await logged(ctx, org, "broadcast.created", {
+					type: "broadcast",
+					id: row.id,
+					name: row.name,
+				});
 			}
-			return broadcastView(await createBroadcast(org.id, await brandOf(org.id, b), fields));
+			await recordVersion({
+				organizationId: org.id,
+				type: "broadcast",
+				id: row.id,
+				userId: ctx.userId,
+				snapshot: snapshotOf(row),
+			});
+			if (id)
+				await logged(ctx, org, "broadcast.edited", {
+					type: "broadcast",
+					id: row.id,
+					name: row.name || row.subject,
+				});
+			return broadcastView(row);
 		},
 	},
 	{
 		name: "send_broadcast",
 		title: "Send a broadcast",
 		description:
-			"Sends a draft broadcast to its segment now, or at scheduled_at (ISO 8601, up to 30 days ahead). Confirm the audience with the person first: get_broadcast gives its size.",
+			"Sends a draft broadcast to its segment now, or at scheduled_at (ISO 8601, up to 30 days ahead), or at local_time (2026-11-10T09:00) in each contact's own time zone. ab_test: { subjects (1 or 2 other subject lines to test against the broadcast's own), metric opens|clicks, size (10–50: percent of the audience in the test), wait_minutes (30–2880) } sends the winning subject to the rest. When the organization requires approval, the broadcast must be approved first (review_broadcast). Confirm the audience with the person first: get_broadcast gives its size.",
 		input: {
 			organization,
 			broadcast: z.string(),
 			scheduled_at: z.string().optional(),
+			local_time: z.string().optional(),
+			ab_test: z
+				.object({
+					subjects: z.array(z.string()).min(1).max(2),
+					metric: z.enum(["opens", "clicks"]).optional(),
+					size: z.number().int().min(10).max(50).optional(),
+					wait_minutes: z.number().int().min(30).max(2880).optional(),
+				})
+				.optional(),
 		},
 		destructive: true,
+		openWorld: true,
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization, "manage");
 			const x = await getBroadcast(await brandIds(org.id), a.broadcast as string);
@@ -1558,17 +1680,24 @@ export const TOOLS: Tool[] = [
 				x.organization_id,
 				x.id,
 				a.scheduled_at as string | undefined,
+				Date.now(),
+				{
+					ab_test: a.ab_test as never,
+					local_time: a.local_time as string | undefined,
+				},
 			);
-			const { logActivity } = await import("../activity");
-			await logActivity({
-				organizationId: org.id,
-				userId: ctx.userId,
-				action: row.status === "scheduled" ? "broadcast.scheduled" : "broadcast.sent",
-				subject: { type: "broadcast", id: x.id, name: x.name || x.subject },
-				detail: { via: "assistant" },
-			});
-			if (!a.scheduled_at) await runBroadcasts(Date.now(), row.id);
-			return { id: row.id, status: row.status, scheduled_at: row.scheduled_at };
+			await logged(
+				ctx,
+				org,
+				row.status === "scheduled" && (a.scheduled_at || a.local_time)
+					? "broadcast.scheduled"
+					: "broadcast.sent",
+				{ type: "broadcast", id: x.id, name: x.name || x.subject },
+				row.scheduled_at ? { at: row.scheduled_at } : undefined,
+			);
+			if (!a.scheduled_at && !a.local_time) await runBroadcasts(Date.now(), row.id);
+			const after = await getBroadcast(x.organization_id, x.id);
+			return { id: row.id, status: after.status, scheduled_at: after.scheduled_at };
 		},
 	},
 	{
@@ -1582,6 +1711,11 @@ export const TOOLS: Tool[] = [
 			const org = orgFor(ctx, a.organization, "manage");
 			const x = await getBroadcast(await brandIds(org.id), a.broadcast as string);
 			const row = await cancelBroadcast(x.organization_id, x.id);
+			await logged(ctx, org, "broadcast.canceled", {
+				type: "broadcast",
+				id: x.id,
+				name: x.name || x.subject,
+			});
 			return { id: row.id, status: row.status };
 		},
 	},
@@ -1629,11 +1763,31 @@ export const TOOLS: Tool[] = [
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization, "manage");
 			const { organization: _o, brand: b, automation: id, ...fields } = a;
+			// Turning one on or off is its own permission.
+			if (fields.status === "active" || fields.status === "paused")
+				requires(org, "automations:activate");
 			if (id) {
 				const x = await getAutomation(await brandIds(org.id), id as string);
-				return automationView(await updateAutomation(x.organization_id, x.id, fields));
+				const row = await updateAutomation(x.organization_id, x.id, fields);
+				await logged(ctx, org, "automation.edited", {
+					type: "automation",
+					id: row.id,
+					name: row.name,
+				});
+				return automationView(row);
 			}
-			return automationView(await createAutomation(await brandOf(org.id, b), fields));
+			const row = await createAutomation(await brandOf(org.id, b), {
+				name: "Untitled automation",
+				trigger: { type: "contact.created" },
+				steps: [],
+				...fields,
+			});
+			await logged(ctx, org, "automation.created", {
+				type: "automation",
+				id: row.id,
+				name: row.name,
+			});
+			return automationView(row);
 		},
 	},
 	{
@@ -1801,4 +1955,9 @@ export const TOOLS: Tool[] = [
 			run: async (a, ctx) => t.run(a, await personActor(orgFor(ctx, a.organization), ctx)),
 		}),
 	),
+	// Everything else the dashboard does, by area (each tool checks its own permission).
+	...TEAM_TOOLS,
+	...AUDIENCE_TOOLS,
+	...CONTENT_TOOLS,
+	...SETTINGS_TOOLS,
 ];

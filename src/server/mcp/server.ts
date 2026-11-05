@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { AccessError } from "../access";
 import { ApiError } from "../errors";
 import { authenticateInbox, type InboxActor, listInboxes } from "../inboxes";
 import { limitKey } from "../rate-limit";
@@ -16,7 +17,17 @@ import { type McpContext, memberships, TOOLS } from "./tools";
  * one of the deployment's admins).
  */
 
-const INSTRUCTIONS = `Mailroom is a Resend-style email platform on Amazon SES. Each organization is one business (its own SES tenant): its domains, API keys, webhooks, emails and suppressions. Tools that act on an organization take \`organization\` (its slug, id or name); call list_organizations first when the person belongs to several. API key and webhook secret values are never shown here: an app's Worker gets them with the repo's scripts/connect-app.sh.`;
+const INSTRUCTIONS = `Mailroom is a Resend-style email platform on Amazon SES. Each organization is one business; its brands (list_brands) are who its emails are from, each its own SES tenant with its own domains, contacts, suppressions and reputation. Tools that act on an organization take \`organization\` (its slug, id or name); call list_organizations first when the person belongs to several (it also lists your permissions there). Tools that act on one brand take \`brand\`; without it, the organization's own.
+
+What's here, by area (everything the dashboard does):
+- Sending: send_email (also scheduled, with attachments or as a sandbox check), list_emails, get_email, cancel_email, get_stats, get_insights, get_insight_detail, sending_status.
+- Broadcasts and newsletters: save_broadcast (html, a block design or a template), send_broadcast (now, later, local time, A/B test), send_broadcast_test, review_broadcast (approval), list_versions / restore_version, comments, campaigns, newsletters (public archive, RSS, referrals), templates, saved sections, brand kits, upload_file for images.
+- Audience: contacts, import_contacts, segments, topics, properties, sign-up forms, get_growth, get_engagement / clean_up_contacts, automations and send_event.
+- Received mail and inboxes: list_received_emails, inbound rules, agent inboxes and their conversations (list_conversations, get_conversation, save_draft, send_reply…), website chat.
+- Deliverability: domains (add, verify, DNS help, tracking, BIMI), check_deliverability, domain_health, dmarc_reports, suppressions, unsubscribes, the email firewall, lookup_recipient.
+- Team and settings: list_team, invite_member, change_member, roles and permissions, get/update_organization_settings, list_activity, list_access_log, webhooks and their deliveries, API keys and API logs.
+
+Lists page with \`after\`, \`before\` or \`offset\` as each tool says. Changes are checked against the person's role and recorded in the activity log as made by the assistant. Confirm with the person before anything that sends to many people or deletes. API key, SMTP password, webhook secret and inbox credential values are never shown here: an app's Worker gets them with the repo's scripts/connect-app.sh, and people make inbox credentials in the dashboard.`;
 
 function text(value: unknown): CallToolResult {
 	return {
@@ -58,6 +69,7 @@ export function buildServer(ctx: McpContext) {
 					return text(await tool.run(args as never, { ...ctx, tool: tool.name }));
 				} catch (error) {
 					if (error instanceof ApiError) return failure(error.message);
+					if (error instanceof AccessError) return failure(error.message);
 					if (error instanceof z.ZodError)
 						return failure(
 							`${error.issues[0]?.path.join(".") || "input"}: ${error.issues[0]?.message}`,

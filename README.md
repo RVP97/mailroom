@@ -879,6 +879,22 @@ Also `email <id>`, `received`, `templates`, `contacts`, `broadcasts`, `status` a
 first row names the columns (email, first_name, last_name, unsubscribed, and any other becomes a
 contact property, added when it's missing). `npm link` puts `mailroom` on the PATH.
 
+### MCP (Claude and other assistants)
+
+`https://<your Mailroom>/mcp` is an MCP server that does everything the dashboard does: send
+and schedule email, write broadcasts (HTML, the editor's block design or a template), send them
+now, later, at each contact's local time or as an A/B test, ask for and give approval, comments
+and version history, newsletters, campaigns, templates, saved sections and brand kits, contacts
+(import, segments, topics, properties, engagement clean-up), sign-up forms, automations, received
+mail, agent inboxes and their website chat, domains and deliverability, suppressions and the
+firewall, the team and its roles, the organization's settings, webhooks, API logs and the
+activity log. A person connects with OAuth (signing in to Mailroom), and every call is checked
+against their role in the organization it names, as the dashboard checks it; changes show in the
+activity log as made by the assistant. The deployment's admins also get the AWS, SES account,
+sending limits and Postmaster tools. Secrets (API keys, SMTP passwords, webhook secrets, inbox
+credential tokens) are never shown or made there. An agent inbox's own credential gets only
+that inbox's tools (see Agent inboxes).
+
 ## Workers Paid, and the free plan
 
 Mailroom is sized for Workers Paid ($5 a month): it includes 50 million D1 rows written a month
