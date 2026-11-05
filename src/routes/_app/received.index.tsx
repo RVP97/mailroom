@@ -10,6 +10,7 @@ import {
 	Search,
 	Zap,
 } from "lucide-react";
+import { useEffect } from "react";
 import { z } from "zod";
 import { ApiDrawer } from "@/components/api-drawer";
 import { BrandFilter } from "@/components/brand-filter";
@@ -43,6 +44,7 @@ import { formatAgo, formatDateTime } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { usePendingSearch } from "@/lib/pending";
 import { allows } from "@/lib/permissions";
+import { rememberOrder } from "@/lib/received-order";
 import {
 	ago,
 	Ph,
@@ -54,6 +56,7 @@ import {
 	useListed,
 	usePage,
 	useRememberRows,
+	useSketching,
 } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 
@@ -210,6 +213,11 @@ function Received() {
 	useRememberRows("received:inboxes", page.inboxes.length);
 	useRememberRows("received:address", page.address ? 1 : 0);
 	useListed("received", page.data);
+	const sketching = useSketching();
+	useEffect(() => {
+		if (!loading && !sketching)
+			rememberOrder({ ids: page.data.map((r) => r.id), search: current });
+	}, [loading, sketching, page.data, current]);
 	const navigate = Route.useNavigate();
 	const names = new Map(page.brands.map((o) => [o.id, o.name]));
 	const inboxes = new Map(page.inboxes.map((i) => [i.id, i]));
@@ -252,7 +260,7 @@ function Received() {
 									/>
 								</Ph>
 								<span className="text-muted-foreground">
-									(and anything+{"…"} at it)
+									Already receiving, and so does anything+{"…"} at it
 									{page.addresses?.own && page.addresses.fallback && (
 										<>; {page.addresses.fallback} works too</>
 									)}

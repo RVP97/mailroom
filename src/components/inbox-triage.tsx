@@ -102,6 +102,28 @@ export const TAG_COLORS: Record<string, { dot: string; chip: string; label: stri
 	},
 };
 
+/**
+ * How a menu is shown: a small outlined button (the default), or a full-width row of a details
+ * panel (`row`). `open` lets the page open it from a keyboard shortcut.
+ */
+export type MenuControl = {
+	row?: boolean;
+	open?: boolean;
+	onOpenChange?: (open: boolean) => void;
+};
+
+const trigger = (row?: boolean) =>
+	row
+		? ({
+				variant: "ghost",
+				size: "sm",
+				className: "-mx-2 h-8 w-[calc(100%+1rem)] justify-start gap-2 px-2 font-normal",
+			} as const)
+		: ({ variant: "outline", size: "sm" } as const);
+
+const Chevron = ({ row }: { row?: boolean }) =>
+	row ? null : <ChevronDown className="opacity-60" />;
+
 const colorOf = (tag: string, catalog: InboxTag[]) =>
 	TAG_COLORS[catalog.find((t) => t.name === tag)?.color ?? "gray"] ?? TAG_COLORS.gray;
 
@@ -135,12 +157,15 @@ export function TagsMenu({
 	catalog,
 	disabled,
 	onChange,
+	row,
+	open,
+	onOpenChange,
 }: {
 	tags: string[];
 	catalog: InboxTag[];
 	disabled?: boolean;
 	onChange: (tags: string[]) => void;
-}) {
+} & MenuControl) {
 	const [q, setQ] = useState("");
 	const known = [...new Set([...catalog.map((t) => t.name), ...tags])];
 	const shown = known.filter((t) => t.toLowerCase().includes(q.trim().toLowerCase()));
@@ -148,14 +173,34 @@ export function TagsMenu({
 	const toggle = (t: string) =>
 		onChange(tags.includes(t) ? tags.filter((x) => x !== t) : [...tags, t]);
 	return (
-		<Popover>
+		<Popover
+			open={open}
+			onOpenChange={onOpenChange}
+		>
 			<PopoverTrigger asChild>
 				<Button
-					variant="outline"
-					size="sm"
+					{...trigger(row)}
+					className={cn(
+						trigger(row).className,
+						row && tags.length > 0 && "h-auto min-h-8 py-1.5",
+					)}
 					disabled={disabled}
 				>
-					{tags.length ? (
+					{row ? (
+						tags.length ? (
+							<span className="flex min-w-0 flex-wrap gap-1">
+								{tags.map((t) => (
+									<TagChip
+										key={t}
+										tag={t}
+										catalog={catalog}
+									/>
+								))}
+							</span>
+						) : (
+							<span className="text-muted-foreground">Add tags</span>
+						)
+					) : tags.length ? (
 						<span className="flex -space-x-0.5">
 							{tags.slice(0, 3).map((t) => (
 								<span
@@ -170,13 +215,15 @@ export function TagsMenu({
 					) : (
 						<Tag />
 					)}
-					<span
-						className="max-w-40 truncate"
-						title={tags.length ? tags.join(", ") : undefined}
-					>
-						{tags.length ? tags.join(", ") : "Tag"}
-					</span>
-					<ChevronDown className="opacity-60" />
+					{!row && (
+						<span
+							className="max-w-40 truncate"
+							title={tags.length ? tags.join(", ") : undefined}
+						>
+							{tags.length ? tags.join(", ") : "Tag"}
+						</span>
+					)}
+					<Chevron row={row} />
 				</Button>
 			</PopoverTrigger>
 			<PopoverContent
@@ -271,22 +318,27 @@ export function PriorityMenu({
 	priority,
 	disabled,
 	onChange,
+	row,
+	open,
+	onOpenChange,
 }: {
 	priority: Priority;
 	disabled?: boolean;
 	onChange: (p: Priority) => void;
-}) {
+} & MenuControl) {
 	return (
-		<DropdownMenu>
+		<DropdownMenu
+			open={open}
+			onOpenChange={onOpenChange}
+		>
 			<DropdownMenuTrigger asChild>
 				<Button
-					variant="outline"
-					size="sm"
+					{...trigger(row)}
 					disabled={disabled}
 				>
 					<Flag className={PRIORITY[priority].icon} />
 					{PRIORITY[priority].label}
-					<ChevronDown className="opacity-60" />
+					<Chevron row={row} />
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start">
@@ -351,22 +403,27 @@ export function AssigneeMenu({
 	me,
 	disabled,
 	onChange,
+	row,
+	open,
+	onOpenChange,
 }: {
 	holder: Holder;
 	people: Person[];
 	me: string;
 	disabled?: boolean;
 	onChange: (reader: string | null) => void;
-}) {
+} & MenuControl) {
 	const persons = people.filter((p) => p.type === "person");
 	const agents = people.filter((p) => p.type === "agent");
 	const claim = holder?.type === "agent" && holder.until;
 	return (
-		<DropdownMenu>
+		<DropdownMenu
+			open={open}
+			onOpenChange={onOpenChange}
+		>
 			<DropdownMenuTrigger asChild>
 				<Button
-					variant="outline"
-					size="sm"
+					{...trigger(row)}
 					disabled={disabled}
 					title={
 						claim
@@ -387,7 +444,7 @@ export function AssigneeMenu({
 						{holder ? (holder.reader === me ? "You" : holder.name) : "Unassigned"}
 					</span>
 					{claim && <span className="text-xs text-muted-foreground">working</span>}
-					<ChevronDown className="opacity-60" />
+					<Chevron row={row} />
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent
@@ -544,24 +601,35 @@ export function SnoozeMenu({
 	until,
 	disabled,
 	onChange,
+	row,
+	open,
+	onOpenChange,
 }: {
 	until: string | null;
 	disabled?: boolean;
 	onChange: (until: string | null) => void;
-}) {
+} & MenuControl) {
 	const [picking, setPicking] = useState(false);
 	return (
 		<>
-			<DropdownMenu>
+			<DropdownMenu
+				open={open}
+				onOpenChange={onOpenChange}
+			>
 				<DropdownMenuTrigger asChild>
 					<Button
-						variant="outline"
-						size="sm"
+						{...trigger(row)}
 						disabled={disabled}
 					>
-						<AlarmClock />
-						{until ? `Until ${short.format(new Date(until))}` : "Snooze"}
-						<ChevronDown className="opacity-60" />
+						<AlarmClock className={cn(row && !until && "text-muted-foreground")} />
+						{until ? (
+							`Until ${short.format(new Date(until))}`
+						) : row ? (
+							<span className="text-muted-foreground">Not snoozed</span>
+						) : (
+							"Snooze"
+						)}
+						<Chevron row={row} />
 					</Button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent

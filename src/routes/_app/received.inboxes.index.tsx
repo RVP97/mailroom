@@ -237,7 +237,17 @@ function CreateInbox({ data }: { data: Data }) {
 	return (
 		<Dialog
 			open={open}
-			onOpenChange={setOpen}
+			onOpenChange={(o) => {
+				// Picked on opening, from the page's data as it is now: the first paint (its
+				// skeleton) has no domains yet, so a choice made then would skip the person's own.
+				if (o) {
+					const b = brand || data.own;
+					setBrand(b);
+					const first = data.hosts.find((h) => h.brand === b);
+					setDomain(first?.id ?? (data.mailroomDomain ? MAILROOM : ""));
+				}
+				setOpen(o);
+			}}
 		>
 			<DialogTrigger asChild>
 				<Button>
@@ -352,7 +362,7 @@ function CreateInbox({ data }: { data: Data }) {
 										))}
 										{data.mailroomDomain && (
 											<SelectItem value={MAILROOM}>
-												The Mailroom address
+												{data.mailroomDomain} (no DNS needed)
 											</SelectItem>
 										)}
 									</SelectContent>

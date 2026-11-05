@@ -820,6 +820,13 @@ priority and channel, with cards you can hide and reorder, a date range and CSV 
   business hours, and actions that tag, set priority, assign (or round robin), snooze, resolve,
   auto-reply with a saved reply, leave a note, hold, or email someone, optionally stopping there.
 
+A conversation's page shows the thread with its activity between the messages (older ones folded),
+what's waiting for a person (an agent's draft to approve, a reply about to go) just above the
+reply box, and a details panel: owner, priority, tags, snooze, due time, who wrote and their
+earlier conversations. Keys work while you're not typing: `J`/`K` next and previous in the list
+you came from, `R` reply, `N` note, `E` resolve (and open the next one), `A` assign, `P`
+priority, `T` tags, `S` snooze, `U` mark unread, `?` all of them.
+
 **Saved replies** (**Received › Saved replies**) hold text with the same variables, a `/shortcut`
 for the reply box, and what to do after sending (add tags, resolve, or snooze). Notes are only for
 the team: type `@` to mention someone (they get an email). A reply can wait (`send_at`) and, until

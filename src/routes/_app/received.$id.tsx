@@ -3,18 +3,24 @@ import {
 	ArrowUpRight,
 	Bot,
 	ChevronDown,
+	ChevronRight,
+	ChevronUp,
 	CircleCheck,
+	Clock,
 	Ellipsis,
+	History,
+	Keyboard,
 	Mail,
-	MailOpen,
 	MessageCircle,
 	MessagesSquare,
+	PanelRight,
 	Paperclip,
 	PenLine,
 	RotateCcw,
 	Send,
 	ShieldAlert,
 	ShieldCheck,
+	Star,
 	StickyNote,
 	Trash2,
 	Undo2,
@@ -22,7 +28,7 @@ import {
 	X,
 	Zap,
 } from "lucide-react";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ApiDrawer } from "@/components/api-drawer";
 import { ChatThread, type Live } from "@/components/chat-thread";
@@ -36,17 +42,24 @@ import {
 	SlaBadge,
 	SnoozeMenu,
 	Stars,
+	slaState,
 	TagsMenu,
-	TriageBar,
 } from "@/components/inbox-triage";
 import { Page, Section } from "@/components/page";
-import { Fact, Facts, IdChip, RecordHeader } from "@/components/record";
-import { StatusBadge } from "@/components/status-badge";
+import { IdChip, RecordHeader } from "@/components/record";
+import { StatusBadge, StatusDot } from "@/components/status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -80,6 +93,7 @@ import { errorMessage } from "@/lib/errors";
 import { formatAgo, formatDateTime, formatSeconds } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { allows } from "@/lib/permissions";
+import { neighbors } from "@/lib/received-order";
 import { fillVariables } from "@/lib/reply-variables";
 import { ago, listedRow, Ph, Sketch, useOpened, usePage } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
@@ -236,13 +250,25 @@ function ConversationPage() {
 	);
 	const [busy, setBusy] = useState<string | null>(null);
 	const reload = () => router.invalidate();
+	// Where it sits in the list the person came from (read after the first paint: sessionStorage).
+	const [nav, setNav] = useState<ReturnType<typeof neighbors>>(() => ({
+		index: -1,
+		total: 0,
+		prev: null,
+		next: null,
+		search: null,
+	}));
+	useEffect(() => setNav(neighbors(c.id)), [c.id]);
+	const go = (id: string | null) =>
+		id ? router.navigate({ to: "/received/$id", params: { id } }) : undefined;
+	const back = () => router.navigate({ to: "/received", search: nav.search ?? {} });
 	const update = async (patch: Patch, key: string, done?: string) => {
 		setBusy(key);
 		try {
 			await updateConversationFn({ data: { id: c.id, ...patch } });
 			if (patch.read === false) {
 				toast.success("Marked unread");
-				await router.navigate({ to: "/received" });
+				await back();
 				return;
 			}
 			if (done) toast.success(done);
@@ -253,6 +279,91 @@ function ConversationPage() {
 			setBusy(null);
 		}
 	};
+	/** Resolve it and move on to the next one in the list, as a queue. */
+	const resolve = async () => {
+		await update(
+			{ status: "resolved" },
+			"status",
+			nav.next ? "Resolved, on to the next one" : "Resolved",
+		);
+		if (nav.next) await go(nav.next);
+	};
+	const [panel, setPanel] = useState(false);
+	const [menu, setMenu] = useState<"assignee" | "priority" | "tags" | "snooze" | null>(null);
+	const [keysOpen, setKeysOpen] = useState(false);
+	const [ask, setAsk] = useState<{ mode: "reply" | "note"; n: number }>({ mode: "reply", n: 0 });
+	const [showActivity, setShowActivity] = useState(true);
+	useEffect(() => {
+		try {
+			setShowActivity(localStorage.getItem(ACTIVITY_KEY) !== "hidden");
+		} catch {}
+	}, []);
+	const toggleActivity = () => {
+		setShowActivity((v) => {
+			try {
+				localStorage.setItem(ACTIVITY_KEY, v ? "hidden" : "shown");
+			} catch {}
+			return !v;
+		});
+	};
+	// One-key shortcuts (not while typing, nor with a menu or dialog open).
+	const onKey = useRef<(e: KeyboardEvent) => void>(() => {});
+	// «G» then a letter goes to a page (the command menu's): that letter isn't ours.
+	const lastG = useRef(0);
+	onKey.current = (e) => {
+		if (e.metaKey || e.ctrlKey || e.altKey) return;
+		if (e.key === "g") {
+			lastG.current = Date.now();
+			return;
+		}
+		if (Date.now() - lastG.current < 1000) return;
+		const el = e.target as HTMLElement | null;
+		if (el?.closest("input, textarea, select, [contenteditable=true]")) return;
+		if (
+			document.querySelector(
+				"[role=dialog], [role=menu], [data-radix-popper-content-wrapper]",
+			)
+		)
+			return;
+		const open = (m: NonNullable<typeof menu>) => {
+			if (!canReply) return;
+			setPanel(true);
+			setMenu(m);
+		};
+		const act: Record<string, () => void> = {
+			j: () => void go(nav.next),
+			k: () => void go(nav.prev),
+			r: () => canReply && !chat && setAsk((a) => ({ mode: "reply", n: a.n + 1 })),
+			n: () => canReply && setAsk((a) => ({ mode: "note", n: a.n + 1 })),
+			e: () =>
+				canReply &&
+				(c.status === "open"
+					? void resolve()
+					: void update({ status: "open" }, "status", "Reopened")),
+			u: () => void update({ read: false }, "unread"),
+			a: () => open("assignee"),
+			p: () => open("priority"),
+			t: () => open("tags"),
+			s: () => c.status === "open" && open("snooze"),
+			"?": () => setKeysOpen(true),
+		};
+		const run = act[e.key];
+		if (!run || busy) return;
+		e.preventDefault();
+		run();
+	};
+	useEffect(() => {
+		const handler = (e: KeyboardEvent) => onKey.current(e);
+		window.addEventListener("keydown", handler);
+		return () => window.removeEventListener("keydown", handler);
+	}, []);
+	// Older messages fold to a line each; the newest (and what's unread) stay open.
+	const [unfolded, setUnfolded] = useState<{ for: string; ids: Set<string>; all: boolean }>({
+		for: c.id,
+		ids: new Set(),
+		all: false,
+	});
+	if (unfolded.for !== c.id) setUnfolded({ for: c.id, ids: new Set(), all: false });
 	const [editing, setEditing] = useState<string | null>(null);
 	// Older pages, added on "Load older" (the loader brings the newest).
 	const [older, setOlder] = useState<{
@@ -296,32 +407,95 @@ function ConversationPage() {
 		inbox: inbox?.name ?? null,
 		subject: c.subject,
 	};
+	const pending = timeline.filter(
+		(t) => t.type === "draft" || (t.type === "reply" && t.scheduled_for),
+	);
+	const shown = timeline.filter((t) => t.type !== "chat" && !pending.includes(t));
+	const rows = threadRows(
+		shown,
+		showActivity ? eventsOf(activity, older.more ? shown[0]?.at : undefined) : [],
+		(t, i) => {
+			if (unfolded.all || shown.length <= 4 || i >= shown.length - 2) return true;
+			// What they last wrote stays open: it's what a reply answers.
+			if (t.id === lastInbound) return true;
+			if (unfolded.ids.has(`${t.type}-${t.id}`)) return true;
+			const unreadAt = firstUnread ? shown.findIndex((x) => x.id === firstUnread) : -1;
+			return unreadAt >= 0 && i >= unreadAt;
+		},
+	);
+	const unfold = (keys: string[]) =>
+		setUnfolded((u) => ({ ...u, ids: new Set([...u.ids, ...keys]) }));
+	const contactName = chat
+		? c.visitor?.name || c.visitor?.email || "the visitor"
+		: nameOf(c.contact);
 	return (
-		<Page className="gap-8">
-			<div className="flex flex-col gap-5">
-				<nav
-					aria-label="Breadcrumb"
-					className="text-sm text-muted-foreground"
-				>
-					<Link
-						to="/received"
-						className="rounded-sm transition-colors hover:text-foreground"
+		<Page className="gap-6">
+			<div className="flex flex-col gap-4">
+				<div className="flex items-center justify-between gap-3">
+					<nav
+						aria-label="Breadcrumb"
+						className="flex min-w-0 items-center gap-1 text-sm text-muted-foreground"
 					>
-						Received
-					</Link>
-					{inbox && (
-						<>
-							<span aria-hidden="true"> / </span>
-							<Link
-								to="/received"
-								search={{ inbox: inbox.id }}
-								className="rounded-sm transition-colors hover:text-foreground"
-							>
-								{inbox.name}
-							</Link>
-						</>
+						<Link
+							to="/received"
+							search={nav.search ?? {}}
+							className="rounded-sm transition-colors hover:text-foreground"
+						>
+							Received
+						</Link>
+						{inbox && (
+							<>
+								<ChevronRight className="size-3.5 shrink-0 text-faint" />
+								<Link
+									to="/received"
+									search={{ inbox: inbox.id }}
+									className="truncate rounded-sm transition-colors hover:text-foreground"
+								>
+									{inbox.name}
+								</Link>
+							</>
+						)}
+					</nav>
+					{nav.total > 1 && (
+						<div className="flex shrink-0 items-center gap-1">
+							<span className="mr-1 text-sm text-muted-foreground tabular-nums">
+								{nav.index + 1} of {nav.total}
+							</span>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<Button
+										variant="ghost"
+										size="icon-sm"
+										aria-label="Previous conversation"
+										disabled={!nav.prev}
+										onClick={() => void go(nav.prev)}
+									>
+										<ChevronUp />
+									</Button>
+								</TooltipTrigger>
+								<TooltipContent>
+									Previous <Kbd>K</Kbd>
+								</TooltipContent>
+							</Tooltip>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<Button
+										variant="ghost"
+										size="icon-sm"
+										aria-label="Next conversation"
+										disabled={!nav.next}
+										onClick={() => void go(nav.next)}
+									>
+										<ChevronDown />
+									</Button>
+								</TooltipTrigger>
+								<TooltipContent>
+									Next <Kbd>J</Kbd>
+								</TooltipContent>
+							</Tooltip>
+						</div>
 					)}
-				</nav>
+				</div>
 				<RecordHeader
 					icon={chat ? MessageCircle : MessagesSquare}
 					tone={c.status === "resolved" ? "gray" : c.snoozed_until ? "amber" : "blue"}
@@ -348,12 +522,20 @@ function ConversationPage() {
 								{busy === "unread" ? <Spinner /> : <Mail />}
 								<span className="hidden sm:inline">Mark unread</span>
 							</Button>
+							<Button
+								variant="outline"
+								className="lg:hidden"
+								aria-expanded={panel}
+								onClick={() => setPanel((p) => !p)}
+							>
+								<PanelRight />
+								Details
+							</Button>
 							{c.status === "open" ? (
 								<Button
 									disabled={busy !== null}
-									onClick={() =>
-										update({ status: "resolved" }, "status", "Resolved")
-									}
+									title="Resolve (E)"
+									onClick={() => void resolve()}
 								>
 									{busy === "status" ? <Spinner /> : <CircleCheck />}
 									Resolve
@@ -437,397 +619,414 @@ function ConversationPage() {
 									},
 								]}
 							/>
+							<Button
+								variant="ghost"
+								size="icon"
+								className="hidden lg:inline-flex"
+								aria-label="Keyboard shortcuts"
+								title="Keyboard shortcuts (?)"
+								onClick={() => setKeysOpen(true)}
+							>
+								<Keyboard />
+							</Button>
 						</>
 					}
 				/>
-				{canReply && (
-					<TriageBar>
-						<AssigneeMenu
-							holder={c.assignee}
-							people={people}
-							me={data.me}
-							disabled={busy !== null}
-							onChange={(reader) =>
-								update(
-									{ assignee: reader },
-									"assignee",
-									reader
-										? reader === data.me
-											? "It's yours"
-											: `Assigned to ${nameOfReader(reader) ?? "them"}`
-										: "Unassigned",
-								)
-							}
-						/>
-						<PriorityMenu
-							priority={c.priority}
-							disabled={busy !== null}
-							onChange={(priority) => update({ priority }, "priority")}
-						/>
-						<TagsMenu
-							tags={c.tags}
-							catalog={workflow.tags}
-							disabled={busy !== null}
-							onChange={(tags) => update({ tags }, "tags")}
-						/>
-						{c.status === "open" && (
-							<SnoozeMenu
-								until={c.snoozed_until}
-								disabled={busy !== null}
-								onChange={(until) =>
+			</div>
+
+			<div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_17rem] lg:gap-10">
+				{/* On phones it opens under the header (Details); beside the thread on wide screens. */}
+				<aside
+					aria-label="Details"
+					className={cn(
+						"flex-col gap-6 lg:sticky lg:top-6 lg:col-start-2 lg:row-start-1 lg:flex",
+						panel ? "flex" : "hidden",
+					)}
+				>
+					<dl className="flex flex-col gap-1">
+						<Detail label="Owner">
+							<AssigneeMenu
+								row
+								open={menu === "assignee"}
+								onOpenChange={(o) => setMenu(o ? "assignee" : null)}
+								holder={c.assignee}
+								people={people}
+								me={data.me}
+								disabled={!canReply || busy !== null}
+								onChange={(reader) =>
 									update(
-										{ snooze_until: until },
-										"snooze",
-										until
-											? `Snoozed until ${formatDateTime(until)}`
-											: "Back in the open list",
+										{ assignee: reader },
+										"assignee",
+										reader
+											? reader === data.me
+												? "It's yours"
+												: `Assigned to ${nameOfReader(reader) ?? "them"}`
+											: "Unassigned",
 									)
 								}
 							/>
+						</Detail>
+						<Detail label="Priority">
+							<PriorityMenu
+								row
+								open={menu === "priority"}
+								onOpenChange={(o) => setMenu(o ? "priority" : null)}
+								priority={c.priority}
+								disabled={!canReply || busy !== null}
+								onChange={(priority) => update({ priority }, "priority")}
+							/>
+						</Detail>
+						<Detail label="Tags">
+							<TagsMenu
+								row
+								open={menu === "tags"}
+								onOpenChange={(o) => setMenu(o ? "tags" : null)}
+								tags={c.tags}
+								catalog={workflow.tags}
+								disabled={!canReply || busy !== null}
+								onChange={(tags) => update({ tags }, "tags")}
+							/>
+						</Detail>
+						{c.status === "open" && (
+							<Detail label="Snooze">
+								<SnoozeMenu
+									row
+									open={menu === "snooze"}
+									onOpenChange={(o) => setMenu(o ? "snooze" : null)}
+									until={c.snoozed_until}
+									disabled={!canReply || busy !== null}
+									onChange={(until) =>
+										update(
+											{ snooze_until: until },
+											"snooze",
+											until
+												? `Snoozed until ${formatDateTime(until)}`
+												: "Back in the open list",
+										)
+									}
+								/>
+							</Detail>
 						)}
-						{busy && ["assignee", "priority", "tags", "snooze"].includes(busy) && (
-							<Spinner />
+						{slaState(c.sla, c.status) && (
+							<Detail label="Due">
+								<SlaBadge
+									sla={c.sla}
+									status={c.status}
+								/>
+							</Detail>
 						)}
-						<SlaBadge
-							sla={c.sla}
-							status={c.status}
-						/>
-					</TriageBar>
-				)}
-			</div>
+					</dl>
 
-			{c.held && (
-				<Alert variant="warning">
-					<ShieldAlert />
-					<AlertTitle>Held for a person</AlertTitle>
-					<AlertDescription className="flex flex-col gap-3">
-						<span>
-							Agents don't see{" "}
-							{held.length === 1
-								? "one message"
-								: `${held.length || "some"} messages`}{" "}
-							here until someone checks {held.length === 1 ? "it" : "them"}
-							{reasonsOf(held).length ? `: ${reasonsOf(held).join("; ")}.` : "."}
-						</span>
-						<span className="flex flex-wrap gap-2">
-							<Button
-								size="sm"
-								variant="outline"
-								disabled={busy !== null}
-								onClick={() =>
-									update(
-										{ release_held: true },
-										"release",
-										"Agents can see it now",
-									)
-								}
-							>
-								{busy === "release" ? <Spinner /> : <ShieldCheck />}
-								It's fine, let agents see it
-							</Button>
-						</span>
-					</AlertDescription>
-				</Alert>
-			)}
+					<ContactCard
+						data={data}
+						live={live}
+					/>
 
-			<Facts>
-				{chat ? (
-					<>
-						<Fact label="Visitor">
-							{c.visitor?.name || c.visitor?.email ? (
-								<span className="flex min-w-0 flex-col">
-									{c.visitor.name && (
-										<span className="truncate">
-											<Ph>{c.visitor.name}</Ph>
-										</span>
-									)}
-									{c.visitor.email && <CopyValue value={c.visitor.email} />}
-								</span>
-							) : (
-								<span className="text-muted-foreground">
-									Anonymous (no email left)
-								</span>
-							)}
-						</Fact>
-						{c.visitor?.page_url && (
-							<Fact label="Wrote from">
-								<a
-									href={c.visitor.page_url}
-									target="_blank"
-									rel="noreferrer"
-									className="truncate underline-offset-2 hover:underline"
-									title={c.visitor.page_url}
+					<dl className="flex flex-col gap-1 border-t pt-5">
+						<Detail label="Inbox">
+							{inbox ? (
+								<Link
+									to="/received/inboxes/$id"
+									params={{ id: inbox.id }}
+									className="block truncate text-sm underline-offset-2 hover:underline"
+									title={inbox.address}
 								>
-									{pageOf(c.visitor.page_url)}
-								</a>
-							</Fact>
+									{inbox.name}
+								</Link>
+							) : (
+								<span className="text-sm text-muted-foreground">
+									A domain address
+								</span>
+							)}
+						</Detail>
+						{brand && (
+							<Detail label="Brand">
+								<span className="block truncate text-sm">{brand.name}</span>
+							</Detail>
 						)}
-						<Fact label="On the site">
-							{live?.visitorOnline ? (
-								<span className="text-emerald-600 dark:text-emerald-400">Now</span>
-							) : c.visitor?.seen_at ? (
-								<span title={formatDateTime(c.visitor.seen_at)}>
-									{formatAgo(c.visitor.seen_at)}
+						<Detail label="Started">
+							<span
+								className="text-sm"
+								title={formatDateTime(c.created_at)}
+							>
+								{formatDateTime(c.created_at)}
+							</span>
+						</Detail>
+						<Detail label="First reply">
+							{c.first_reply_at ? (
+								<span
+									className="text-sm"
+									title={formatDateTime(c.first_reply_at)}
+								>
+									after{" "}
+									{formatSeconds(
+										Math.max(
+											0,
+											(Date.parse(c.first_reply_at) -
+												Date.parse(c.created_at)) /
+												1000,
+										),
+									)}
 								</span>
 							) : (
-								"—"
+								<span className="text-sm text-muted-foreground">Not yet</span>
 							)}
-						</Fact>
-					</>
-				) : (
-					<Fact label="With">
-						<CopyValue value={c.contact} />
-					</Fact>
-				)}
-				<Fact label="Inbox">
-					{inbox ? (
-						<Link
-							to="/received/inboxes/$id"
-							params={{ id: inbox.id }}
-							className="truncate underline-offset-2 hover:underline"
-						>
-							{inbox.address}
-						</Link>
-					) : (
-						<span className="text-muted-foreground">None (a domain address)</span>
-					)}
-				</Fact>
-				{brand && <Fact label="Brand">{brand.name}</Fact>}
-				<Fact label="Messages">
-					<Ph>{c.messages}</Ph>
-				</Fact>
-				<Fact label="Started">{formatDateTime(c.created_at)}</Fact>
-				<Fact label="First reply">
-					{c.first_reply_at ? (
-						<span title={formatDateTime(c.first_reply_at)}>
-							after{" "}
-							{formatSeconds(
-								Math.max(
-									0,
-									(Date.parse(c.first_reply_at) - Date.parse(c.created_at)) /
-										1000,
-								),
-							)}
-						</span>
-					) : (
-						<span className="text-muted-foreground">Not yet</span>
-					)}
-				</Fact>
-				{c.replied_by && (
-					<Fact label="Replied last">
-						{c.replied_by === "agent" ? "An agent" : "A person"}
-					</Fact>
-				)}
-				{c.csat && (
-					<Fact label="Their rating">
-						{c.csat.rating ? (
-							<span
-								className="flex items-center gap-2"
-								title={c.csat.comment ?? undefined}
-							>
-								<Stars rating={c.csat.rating} />
-								{c.csat.comment && (
-									<span className="truncate text-muted-foreground">
-										“{c.csat.comment}”
+						</Detail>
+						{c.csat && (
+							<Detail label="Rating">
+								{c.csat.rating ? (
+									<span
+										className="flex items-center gap-2"
+										title={c.csat.comment ? `“${c.csat.comment}”` : undefined}
+									>
+										<Stars rating={c.csat.rating} />
+									</span>
+								) : (
+									<span className="text-sm text-muted-foreground">
+										Asked, no answer
 									</span>
 								)}
-							</span>
-						) : (
-							<span className="text-muted-foreground">Asked, no answer yet</span>
+							</Detail>
 						)}
-					</Fact>
-				)}
-				<Fact label="Id">
-					<IdChip value={c.id} />
-				</Fact>
-			</Facts>
+						<Detail label="Id">
+							<IdChip value={c.id} />
+						</Detail>
+					</dl>
+				</aside>
 
-			{chat && (
-				<ChatThread
-					conversation={c}
-					canReply={canReply}
-					onLive={setLive}
-				/>
-			)}
+				<div className="flex min-w-0 flex-col gap-4 lg:col-start-1 lg:row-start-1">
+					{c.held && (
+						<Alert variant="warning">
+							<ShieldAlert />
+							<AlertTitle>Held for a person</AlertTitle>
+							<AlertDescription className="flex flex-col gap-3">
+								<span>
+									Agents don't see{" "}
+									{held.length === 1
+										? "one message"
+										: `${held.length || "some"} messages`}{" "}
+									here until someone checks {held.length === 1 ? "it" : "them"}
+									{reasonsOf(held).length
+										? `: ${reasonsOf(held).join("; ")}.`
+										: "."}
+								</span>
+								<span className="flex flex-wrap gap-2">
+									<Button
+										size="sm"
+										variant="outline"
+										disabled={busy !== null}
+										onClick={() =>
+											update(
+												{ release_held: true },
+												"release",
+												"Agents can see it now",
+											)
+										}
+									>
+										{busy === "release" ? <Spinner /> : <ShieldCheck />}
+										It's fine, let agents see it
+									</Button>
+								</span>
+							</AlertDescription>
+						</Alert>
+					)}
 
-			{chat && (notes.length > 0 || canReply) && (
-				<Section
-					title="Team notes"
-					description="Only your team sees these, never the visitor."
-				>
-					<ol className="flex flex-col gap-3">
-						{notes.map((t) => (
-							<li key={`note-${t.id}`}>
-								<TimelineItem
-									conversation={c.id}
-									item={t}
-									canReply={canReply}
-									me={data.me}
-									onEdit={() => {}}
+					{chat && (
+						<ChatThread
+							conversation={c}
+							canReply={canReply}
+							onLive={setLive}
+						/>
+					)}
+
+					{chat && (notes.length > 0 || canReply) && (
+						<Section
+							title="Team notes"
+							description="Only your team sees these, never the visitor."
+						>
+							<ol className="flex flex-col gap-3">
+								{notes.map((t) => (
+									<li key={`note-${t.id}`}>
+										<TimelineItem
+											conversation={c.id}
+											item={t}
+											canReply={canReply}
+											me={data.me}
+											onEdit={() => {}}
+										/>
+									</li>
+								))}
+							</ol>
+							{canReply && (
+								<Composer
+									conversation={c}
+									compose={compose}
+									data={data}
+									ctx={ctx}
+									notesOnly
+									key={`${c.id}-notes`}
 								/>
+							)}
+						</Section>
+					)}
+
+					{!chat && (
+						<div className="flex items-center justify-between gap-3">
+							<h2 className="eyebrow">
+								{c.messages} {c.messages === 1 ? "message" : "messages"} with{" "}
+								{contactName}
+							</h2>
+							<Button
+								variant="ghost"
+								size="sm"
+								className="text-muted-foreground"
+								aria-pressed={showActivity}
+								onClick={toggleActivity}
+							>
+								<History />
+								{showActivity ? "Hide activity" : "Show activity"}
+							</Button>
+						</div>
+					)}
+
+					<ol className={cn("flex flex-col gap-3", chat && "hidden")}>
+						{older.more && (
+							<li className="flex justify-center">
+								<Button
+									variant="outline"
+									size="sm"
+									disabled={older.busy}
+									onClick={loadOlder}
+								>
+									{older.busy && <Spinner />}
+									Load older
+								</Button>
 							</li>
-						))}
+						)}
+						{rows.map((r) => {
+							if (r.kind === "events")
+								return (
+									<li key={`events-${r.key}`}>
+										<EventLines events={r.events} />
+									</li>
+								);
+							if (r.kind === "folded")
+								return (
+									<li key={`folded-${r.items[0]?.id}`}>
+										<button
+											type="button"
+											className="flex w-full items-center gap-3 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+											onClick={() =>
+												unfold(r.items.map((t) => `${t.type}-${t.id}`))
+											}
+										>
+											<span
+												aria-hidden="true"
+												className="h-px flex-1 bg-border"
+											/>
+											<span className="flex items-center gap-2">
+												<span className="flex -space-x-1">
+													{r.items.slice(0, 3).map((t) => (
+														<Avatar
+															key={`${t.type}-${t.id}`}
+															name={whoOf(t).name}
+															agent={whoOf(t).agent}
+															className="ring-2 ring-background"
+														/>
+													))}
+												</span>
+												{r.items.length} more messages
+											</span>
+											<span
+												aria-hidden="true"
+												className="h-px flex-1 bg-border"
+											/>
+										</button>
+									</li>
+								);
+							const t = r.item;
+							return (
+								<li key={`${t.type}-${t.id}`}>
+									{t.id === firstUnread && (
+										<div className="mb-3 flex items-center gap-3 text-xs font-medium text-brand">
+											<span
+												aria-hidden="true"
+												className="h-px flex-1 bg-brand/40"
+											/>
+											New since you last read
+											<span
+												aria-hidden="true"
+												className="h-px flex-1 bg-brand/40"
+											/>
+										</div>
+									)}
+									{r.folded ? (
+										<FoldedItem
+											item={t}
+											onOpen={() => unfold([`${t.type}-${t.id}`])}
+										/>
+									) : (
+										<TimelineItem
+											conversation={c.id}
+											item={t}
+											canReply={canReply}
+											me={data.me}
+											onEdit={() => {}}
+										/>
+									)}
+								</li>
+							);
+						})}
 					</ol>
-					{canReply && (
+
+					{/* What's next: drafts to approve and replies waiting to go, just above the reply box. */}
+					{pending.length > 0 && !chat && (
+						<ol className="flex flex-col gap-3">
+							{pending.map((t) => (
+								<li key={`${t.type}-${t.id}`}>
+									{t.type === "draft" && editing === t.id ? (
+										<Composer
+											conversation={c}
+											compose={compose}
+											data={data}
+											ctx={ctx}
+											draft={t}
+											lastInbound={lastInbound}
+											onDone={() => setEditing(null)}
+										/>
+									) : (
+										<TimelineItem
+											conversation={c.id}
+											item={t}
+											canReply={canReply}
+											me={data.me}
+											onEdit={() => setEditing(t.id)}
+										/>
+									)}
+								</li>
+							))}
+						</ol>
+					)}
+
+					{canReply && !editing && !chat && (
 						<Composer
 							conversation={c}
 							compose={compose}
 							data={data}
 							ctx={ctx}
-							notesOnly
-							key={`${c.id}-notes`}
+							lastInbound={lastInbound}
+							ask={ask}
+							recipient={contactName}
+							key={c.id}
 						/>
 					)}
-				</Section>
-			)}
+				</div>
+			</div>
 
-			<ol className={cn("flex flex-col gap-4", chat && "hidden")}>
-				{older.more && (
-					<li className="flex justify-center">
-						<Button
-							variant="outline"
-							size="sm"
-							disabled={older.busy}
-							onClick={loadOlder}
-						>
-							{older.busy && <Spinner />}
-							Load older
-						</Button>
-					</li>
-				)}
-				{timeline.map((t) => (
-					<li key={`${t.type}-${t.id}`}>
-						{t.id === firstUnread && (
-							<div className="mb-4 flex items-center gap-3 text-xs font-medium text-brand">
-								<span
-									aria-hidden="true"
-									className="h-px flex-1 bg-brand/40"
-								/>
-								New since you last read
-								<span
-									aria-hidden="true"
-									className="h-px flex-1 bg-brand/40"
-								/>
-							</div>
-						)}
-						{t.type === "draft" && editing === t.id ? (
-							<Composer
-								conversation={c}
-								compose={compose}
-								data={data}
-								ctx={ctx}
-								draft={t}
-								lastInbound={lastInbound}
-								onDone={() => setEditing(null)}
-							/>
-						) : (
-							<TimelineItem
-								conversation={c.id}
-								item={t}
-								canReply={canReply}
-								me={data.me}
-								onEdit={() => setEditing(t.id)}
-							/>
-						)}
-					</li>
-				))}
-			</ol>
-
-			{canReply && !editing && !chat && (
-				<Composer
-					conversation={c}
-					compose={compose}
-					data={data}
-					ctx={ctx}
-					lastInbound={lastInbound}
-					key={c.id}
-				/>
-			)}
-
-			{data.contact && (data.contact.record || data.contact.others.length > 0) && (
-				<Section
-					title="About them"
-					description={data.contact.email}
-				>
-					<Card className="gap-0 divide-y px-0 py-0">
-						{data.contact.record && (
-							<Link
-								to="/contacts/$id"
-								params={{ id: data.contact.record.id }}
-								className="flex items-center gap-3 px-5 py-3 text-sm transition-colors hover:bg-muted/50"
-							>
-								<User className="size-4 shrink-0 text-muted-foreground" />
-								<span className="min-w-0 flex-1 truncate">
-									<span className="font-medium">
-										{[
-											data.contact.record.first_name,
-											data.contact.record.last_name,
-										]
-											.filter(Boolean)
-											.join(" ") || data.contact.email}
-									</span>{" "}
-									<span className="text-muted-foreground">
-										is a contact since{" "}
-										{formatDateTime(data.contact.record.created_at)}
-										{data.contact.record.unsubscribed ? " (unsubscribed)" : ""}
-									</span>
-								</span>
-								<ArrowUpRight className="size-4 shrink-0 text-muted-foreground" />
-							</Link>
-						)}
-						{data.contact.others.map((o) => (
-							<Link
-								key={o.id}
-								to="/received/$id"
-								params={{ id: o.id }}
-								className="flex items-center gap-3 px-5 py-3 text-sm transition-colors hover:bg-muted/50"
-							>
-								<MessagesSquare className="size-4 shrink-0 text-muted-foreground" />
-								<span className="min-w-0 flex-1 truncate">
-									{o.subject || "(no subject)"}
-								</span>
-								{o.csat ? <Stars rating={o.csat} /> : null}
-								<StatusBadge status={o.status} />
-								<span className="w-12 shrink-0 text-right text-muted-foreground tabular-nums">
-									{formatAgo(o.last_message_at)}
-								</span>
-							</Link>
-						))}
-					</Card>
-				</Section>
-			)}
-
-			{activity.length > 0 && (
-				<section className="flex flex-col gap-3">
-					<h2 className="eyebrow">Activity</h2>
-					<ul className="flex flex-col gap-2 text-sm">
-						{activity.map((a) => (
-							<li
-								key={a.id}
-								className="flex items-center gap-2"
-							>
-								{a.actor.type === "agent" ? (
-									<Bot className="size-4 shrink-0 text-muted-foreground" />
-								) : a.actor.type === "system" ? (
-									<Zap className="size-4 shrink-0 text-muted-foreground" />
-								) : (
-									<User className="size-4 shrink-0 text-muted-foreground" />
-								)}
-								<span className="min-w-0 truncate">
-									<span className="font-medium">{a.actor.name ?? "Someone"}</span>{" "}
-									{ACTIONS[a.action] ?? a.action}
-								</span>
-								<span
-									className="ml-auto shrink-0 text-muted-foreground tabular-nums"
-									title={formatDateTime(a.created_at)}
-								>
-									{formatAgo(a.created_at)}
-								</span>
-							</li>
-						))}
-					</ul>
-				</section>
-			)}
+			<Shortcuts
+				open={keysOpen}
+				onOpenChange={setKeysOpen}
+			/>
 		</Page>
 	);
 }
@@ -854,17 +1053,386 @@ const pageOf = (url: string) => {
 /** «Ana López <ana@…>» as «Ana López», or the bare address. */
 const nameOf = (from: string) => /^(.+?)\s*<[^>]+>$/.exec(from)?.[1]?.replace(/^"|"$/g, "") ?? from;
 
-function Author({ author }: { author: { type: string; name: string | null } }) {
-	return author.type === "agent" ? (
-		<Badge variant="secondary">
-			<Bot />
-			{author.name ?? "Agent"}
-		</Badge>
-	) : (
-		<Badge variant="outline">
-			<User />
-			{author.name ?? "Person"}
-		</Badge>
+const ACTIVITY_KEY = "mailroom:conversation-activity";
+
+/** A label and its value, one line of the details panel. */
+function Detail({ label, children }: { label: string; children: ReactNode }) {
+	return (
+		<div className="grid min-h-8 grid-cols-[5rem_minmax(0,1fr)] items-center gap-3">
+			<dt className="text-sm text-muted-foreground">{label}</dt>
+			<dd className="min-w-0">{children}</dd>
+		</div>
+	);
+}
+
+/** Who wrote in: their name and address, their contact, and their other conversations. */
+function ContactCard({ data, live }: { data: Data; live: Live | null }) {
+	const c = data.conversation;
+	const chat = c.channel === "chat";
+	const person = data.contact?.record ?? null;
+	const name = chat
+		? c.visitor?.name || c.visitor?.email || "Anonymous visitor"
+		: (person && [person.first_name, person.last_name].filter(Boolean).join(" ")) ||
+			nameOf(c.contact);
+	const email = chat ? (c.visitor?.email ?? null) : (data.contact?.email ?? c.contact);
+	const others = data.contact?.others ?? [];
+	return (
+		<section
+			aria-label="Who wrote"
+			className="flex flex-col gap-4 border-t pt-5"
+		>
+			<div className="flex min-w-0 items-center gap-3">
+				<Avatar
+					name={name}
+					className="size-9 text-xs"
+				/>
+				<div className="min-w-0">
+					<p className="truncate text-sm font-medium">
+						<Ph>{name}</Ph>
+					</p>
+					{email && (
+						<CopyValue
+							value={email}
+							className="text-sm text-muted-foreground"
+						/>
+					)}
+				</div>
+			</div>
+			{chat && (
+				<dl className="flex flex-col gap-1">
+					{c.visitor?.page_url && (
+						<Detail label="Wrote from">
+							<a
+								href={c.visitor.page_url}
+								target="_blank"
+								rel="noreferrer"
+								className="block truncate text-sm underline-offset-2 hover:underline"
+								title={c.visitor.page_url}
+							>
+								{pageOf(c.visitor.page_url)}
+							</a>
+						</Detail>
+					)}
+					<Detail label="On the site">
+						{live?.visitorOnline ? (
+							<StatusBadge
+								status="success"
+								label="Now"
+							/>
+						) : c.visitor?.seen_at ? (
+							<span
+								className="text-sm"
+								title={formatDateTime(c.visitor.seen_at)}
+							>
+								{formatAgo(c.visitor.seen_at)}
+							</span>
+						) : (
+							<span className="text-sm text-muted-foreground">Not lately</span>
+						)}
+					</Detail>
+				</dl>
+			)}
+			{person && (
+				<Link
+					to="/contacts/$id"
+					params={{ id: person.id }}
+					className="-mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-muted/60"
+				>
+					<User className="size-4 shrink-0 text-muted-foreground" />
+					<span className="min-w-0 flex-1 truncate">
+						A contact since {formatDateTime(person.created_at).replace(/,? \d.*$/, "")}
+						{person.unsubscribed ? ", unsubscribed" : ""}
+					</span>
+					<ArrowUpRight className="size-4 shrink-0 text-muted-foreground" />
+				</Link>
+			)}
+			{others.length > 0 && (
+				<div className="flex flex-col gap-1">
+					<h3 className="eyebrow mb-1">Earlier conversations</h3>
+					<ul className="flex flex-col">
+						{others.map((o) => (
+							<li key={o.id}>
+								<Link
+									to="/received/$id"
+									params={{ id: o.id }}
+									className="-mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-muted/60"
+								>
+									<StatusDot
+										status={o.status === "resolved" ? "sent" : "scheduled"}
+									/>
+									<span className="min-w-0 flex-1 truncate">
+										{o.subject || "(no subject)"}
+									</span>
+									{o.csat ? (
+										<span className="flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground tabular-nums">
+											<Star className="size-3 fill-warning text-warning" />
+											{o.csat}
+										</span>
+									) : null}
+									<span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+										{formatAgo(o.last_message_at)}
+									</span>
+								</Link>
+							</li>
+						))}
+					</ul>
+				</div>
+			)}
+		</section>
+	);
+}
+
+type Event = Data["activity"][number];
+type Row =
+	| { kind: "item"; item: Item; folded: boolean }
+	| { kind: "folded"; items: Item[] }
+	| { kind: "events"; key: string; events: Event[] };
+
+/** Activity that the thread already shows (a reply, a note) or that's noise (who read it). */
+const QUIET = new Set([
+	"reply.sent",
+	"draft.created",
+	"draft.updated",
+	"draft.deleted",
+	"draft.discarded",
+	"note.created",
+	"note.deleted",
+	"conversation.read",
+	"message.read",
+	"attachment.downloaded",
+	"chat.started",
+]);
+
+/** The activity worth a line in the thread, oldest first (from `since`, when older isn't shown). */
+function eventsOf(activity: Event[], since?: string) {
+	return activity
+		.filter((a) => !QUIET.has(a.action) && (!since || a.created_at >= since))
+		.sort((a, b) => a.created_at.localeCompare(b.created_at));
+}
+
+/** The thread in order, with activity between the messages and older messages folded away. */
+function threadRows(items: Item[], events: Event[], open: (t: Item, i: number) => boolean) {
+	const out: Row[] = [];
+	let e = 0;
+	let run: Item[] = [];
+	const flush = () => {
+		const [only] = run;
+		if (run.length === 1 && only) out.push({ kind: "item", item: only, folded: true });
+		else if (run.length) out.push({ kind: "folded", items: run });
+		run = [];
+	};
+	const take = (until: string | null) => {
+		const batch: Event[] = [];
+		while (e < events.length) {
+			const ev = events[e];
+			if (!ev || (until !== null && ev.created_at > until)) break;
+			batch.push(ev);
+			e++;
+		}
+		return batch;
+	};
+	items.forEach((t, i) => {
+		if (!open(t, i)) {
+			// What happened among folded messages folds with them.
+			take(t.at);
+			run.push(t);
+			return;
+		}
+		const batch = take(t.at);
+		flush();
+		if (batch.length && batch[0]) out.push({ kind: "events", key: batch[0].id, events: batch });
+		out.push({ kind: "item", item: t, folded: false });
+	});
+	flush();
+	const rest = take(null);
+	if (rest.length && rest[0]) out.push({ kind: "events", key: rest[0].id, events: rest });
+	return out;
+}
+
+const PRIORITY_WORD: Record<string, string> = {
+	urgent: "urgent",
+	high: "high",
+	normal: "normal",
+	low: "low",
+};
+
+/** One activity line, in words, with what changed when the record says. */
+function describe(a: Event) {
+	const d = (a.detail ?? {}) as Record<string, unknown>;
+	const list = (v: unknown) => (Array.isArray(v) ? v.filter((x) => typeof x === "string") : []);
+	switch (a.action) {
+		case "conversation.assigned":
+			if (typeof d.to !== "string") return "assigned it";
+			return d.to === a.actor.name ? "took it" : `assigned it to ${d.to}`;
+		case "conversation.tagged": {
+			const added = list(d.added);
+			const removed = list(d.removed);
+			const parts = [
+				added.length ? `added ${added.join(", ")}` : "",
+				removed.length ? `removed ${removed.join(", ")}` : "",
+			].filter(Boolean);
+			return parts.length ? `${parts.join(" and ")} as tags` : "changed its tags";
+		}
+		case "conversation.prioritized":
+			return typeof d.priority === "string"
+				? `set the priority to ${PRIORITY_WORD[d.priority] ?? d.priority}`
+				: "changed its priority";
+		case "conversation.snoozed":
+			return typeof d.until === "string"
+				? `snoozed it until ${formatDateTime(d.until)}`
+				: "snoozed it";
+		case "rule.matched":
+			return typeof d.rule === "string" ? `ran the rule “${d.rule}”` : "ran a rule";
+		case "csat.received":
+			return typeof d.rating === "number" ? `rated it ${d.rating} of 5` : "rated it";
+		case "sla.breached":
+			return d.what === "resolve" ? "missed the resolve target" : "missed the reply target";
+		default:
+			return ACTIONS[a.action] ?? a.action.replace(/[._]/g, " ");
+	}
+}
+
+/** A run of activity between two messages: small gray lines, the long ones folded. */
+function EventLines({ events }: { events: Event[] }) {
+	const [all, setAll] = useState(false);
+	const shown = all || events.length <= 3 ? events : events.slice(-2);
+	return (
+		<ul className="flex flex-col gap-1.5 py-1 pl-4">
+			{shown.length < events.length && (
+				<li>
+					<button
+						type="button"
+						className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+						onClick={() => setAll(true)}
+					>
+						{events.length - shown.length} earlier updates
+					</button>
+				</li>
+			)}
+			{shown.map((a) => (
+				<li
+					key={a.id}
+					className="flex items-center gap-2 text-xs text-muted-foreground"
+				>
+					{a.actor.type === "agent" ? (
+						<Bot className="size-3.5 shrink-0" />
+					) : a.actor.type === "system" ? (
+						<Zap className="size-3.5 shrink-0" />
+					) : (
+						<User className="size-3.5 shrink-0" />
+					)}
+					<span className="min-w-0 truncate">
+						<span className="font-medium text-foreground/80">
+							{a.actor.name ?? (a.actor.type === "system" ? "Mailroom" : "Someone")}
+						</span>{" "}
+						{describe(a)}
+					</span>
+					<span
+						className="ml-auto shrink-0 tabular-nums"
+						title={formatDateTime(a.created_at)}
+					>
+						{formatAgo(a.created_at)}
+					</span>
+				</li>
+			))}
+		</ul>
+	);
+}
+
+/** Who a thread item is from, for its avatar and its folded line. */
+function whoOf(t: Item): { name: string; agent: boolean } {
+	if (t.type === "inbound") return { name: nameOf(t.from), agent: false };
+	if (t.type === "reply" || t.type === "draft" || t.type === "note")
+		return { name: t.author.name ?? "Agent", agent: t.author.type === "agent" };
+	return { name: "You", agent: false };
+}
+
+/** An older message as one line: who, the start of what they wrote, when. */
+function FoldedItem({ item: t, onOpen }: { item: Item; onOpen: () => void }) {
+	const who = whoOf(t);
+	const text =
+		t.type === "inbound"
+			? t.new_text || t.text
+			: t.type === "origin"
+				? `We sent ${t.subject || "an email"}`
+				: "text" in t
+					? t.text
+					: "";
+	return (
+		<button
+			type="button"
+			className="flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-left text-sm shadow-[inset_0_0_0_1px_var(--border)] transition-colors hover:bg-muted/40"
+			onClick={onOpen}
+		>
+			<Avatar
+				name={who.name}
+				agent={who.agent}
+				className="size-6"
+			/>
+			<span className="w-32 shrink-0 truncate font-medium sm:w-40">
+				<Ph>{who.name}</Ph>
+			</span>
+			{t.type === "note" && (
+				<StickyNote className="size-3.5 shrink-0 text-muted-foreground" />
+			)}
+			<span className="min-w-0 flex-1 truncate text-muted-foreground">
+				<Ph>{(text ?? "").replace(/\s+/g, " ").trim()}</Ph>
+			</span>
+			<span
+				className="shrink-0 text-xs text-muted-foreground tabular-nums"
+				title={formatDateTime(t.at)}
+			>
+				{formatAgo(t.at)}
+			</span>
+		</button>
+	);
+}
+
+const KEYS: [string[], string][] = [
+	[["J"], "Next conversation"],
+	[["K"], "Previous conversation"],
+	[["R"], "Reply"],
+	[["N"], "Note for the team"],
+	[["E"], "Resolve (and open the next one), or reopen"],
+	[["A"], "Assign"],
+	[["P"], "Priority"],
+	[["T"], "Tags"],
+	[["S"], "Snooze"],
+	[["U"], "Mark unread"],
+	[["⌘", "↵"], "Send what you wrote"],
+	[["?"], "These shortcuts"],
+];
+
+function Shortcuts({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+	return (
+		<Dialog
+			open={open}
+			onOpenChange={onOpenChange}
+		>
+			<DialogContent className="sm:max-w-sm">
+				<DialogHeader>
+					<DialogTitle>Keyboard shortcuts</DialogTitle>
+					<DialogDescription>
+						On a conversation, while you're not typing.
+					</DialogDescription>
+				</DialogHeader>
+				<ul className="flex flex-col">
+					{KEYS.map(([keys, what]) => (
+						<li
+							key={what}
+							className="flex items-center justify-between gap-4 border-b py-2 text-sm last:border-b-0"
+						>
+							<span>{what}</span>
+							<span className="flex gap-1">
+								{keys.map((k) => (
+									<Kbd key={k}>{k}</Kbd>
+								))}
+							</span>
+						</li>
+					))}
+				</ul>
+			</DialogContent>
+		</Dialog>
 	);
 }
 
@@ -972,43 +1540,49 @@ function TimelineItem({
 		const mine = `${t.author.type === "agent" ? "cred" : "user"}:${t.author.id}` === me;
 		const names = t.mentions.map((m) => m.name);
 		return (
-			<Card className="gap-2 border-dashed px-5 py-4">
-				<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-					<span className="flex items-center gap-2 font-medium">
-						<StickyNote className="size-4 text-muted-foreground" />
-						Note
-					</span>
-					<Author author={t.author} />
-					<span className="text-sm text-muted-foreground">only your team sees it</span>
-					<span className="ml-auto flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
-						<span title={formatDateTime(t.at)}>{formatAgo(t.at)}</span>
-						{canReply && mine && (
-							<Confirm
-								trigger={
-									<Button
-										size="sm"
-										variant="ghost"
-										aria-label="Delete the note"
-									>
-										<Trash2 />
-									</Button>
-								}
-								title="Delete this note?"
-								description="Your team won't see it any more."
-								action="Delete"
-								onConfirm={async () => {
-									try {
-										await deleteNoteFn({ data: { conversation, id: t.id } });
-										await router.invalidate();
-									} catch (error) {
-										toast.error(await errorMessage(error));
+			<Card className="gap-2 border border-dashed border-border-strong bg-transparent px-5 py-4 shadow-none">
+				<ItemHead
+					who={whoOf(t)}
+					title={t.author.name ?? "Agent"}
+					sub={
+						<span className="flex items-center gap-1.5">
+							<StickyNote className="size-3.5" />
+							Note, only your team sees it
+						</span>
+					}
+					right={
+						<>
+							<span title={formatDateTime(t.at)}>{formatAgo(t.at)}</span>
+							{canReply && mine && (
+								<Confirm
+									trigger={
+										<Button
+											size="sm"
+											variant="ghost"
+											aria-label="Delete the note"
+										>
+											<Trash2 />
+										</Button>
 									}
-								}}
-							/>
-						)}
-					</span>
-				</div>
-				<p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+									title="Delete this note?"
+									description="Your team won't see it any more."
+									action="Delete"
+									onConfirm={async () => {
+										try {
+											await deleteNoteFn({
+												data: { conversation, id: t.id },
+											});
+											await router.invalidate();
+										} catch (error) {
+											toast.error(await errorMessage(error));
+										}
+									}}
+								/>
+							)}
+						</>
+					}
+				/>
+				<p className="text-sm leading-relaxed whitespace-pre-wrap break-words sm:pl-10">
 					<Ph>
 						<NoteText
 							text={t.text}
@@ -1024,111 +1598,120 @@ function TimelineItem({
 		const flagged = (t.flags?.score ?? 0) > 0;
 		return (
 			<Card className="gap-3 px-5 py-4">
-				<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-					<span className="flex min-w-0 items-center gap-2">
-						<MailOpen className="size-4 shrink-0 text-muted-foreground" />
-						<span
-							className="truncate font-medium"
-							title={t.from}
-						>
-							<Ph>{nameOf(t.from)}</Ph>
+				<ItemHead
+					who={whoOf(t)}
+					title={nameOf(t.from)}
+					sub={
+						<span title={t.from}>
+							to {t.to.join(", ")}
+							{t.cc.length ? `, cc ${t.cc.join(", ")}` : ""}
 						</span>
-					</span>
-					<span className="truncate text-sm text-muted-foreground">
-						to {t.to.join(", ")}
-					</span>
-					{t.spam && (
-						<Badge variant="destructive">
-							<ShieldAlert />
-							Spam
-						</Badge>
-					)}
-					{flagged && t.flags && (
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<span className="inline-flex">
-									<StatusBadge
-										status="held"
-										label={t.held ? "Held from agents" : "Looks off"}
-									/>
-								</span>
-							</TooltipTrigger>
-							<TooltipContent className="max-w-xs">
-								<ul className="flex flex-col gap-1">
-									{t.flags.reasons.map((r) => (
-										<li key={r.code}>{r.text}</li>
-									))}
-								</ul>
-							</TooltipContent>
-						</Tooltip>
-					)}
-					<span className="ml-auto flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
-						<span title={formatDateTime(t.at)}>{formatAgo(t.at)}</span>
-						<Button
-							size="sm"
-							variant="ghost"
-							aria-label="Mark this message unread"
-							title="Mark this message unread (for you)"
-							onClick={async () => {
-								try {
-									await markMessageFn({ data: { id: t.id, read: false } });
-									toast.success("Marked unread");
-									await router.navigate({ to: "/received" });
-								} catch (error) {
-									toast.error(await errorMessage(error));
-								}
-							}}
-						>
-							<Mail />
-						</Button>
-						<Button
-							size="sm"
-							variant="ghost"
-							asChild
-						>
-							<Link
-								to="/received/m/$id"
-								params={{ id: t.id }}
-								aria-label="The whole message"
-							>
-								<ArrowUpRight />
-								<span className="hidden sm:inline">Message</span>
-							</Link>
-						</Button>
-					</span>
-				</div>
-				<p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-					<Ph>
-						{body?.trim() ||
-							(t.html
-								? "No plain-text part: open the message to see it."
-								: "No longer kept (past its retention).")}
-					</Ph>
-				</p>
-				{t.quoted && (
-					<button
-						type="button"
-						className="flex w-fit items-center gap-1.5 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
-						aria-expanded={whole}
-						onClick={() => setWhole((w) => !w)}
-					>
-						<Ellipsis className="size-3.5" />
-						{whole ? "Hide what it quotes" : "Show what it quotes"}
-					</button>
-				)}
-				{(t.attachments ?? []).length > 0 && (
-					<div className="flex flex-wrap gap-2">
-						{t.attachments.map((a) => (
+					}
+					badges={
+						<>
+							{t.spam && (
+								<Badge variant="destructive">
+									<ShieldAlert />
+									Spam
+								</Badge>
+							)}
+							{flagged && t.flags && (
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<span className="inline-flex">
+											<StatusBadge
+												status="held"
+												label={t.held ? "Held from agents" : "Looks off"}
+											/>
+										</span>
+									</TooltipTrigger>
+									<TooltipContent className="max-w-xs">
+										<ul className="flex flex-col gap-1">
+											{t.flags.reasons.map((r) => (
+												<li key={r.code}>{r.text}</li>
+											))}
+										</ul>
+									</TooltipContent>
+								</Tooltip>
+							)}
+						</>
+					}
+					right={
+						<>
 							<span
-								key={a.id}
-								className="inline-flex h-7 items-center gap-1.5 rounded-md bg-muted px-2 text-xs"
+								className="mr-1"
+								title={formatDateTime(t.at)}
 							>
-								<Paperclip className="size-3 text-muted-foreground" />
-								{a.filename ?? a.id}
+								{formatAgo(t.at)}
 							</span>
-						))}
-					</div>
-				)}
+							<Button
+								size="icon-sm"
+								variant="ghost"
+								aria-label="Mark this message unread"
+								title="Mark this message unread (for you)"
+								onClick={async () => {
+									try {
+										await markMessageFn({ data: { id: t.id, read: false } });
+										toast.success("Marked unread");
+										await router.navigate({ to: "/received" });
+									} catch (error) {
+										toast.error(await errorMessage(error));
+									}
+								}}
+							>
+								<Mail />
+							</Button>
+							<Button
+								size="icon-sm"
+								variant="ghost"
+								asChild
+							>
+								<Link
+									to="/received/m/$id"
+									params={{ id: t.id }}
+									aria-label="The whole message"
+									title="The whole message: headers, checks, the original"
+								>
+									<ArrowUpRight />
+								</Link>
+							</Button>
+						</>
+					}
+				/>
+				<div className="flex flex-col gap-3 sm:pl-10">
+					<p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+						<Ph>
+							{body?.trim() ||
+								(t.html
+									? "No plain-text part: open the message to see it."
+									: "No longer kept (past its retention).")}
+						</Ph>
+					</p>
+					{t.quoted && (
+						<button
+							type="button"
+							className="flex w-fit items-center gap-1.5 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+							aria-expanded={whole}
+							onClick={() => setWhole((w) => !w)}
+						>
+							<Ellipsis className="size-3.5" />
+							{whole ? "Hide what it quotes" : "Show what it quotes"}
+						</button>
+					)}
+					{(t.attachments ?? []).length > 0 && (
+						<div className="flex flex-wrap gap-2">
+							{t.attachments.map((a) => (
+								<span
+									key={a.id}
+									className="inline-flex h-7 items-center gap-1.5 rounded-md bg-muted px-2 text-xs"
+								>
+									<Paperclip className="size-3 text-muted-foreground" />
+									{a.filename ?? a.id}
+								</span>
+							))}
+						</div>
+					)}
+				</div>
 			</Card>
 		);
 	}
@@ -1136,79 +1719,36 @@ function TimelineItem({
 	if (t.type === "chat") return null;
 	const draft = t.type === "draft";
 	const waiting = !draft && t.scheduled_for;
-	return (
-		<Card
-			className={cn(
-				"gap-3 px-5 py-4",
-				draft ? "border-brand/50 bg-brand/5" : waiting ? "border-dashed" : "bg-muted/40",
-			)}
-		>
-			<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-				<span className="flex items-center gap-2 font-medium">
-					{draft ? (
-						<PenLine className="size-4 text-muted-foreground" />
-					) : (
-						<Send className="size-4 text-muted-foreground" />
-					)}
-					{draft ? "Draft reply" : waiting ? "Reply, waiting to go" : "Reply"}
-				</span>
-				<Author author={t.author} />
-				{draft && t.author.type === "agent" && <Badge variant="brand">Needs review</Badge>}
-				{!draft && t.sent_by && (
-					<span className="text-sm text-muted-foreground">approved by {t.sent_by}</span>
-				)}
-				{!draft && t.author.type === "agent" && t.review && (
-					<Badge variant="secondary">
-						{t.review === "edited"
-							? "Edited before sending"
-							: "Sent as the agent wrote it"}
-					</Badge>
-				)}
-				<span className="ml-auto flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
-					{waiting ? (
-						<span title={formatDateTime(t.scheduled_for)}>
-							{Date.parse(t.scheduled_for ?? "") - Date.now() < 90_000
-								? "Goes in a moment"
-								: `Goes ${formatAgo(t.scheduled_for)}`}
-						</span>
-					) : (
-						<>
-							{!draft && t.delivery && <StatusBadge status={t.delivery} />}
-							<span title={formatDateTime(t.at)}>{formatAgo(t.at)}</span>
-						</>
-					)}
-					{!draft && t.email_id && !waiting && (
-						<Button
-							size="sm"
-							variant="ghost"
-							asChild
+	const who = whoOf(t);
+	const to = `to ${t.to.join(", ")}${t.cc.length ? `, cc ${t.cc.join(", ")}` : ""}`;
+	if (waiting)
+		return (
+			<Card className="flex-row items-center gap-3 border border-dashed border-border-strong bg-transparent px-4 py-3 shadow-none">
+				<Clock className="size-4 shrink-0 text-muted-foreground" />
+				<div className="min-w-0 flex-1">
+					<p className="text-sm">
+						<span className="font-medium">
+							{t.author.name ?? "A reply"}
+							{t.author.name ? "'s reply" : ""}
+						</span>{" "}
+						<span
+							className="text-muted-foreground"
+							title={formatDateTime(t.scheduled_for)}
 						>
-							<Link
-								to="/emails/$id"
-								params={{ id: t.email_id }}
-								aria-label="The sent email"
-							>
-								<ArrowUpRight />
-								<span className="hidden sm:inline">Email</span>
-							</Link>
-						</Button>
-					)}
-				</span>
-			</div>
-			<p className="truncate text-sm text-muted-foreground">
-				{t.from ? `From ${t.from} · ` : ""}to {t.to.join(", ")}
-				{t.cc.length ? `, cc ${t.cc.join(", ")}` : ""}
-			</p>
-			<p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-				<Ph>{t.text}</Ph>
-			</p>
-			{/* Pages kept in this browser before replies had files lack the list. */}
-			{(t.attachments ?? []).length > 0 && <Files list={t.attachments} />}
-			{waiting && canReply && (
-				<div className="flex flex-wrap gap-2">
+							{Date.parse(t.scheduled_for ?? "") - Date.now() < 90_000
+								? "goes in a moment"
+								: `goes ${formatAgo(t.scheduled_for)}, ${formatDateTime(t.scheduled_for)}`}
+						</span>
+					</p>
+					<p className="truncate text-sm text-muted-foreground">
+						<Ph>{(t.text ?? "").replace(/\s+/g, " ")}</Ph>
+					</p>
+				</div>
+				{canReply && (
 					<Button
 						size="sm"
 						variant="outline"
+						className="shrink-0"
 						onClick={async () => {
 							try {
 								await unsendReplyFn({ data: { id: t.id } });
@@ -1220,51 +1760,158 @@ function TimelineItem({
 						}}
 					>
 						<Undo2 />
-						Don't send, back to a draft
+						<span className="hidden sm:inline">Don't send</span>
 					</Button>
-				</div>
+				)}
+			</Card>
+		);
+	return (
+		<Card
+			className={cn(
+				"gap-3 px-5 py-4",
+				draft ? "border-brand/40 bg-brand/5" : "bg-muted/40 shadow-none",
 			)}
-			{draft && canReply && (
-				<div className="flex flex-wrap gap-2">
-					<SendDraft
-						conversation={conversation}
-						draft={t.id}
-						onSent={() => router.invalidate()}
-					/>
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={onEdit}
-					>
-						<PenLine />
-						Edit
-					</Button>
-					<Confirm
-						trigger={
+		>
+			<ItemHead
+				who={who}
+				title={
+					draft
+						? t.author.type === "agent"
+							? `${who.name} suggests a reply`
+							: `${who.name}'s draft`
+						: who.name
+				}
+				sub={draft ? to : `${t.sent_by ? `Approved by ${t.sent_by}, ` : ""}${to}`}
+				badges={
+					<>
+						{draft && t.author.type === "agent" && (
+							<StatusBadge
+								status="scheduled"
+								label="Needs review"
+							/>
+						)}
+						{!draft && t.author.type === "agent" && t.review && (
+							<Badge variant="secondary">
+								{t.review === "edited"
+									? "Edited before sending"
+									: "Sent as written"}
+							</Badge>
+						)}
+					</>
+				}
+				right={
+					<>
+						{!draft && t.delivery && <StatusBadge status={t.delivery} />}
+						<span
+							className="mx-1"
+							title={formatDateTime(t.at)}
+						>
+							{formatAgo(t.at)}
+						</span>
+						{!draft && t.email_id && (
 							<Button
+								size="icon-sm"
 								variant="ghost"
-								size="sm"
+								asChild
 							>
-								<Trash2 />
-								Discard
+								<Link
+									to="/emails/$id"
+									params={{ id: t.email_id }}
+									aria-label="The sent email"
+									title="The sent email: delivery, opens, the original"
+								>
+									<ArrowUpRight />
+								</Link>
 							</Button>
-						}
-						title="Discard this draft?"
-						description="Nobody can send it afterwards."
-						action="Discard"
-						onConfirm={async () => {
-							try {
-								await deleteConversationDraftFn({ data: { id: t.id } });
-								toast.success("Draft discarded");
-								await router.invalidate();
-							} catch (error) {
-								toast.error(await errorMessage(error));
+						)}
+					</>
+				}
+			/>
+			<div className="flex flex-col gap-3 sm:pl-10">
+				<p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+					<Ph>{t.text}</Ph>
+				</p>
+				{/* Pages kept in this browser before replies had files lack the list. */}
+				{(t.attachments ?? []).length > 0 && <Files list={t.attachments} />}
+				{draft && canReply && (
+					<div className="flex flex-wrap gap-2">
+						<SendDraft
+							conversation={conversation}
+							draft={t.id}
+							onSent={() => router.invalidate()}
+						/>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={onEdit}
+						>
+							<PenLine />
+							Edit
+						</Button>
+						<Confirm
+							trigger={
+								<Button
+									variant="ghost"
+									size="sm"
+								>
+									<Trash2 />
+									Discard
+								</Button>
 							}
-						}}
-					/>
-				</div>
-			)}
+							title="Discard this draft?"
+							description="Nobody can send it afterwards."
+							action="Discard"
+							onConfirm={async () => {
+								try {
+									await deleteConversationDraftFn({ data: { id: t.id } });
+									toast.success("Draft discarded");
+									await router.invalidate();
+								} catch (error) {
+									toast.error(await errorMessage(error));
+								}
+							}}
+						/>
+					</div>
+				)}
+			</div>
 		</Card>
+	);
+}
+
+/** A thread item's head: who (avatar and name), a line under it, and its time and links. */
+function ItemHead({
+	who,
+	title,
+	sub,
+	badges,
+	right,
+}: {
+	who: { name: string; agent: boolean };
+	title: ReactNode;
+	sub?: ReactNode;
+	badges?: ReactNode;
+	right?: ReactNode;
+}) {
+	return (
+		<div className="flex items-start gap-3">
+			<Avatar
+				name={who.name}
+				agent={who.agent}
+				className="mt-0.5 size-7 text-[11px]"
+			/>
+			<div className="min-w-0 flex-1">
+				<div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+					<span className="truncate font-medium">
+						<Ph>{title}</Ph>
+					</span>
+					{badges}
+				</div>
+				{sub && <p className="truncate text-sm text-muted-foreground">{sub}</p>}
+			</div>
+			<div className="flex shrink-0 items-center gap-0.5 text-sm text-muted-foreground">
+				{right}
+			</div>
+		</div>
 	);
 }
 
@@ -1382,6 +2029,8 @@ function Composer({
 	lastInbound,
 	notesOnly,
 	onDone,
+	ask,
+	recipient,
 }: {
 	conversation: Conversation;
 	compose: Data["compose"];
@@ -1391,10 +2040,32 @@ function Composer({
 	lastInbound?: string;
 	notesOnly?: boolean;
 	onDone?: () => void;
+	/** Opens it (in this mode) each time `n` changes: the R and N shortcuts. */
+	ask?: { mode: "reply" | "note"; n: number };
+	/** Who a reply goes to, for the folded box. */
+	recipient?: string;
 }) {
 	const router = useRouter();
 	const { people, saved, workflow } = data;
 	const [mode, setMode] = useState<"reply" | "note">(notesOnly ? "note" : "reply");
+	// The reply box starts as one line; a draft being edited or the chat's notes start open.
+	const [open, setOpen] = useState(Boolean(draft) || Boolean(notesOnly) || !recipient);
+	const card = useRef<HTMLDivElement>(null);
+	const openAs = (m: "reply" | "note") => {
+		setMode(m);
+		setMenu(null);
+		setOpen(true);
+		caret.current = box.current?.value.length ?? 0;
+		requestAnimationFrame(() =>
+			card.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }),
+		);
+	};
+	const asked = useRef(ask?.n ?? 0);
+	useEffect(() => {
+		if (!ask || ask.n === asked.current) return;
+		asked.current = ask.n;
+		openAs(ask.mode);
+	});
 	const [from, setFrom] = useState(draft?.from ?? compose.from ?? "");
 	const [to, setTo] = useState((draft?.to ?? compose.to).join(", "));
 	const [cc, setCc] = useState((draft?.cc ?? []).join(", "));
@@ -1536,6 +2207,7 @@ function Composer({
 			setFiles([]);
 			setSavedId(null);
 			setMentions([]);
+			if (recipient) setOpen(false);
 		}
 	};
 	const send = async (o: { at?: Date; resolve?: boolean } = {}) => {
@@ -1591,6 +2263,7 @@ function Composer({
 			toast.success("Note added");
 			setText("");
 			setMentions([]);
+			if (recipient) setOpen(false);
 			await reload();
 		} catch (error) {
 			toast.error(await errorMessage(error));
@@ -1599,8 +2272,40 @@ function Composer({
 		}
 	};
 	const note = mode === "note";
+	if (!open)
+		return (
+			<Card
+				ref={card}
+				className="flex-row items-center gap-1 p-1.5"
+			>
+				<button
+					type="button"
+					className="flex h-9 min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+					onClick={() => openAs("reply")}
+				>
+					<Send className="size-4 shrink-0" />
+					<span className="truncate">Reply to {recipient}…</span>
+					<Kbd className="ml-auto hidden sm:inline-flex">R</Kbd>
+				</button>
+				<Button
+					variant="ghost"
+					className="h-9 text-muted-foreground"
+					onClick={() => openAs("note")}
+				>
+					<StickyNote />
+					Note
+					<Kbd className="hidden sm:inline-flex">N</Kbd>
+				</Button>
+			</Card>
+		);
 	return (
-		<Card className={cn("gap-4 px-5 py-4", note && "border-dashed")}>
+		<Card
+			ref={card}
+			className={cn(
+				"gap-4 px-5 py-4",
+				note && "border border-dashed border-border-strong shadow-none",
+			)}
+		>
 			<form
 				className="contents"
 				onSubmit={(e) => {
@@ -1707,6 +2412,15 @@ function Composer({
 							if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
 								e.preventDefault();
 								if (text.trim()) e.currentTarget.form?.requestSubmit();
+								return;
+							}
+							if (
+								e.key === "Escape" &&
+								!choices.length &&
+								!text.trim() &&
+								recipient
+							) {
+								setOpen(false);
 								return;
 							}
 							if (!choices.length) return;

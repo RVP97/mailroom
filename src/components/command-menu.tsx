@@ -17,7 +17,14 @@ import { useTheme } from "@/components/theme-provider";
 import { Kbd } from "@/components/ui/kbd";
 import type { Me } from "@/lib/me";
 
-export type NavItem = { to: string; label: string; icon: LucideIcon; key?: string };
+export type NavItem = {
+	to: string;
+	label: string;
+	icon: LucideIcon;
+	key?: string;
+	/** Other paths that belong to it (an inbox's workflow page belongs to Agent inboxes). */
+	also?: string[];
+};
 
 const Ctx = createContext<{ open: () => void }>({ open: () => {} });
 export const useCommandMenu = () => useContext(Ctx);

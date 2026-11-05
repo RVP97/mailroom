@@ -138,21 +138,26 @@ export function RecordHeader({
 	actions?: ReactNode;
 }) {
 	return (
-		<header className="flex items-center gap-4">
+		// On phones the actions go under the title instead of squeezing it.
+		<header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
 			<div className="flex min-w-0 flex-1 items-center gap-3.5 sm:gap-4">
 				<Stamp
 					icon={icon}
 					tone={tone}
-					className="size-11 sm:size-14"
+					className="size-11 shrink-0 sm:size-14"
 				/>
 				<div className="min-w-0">
 					<p className="text-sm text-muted-foreground">{kind}</p>
-					<h1 className="truncate text-xl font-semibold tracking-[-0.018em] sm:text-2xl">
+					<h1 className="line-clamp-2 text-xl font-semibold tracking-[-0.018em] sm:line-clamp-none sm:truncate sm:text-2xl">
 						<Ph>{title}</Ph>
 					</h1>
 				</div>
 			</div>
-			{actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+			{actions && (
+				<div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:flex-nowrap">
+					{actions}
+				</div>
+			)}
 		</header>
 	);
 }
