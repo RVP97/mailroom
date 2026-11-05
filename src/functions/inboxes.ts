@@ -1,8 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { brandIn, viewScope } from "@/server/brands";
 import {
+	claimConversation,
 	composeDefaults,
 	conversationFor,
 	deleteDraft,
@@ -11,11 +12,22 @@ import {
 	markMessage,
 	saveDraft,
 	sendReply,
+	unsendReply,
 	updateConversation,
 } from "@/server/conversations";
 import { db, schema } from "@/server/db";
 import { inboundAddresses } from "@/server/inbound";
 import { sender } from "@/server/inbox-api";
+import {
+	addNote,
+	assignees,
+	deleteNote,
+	listSavedReplies,
+	PRIORITIES,
+	savedReplyView,
+	settingsOf,
+	VARIABLES,
+} from "@/server/inbox-workflow";
 import {
 	activityView,
 	createCredential,
@@ -59,8 +71,13 @@ export const listConversationsFn = createServerFn({ method: "GET" })
 		z.object({
 			brand: z.string().nullish(),
 			inbox: z.string().nullish(),
-			status: z.enum(["open", "resolved", "all"]).nullish(),
+			status: z.enum(["open", "snoozed", "resolved", "all"]).nullish(),
 			unread: z.boolean().nullish(),
+			assignee: z.string().max(80).nullish(),
+			tag: z.string().max(40).nullish(),
+			priority: z.enum(PRIORITIES).nullish(),
+			sla: z.enum(["due", "breached"]).nullish(),
+			held: z.boolean().nullish(),
 			search: z.string().max(200).nullish(),
 			after: z.string().nullish(),
 		}),
@@ -71,18 +88,31 @@ export const listConversationsFn = createServerFn({ method: "GET" })
 			const person = await personOf(context);
 			const actor = typeof scope === "string" ? { ...person, brands: [scope] } : person;
 			const own = typeof scope === "string" ? scope : context.organizationId;
-			const [page, inboxes, addresses] = await Promise.all([
+			const [page, inboxes, addresses, views, people] = await Promise.all([
 				listConversations(actor, {
 					inbox: data.inbox,
 					status: data.status ?? "open",
 					unread: data.unread,
+					assignee: data.assignee,
+					tag: data.tag,
+					priority: data.priority,
+					sla: data.sla,
+					held: data.held,
 					search: data.search,
 					after: data.after,
 					limit: 50,
 				}),
 				listInboxes(actor),
 				inboundAddresses(own),
+				queueCounts(actor, data.inbox),
+				assignees(context.organizationId, null),
 			]);
+			// The tags to filter by: the inboxes' own, and those in use on this page.
+			const tags = new Map<string, string>();
+			for (const i of inboxes)
+				for (const t of settingsOf(i).tags) tags.set(t.name.toLowerCase(), t.color);
+			for (const r of page.data)
+				for (const t of r.tags) if (!tags.has(t)) tags.set(t, "gray");
 			return {
 				...page,
 				brands,
@@ -90,9 +120,50 @@ export const listConversationsFn = createServerFn({ method: "GET" })
 				address: addresses.own ?? addresses.fallback,
 				addresses,
 				addressBrand: own,
+				me: `user:${context.userId}`,
+				views,
+				tags: [...tags.entries()].map(([name, color]) => ({ name, color })),
+				people: people.map(({ email: _e, ...p }) => p),
 			};
 		}),
 	);
+
+/** How many are in each of the Received page's views (open ones). */
+async function queueCounts(actor: Awaited<ReturnType<typeof personOf>>, inbox?: string | null) {
+	const c = schema.conversations;
+	const at = new Date().toISOString();
+	const inboxId =
+		inbox && inbox !== "none" ? (await inboxFor(actor, inbox).catch(() => null))?.id : null;
+	const row = await db
+		.select({
+			open: sql<number>`sum(CASE WHEN ${c.status} = 'open' AND (${c.snoozed_until} IS NULL OR ${c.snoozed_until} <= ${at}) THEN 1 ELSE 0 END)`,
+			mine: sql<number>`sum(CASE WHEN ${c.status} = 'open' AND ${c.assignee} = ${actor.reader} AND (${c.claimed_until} IS NULL OR ${c.claimed_until} > ${at}) AND (${c.snoozed_until} IS NULL OR ${c.snoozed_until} <= ${at}) THEN 1 ELSE 0 END)`,
+			unassigned: sql<number>`sum(CASE WHEN ${c.status} = 'open' AND (${c.assignee} IS NULL OR ${c.claimed_until} <= ${at}) AND (${c.snoozed_until} IS NULL OR ${c.snoozed_until} <= ${at}) THEN 1 ELSE 0 END)`,
+			snoozed: sql<number>`sum(CASE WHEN ${c.snoozed_until} > ${at} THEN 1 ELSE 0 END)`,
+			overdue: sql<number>`sum(CASE WHEN ${c.status} = 'open' AND ${c.sla_breached} IS NOT NULL THEN 1 ELSE 0 END)`,
+			held: sql<number>`sum(CASE WHEN ${c.held_at} IS NOT NULL THEN 1 ELSE 0 END)`,
+		})
+		.from(c)
+		.where(
+			and(
+				inArray(c.organization_id, actor.brands.length ? actor.brands : [""]),
+				inbox === "none"
+					? isNull(c.inbox_id)
+					: inboxId
+						? eq(c.inbox_id, inboxId)
+						: undefined,
+			),
+		)
+		.get();
+	return {
+		open: Number(row?.open ?? 0),
+		mine: Number(row?.mine ?? 0),
+		unassigned: Number(row?.unassigned ?? 0),
+		snoozed: Number(row?.snoozed ?? 0),
+		overdue: Number(row?.overdue ?? 0),
+		held: Number(row?.held ?? 0),
+	};
+}
 
 export const getConversationFn = createServerFn({ method: "GET" })
 	.middleware([orgMiddleware])
@@ -128,18 +199,133 @@ export const getConversationFn = createServerFn({ method: "GET" })
 					: null,
 				viewScope(context.organizationId).then((v) => v.brands),
 			]);
-			const [activity, compose] = await Promise.all([
+			const [activity, compose, people, saved, contact] = await Promise.all([
 				inboxActivity({ conversationId: id, limit: 50 }),
 				composeDefaults(actor, id),
+				assignees(context.organizationId, inbox ?? null),
+				listSavedReplies(actor, { inbox: conversation.inbox_id }),
+				contactOf(conversation.brand_id, conversation.contact, id),
 			]);
+			const settings = settingsOf(inbox);
 			return {
 				conversation,
 				compose,
 				inbox: inbox ? lite(inbox) : null,
 				brand: brands.find((b) => b.id === conversation.brand_id) ?? null,
 				activity: activity.map(activityView),
+				me: `user:${context.userId}`,
+				people: people.map(({ email: _e, ...p }) => p),
+				saved: saved
+					.filter((s) => !s.inbox_id || s.inbox_id === conversation.inbox_id)
+					.map(savedReplyView),
+				variables: VARIABLES.map((v) => ({ ...v })),
+				workflow: {
+					tags: settings.tags,
+					undo_seconds: settings.undo_seconds,
+					signature: !!settings.signature,
+					sla: settings.sla.enabled,
+				},
+				contact,
 			};
 		}),
+	);
+
+/** Who wrote in: their contact (when the brand has one) and their other conversations. */
+async function contactOf(brandId: string, from: string, conversationId: string) {
+	const address = (/<([^>]+)>/.exec(from)?.[1] ?? from).trim().toLowerCase();
+	if (!address.includes("@")) return null;
+	const c = schema.conversations;
+	const [record, others] = await Promise.all([
+		db
+			.select({
+				id: schema.contacts.id,
+				first_name: schema.contacts.first_name,
+				last_name: schema.contacts.last_name,
+				unsubscribed: schema.contacts.unsubscribed,
+				created_at: schema.contacts.created_at,
+			})
+			.from(schema.contacts)
+			.where(
+				and(
+					eq(schema.contacts.organization_id, brandId),
+					eq(schema.contacts.email, address),
+				),
+			)
+			.get(),
+		db
+			.select({
+				id: c.id,
+				subject: c.subject,
+				status: c.status,
+				last_message_at: c.last_message_at,
+				csat: c.csat_rating,
+			})
+			.from(c)
+			.where(
+				and(
+					eq(c.organization_id, brandId),
+					ne(c.id, conversationId),
+					sql`lower(${c.contact}) LIKE ${`%${address.replace(/[%_\\]/g, "\\$&")}%`} ESCAPE '\\'`,
+				),
+			)
+			.orderBy(desc(c.last_message_at))
+			.limit(6),
+	]);
+	return { email: address, record: record ?? null, others };
+}
+
+export const claimConversationFn = createServerFn({ method: "POST" })
+	.middleware([can("inbox:reply")])
+	.validator(
+		z.object({
+			id: z.string(),
+			release: z.boolean().optional(),
+			force: z.boolean().optional(),
+		}),
+	)
+	.handler(({ data, context }) =>
+		call(async () =>
+			claimConversation(await personOf(context), data.id, {
+				release: data.release,
+				force: data.force,
+			}),
+		),
+	);
+
+export const addNoteFn = createServerFn({ method: "POST" })
+	.middleware([can("inbox:reply")])
+	.validator(
+		z.object({
+			conversation: z.string(),
+			text: z.string().max(10_000),
+			mentions: z.array(z.string()).max(20).optional(),
+		}),
+	)
+	.handler(({ data, context }) =>
+		call(async () => {
+			const actor = await personOf(context);
+			const { c } = await conversationFor(actor, data.conversation);
+			return addNote(actor, c, { text: data.text, mentions: data.mentions });
+		}),
+	);
+
+export const deleteNoteFn = createServerFn({ method: "POST" })
+	.middleware([can("inbox:reply")])
+	.validator(z.object({ conversation: z.string(), id: z.string() }))
+	.handler(({ data, context }) =>
+		call(async () => {
+			const actor = await personOf(context);
+			const { c } = await conversationFor(actor, data.conversation);
+			await deleteNote(actor, c, data.id);
+			return { ok: true };
+		}),
+	);
+
+export const unsendReplyFn = createServerFn({ method: "POST" })
+	.middleware([can("inbox:reply")])
+	.validator(z.object({ id: z.string() }))
+	.handler(({ data, context }) =>
+		call(async () => unsendReply(await personOf(context), data.id)),
 	);
 
 /** An older page of a conversation's timeline ("Load older"). */
@@ -171,6 +357,13 @@ export const updateConversationFn = createServerFn({ method: "POST" })
 			id: z.string(),
 			status: z.enum(["open", "resolved"]).optional(),
 			read: z.boolean().optional(),
+			tags: z.array(z.string()).max(20).optional(),
+			add_tags: z.array(z.string()).max(20).optional(),
+			remove_tags: z.array(z.string()).max(20).optional(),
+			priority: z.enum(PRIORITIES).optional(),
+			snooze_until: z.string().nullable().optional(),
+			assignee: z.string().nullable().optional(),
+			release_held: z.literal(true).optional(),
 		}),
 	)
 	.handler(({ data: { id, ...rest }, context }) =>
@@ -187,6 +380,10 @@ const replyFields = z.object({
 	text: z.string().max(100_000).optional(),
 	/** Checked by the server's own reply input (new files, kept ones, received ones). */
 	attachments: z.array(z.object({}).passthrough()).max(20).optional(),
+	after_message: z.string().max(80).optional(),
+	send_at: z.string().max(40).optional(),
+	saved_reply_id: z.string().max(80).optional(),
+	signature: z.boolean().optional(),
 });
 
 export const saveConversationDraftFn = createServerFn({ method: "POST" })
@@ -418,7 +615,7 @@ export const deleteInboxFn = createServerFn({ method: "POST" })
 		}),
 	);
 
-const permissions = z.array(z.enum(["read", "attachments", "triage", "draft", "send"]));
+const permissions = z.array(z.enum(["read", "attachments", "triage", "notes", "draft", "send"]));
 
 export const createInboxCredentialFn = createServerFn({ method: "POST" })
 	.middleware([can("inbox:agents")])

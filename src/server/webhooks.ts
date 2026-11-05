@@ -29,6 +29,15 @@ export const WEBHOOK_EVENTS = [
 	"inbox.draft.created",
 	"inbox.reply.sent",
 	"inbox.conversation.resolved",
+	"inbox.conversation.assigned",
+	"inbox.conversation.tagged",
+	"inbox.conversation.snoozed",
+	"inbox.conversation.woke",
+	"inbox.note.created",
+	"inbox.message.held",
+	"inbox.sla.warning",
+	"inbox.sla.breached",
+	"inbox.csat.received",
 ] as const;
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
 

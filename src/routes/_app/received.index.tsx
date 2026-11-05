@@ -1,5 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
+	AlarmClock,
+	BarChart3,
 	Bot,
 	Inbox,
 	MessageCircle,
@@ -7,11 +9,14 @@ import {
 	PenLine,
 	Route as RouteIcon,
 	Search,
+	ShieldAlert,
+	Zap,
 } from "lucide-react";
 import { z } from "zod";
 import { ApiDrawer } from "@/components/api-drawer";
 import { BrandFilter } from "@/components/brand-filter";
 import { InboundAddress } from "@/components/inbound-address";
+import { Avatar, PriorityFlag, SlaBadge, Stars, TagChip } from "@/components/inbox-triage";
 import { CopyText, Page, PageHeader, TableCard, TablePager } from "@/components/page";
 import { RowsPending } from "@/components/route-states";
 import { SearchBox } from "@/components/search-box";
@@ -54,6 +59,32 @@ import {
 import { cn } from "@/lib/utils";
 
 const STATUSES = ["open", "resolved", "all"] as const;
+/** The queues: each a status and who has it, counted in the toggle. */
+const VIEWS = [
+	"open",
+	"mine",
+	"unassigned",
+	"snoozed",
+	"overdue",
+	"held",
+	"resolved",
+	"all",
+] as const;
+type View = (typeof VIEWS)[number];
+const PRIORITIES = ["urgent", "high", "normal", "low"] as const;
+
+/** What a view asks the list for. */
+const viewQuery = (view: View) =>
+	({
+		open: { status: "open" as const },
+		mine: { status: "open" as const, assignee: "me" },
+		unassigned: { status: "open" as const, assignee: "none" },
+		snoozed: { status: "snoozed" as const },
+		overdue: { status: "open" as const, sla: "breached" as const },
+		held: { status: "all" as const, held: true },
+		resolved: { status: "resolved" as const },
+		all: { status: "all" as const },
+	})[view];
 
 export const Route = createFileRoute("/_app/received/")({
 	validateSearch: z.object({
@@ -62,24 +93,35 @@ export const Route = createFileRoute("/_app/received/")({
 		brand: z.string().optional(),
 		/** An agent inbox's id, or "none" for the brand's other addresses. */
 		inbox: z.string().optional(),
+		view: z.enum(VIEWS).optional(),
+		/** Older links: open, resolved or all. */
 		status: z.enum(STATUSES).optional(),
 		unread: z.boolean().optional(),
+		tag: z.string().optional(),
+		priority: z.enum(PRIORITIES).optional(),
+		/** A reader ("user:…", "cred:…"), when the view doesn't say who. */
+		assignee: z.string().optional(),
 		after: z.string().optional(),
 	}),
 	loaderDeps: ({ search }) => search,
 	// New filters keep the page up (and the search box focused): only the rows turn into skeletons.
 	pendingMs: Number.POSITIVE_INFINITY,
-	loader: ({ deps }) =>
-		listConversationsFn({
+	loader: ({ deps }) => {
+		const q = viewQuery(deps.view ?? deps.status ?? "open");
+		return listConversationsFn({
 			data: {
 				search: deps.q,
 				brand: deps.brand,
 				inbox: deps.inbox,
-				status: deps.status ?? "open",
 				unread: deps.unread,
+				tag: deps.tag,
+				priority: deps.priority,
+				...q,
+				assignee: "assignee" in q ? q.assignee : deps.assignee,
 				after: deps.after,
 			},
-		}),
+		});
+	},
 	head: () => ({ meta: [{ title: "Received · Mailroom" }] }),
 	component: Received,
 	pendingComponent: ReceivedSketch,
@@ -132,8 +174,20 @@ function ReceivedSketch() {
 						replied_by: null,
 						resolved_at: null,
 						created_at: ago(i * 45),
+						assignee: null,
+						tags: [],
+						priority: "normal",
+						snoozed_until: null,
+						first_reply_at: null,
+						sla: { reply_due_at: null, resolve_due_at: null, breached: [] },
+						csat: null,
+						held: false,
 					}),
 				),
+				me: "",
+				views: { open: 0, mine: 0, unassigned: 0, snoozed: 0, overdue: 0, held: 0 },
+				tags: [],
+				people: [],
 			}}
 		>
 			<Received />
@@ -161,8 +215,25 @@ function Received() {
 	const names = new Map(page.brands.map((o) => [o.id, o.name]));
 	const inboxes = new Map(page.inboxes.map((i) => [i.id, i]));
 	const now = Date.now();
-	const status = search.status ?? "open";
-	const filtered = Boolean(search.q || search.inbox || search.unread || status !== "open");
+	const view: View = search.view ?? search.status ?? "open";
+	const filtered = Boolean(
+		search.q ||
+			search.inbox ||
+			search.unread ||
+			search.tag ||
+			search.priority ||
+			search.assignee ||
+			view !== "open",
+	);
+	const people = new Map(page.people.map((p) => [p.reader, p]));
+	const counted = (v: keyof typeof page.views, label: string) => (
+		<>
+			{label}
+			{page.views[v] > 0 && (
+				<span className="text-xs text-muted-foreground tabular-nums">{page.views[v]}</span>
+			)}
+		</>
+	);
 	const to = (patch: Partial<typeof search>) =>
 		navigate({ search: { ...search, ...patch, after: undefined } });
 	return (
@@ -223,6 +294,24 @@ function Received() {
 								Rules
 							</Link>
 						</Button>
+						<Button
+							variant="outline"
+							asChild
+						>
+							<Link to="/received/replies">
+								<Zap />
+								<span className="hidden sm:inline">Saved replies</span>
+							</Link>
+						</Button>
+						<Button
+							variant="outline"
+							asChild
+						>
+							<Link to="/received/reports">
+								<BarChart3 />
+								<span className="hidden sm:inline">Reports</span>
+							</Link>
+						</Button>
 						<ApiDrawer
 							title="Conversations in the API"
 							description="With a full-access key, or an agent inbox's own credential (mri_…), which reaches only its inbox."
@@ -263,13 +352,41 @@ function Received() {
 				<ToggleGroup
 					type="single"
 					variant="outline"
-					value={status}
+					value={view}
+					className="max-w-full overflow-x-auto"
 					onValueChange={(v) =>
 						v &&
-						to({ status: v === "open" ? undefined : (v as (typeof STATUSES)[number]) })
+						to({
+							view: v === "open" ? undefined : (v as View),
+							status: undefined,
+							...(v === "mine" || v === "unassigned" ? { assignee: undefined } : {}),
+						})
 					}
 				>
-					<ToggleGroupItem value="open">Open</ToggleGroupItem>
+					<ToggleGroupItem value="open">{counted("open", "Open")}</ToggleGroupItem>
+					<ToggleGroupItem value="mine">{counted("mine", "Mine")}</ToggleGroupItem>
+					<ToggleGroupItem value="unassigned">
+						{counted("unassigned", "Unassigned")}
+					</ToggleGroupItem>
+					<ToggleGroupItem value="snoozed">
+						{counted("snoozed", "Snoozed")}
+					</ToggleGroupItem>
+					{(page.views.overdue > 0 || view === "overdue") && (
+						<ToggleGroupItem
+							value="overdue"
+							className="text-red-700 dark:text-red-300"
+						>
+							{counted("overdue", "Overdue")}
+						</ToggleGroupItem>
+					)}
+					{(page.views.held > 0 || view === "held") && (
+						<ToggleGroupItem
+							value="held"
+							className="text-amber-700 dark:text-amber-300"
+						>
+							{counted("held", "Held")}
+						</ToggleGroupItem>
+					)}
 					<ToggleGroupItem value="resolved">Resolved</ToggleGroupItem>
 					<ToggleGroupItem value="all">All</ToggleGroupItem>
 				</ToggleGroup>
@@ -317,6 +434,116 @@ function Received() {
 					value={search.brand}
 					onChange={(brand) => to({ brand, inbox: undefined })}
 				/>
+				{page.tags.length > 0 && (
+					<Select
+						value={search.tag ?? "all"}
+						onValueChange={(v) => to({ tag: v === "all" ? undefined : v })}
+					>
+						<SelectTrigger
+							aria-label="Tag"
+							className="w-auto min-w-32"
+						>
+							<SelectValue>
+								{search.tag ? (
+									<TagChip
+										tag={search.tag}
+										catalog={page.tags}
+									/>
+								) : (
+									"Any tag"
+								)}
+							</SelectValue>
+						</SelectTrigger>
+						<SelectContent align="start">
+							<SelectItem value="all">Any tag</SelectItem>
+							<SelectSeparator />
+							{page.tags.map((t) => (
+								<SelectItem
+									key={t.name}
+									value={t.name}
+								>
+									<TagChip
+										tag={t.name}
+										catalog={page.tags}
+									/>
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				)}
+				<Select
+					value={search.priority ?? "all"}
+					onValueChange={(v) =>
+						to({
+							priority: v === "all" ? undefined : (v as (typeof PRIORITIES)[number]),
+						})
+					}
+				>
+					<SelectTrigger
+						aria-label="Priority"
+						className="w-auto min-w-32"
+					>
+						<SelectValue>
+							{search.priority ? (
+								<PriorityFlag
+									priority={search.priority}
+									label
+								/>
+							) : (
+								"Any priority"
+							)}
+						</SelectValue>
+					</SelectTrigger>
+					<SelectContent align="start">
+						<SelectItem value="all">Any priority</SelectItem>
+						<SelectSeparator />
+						{PRIORITIES.map((p) => (
+							<SelectItem
+								key={p}
+								value={p}
+							>
+								<PriorityFlag
+									priority={p}
+									label
+								/>
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+				{view !== "mine" && view !== "unassigned" && page.people.length > 1 && (
+					<Select
+						value={search.assignee ?? "all"}
+						onValueChange={(v) => to({ assignee: v === "all" ? undefined : v })}
+					>
+						<SelectTrigger
+							aria-label="Assigned to"
+							className="w-auto min-w-36"
+						>
+							<SelectValue>
+								{search.assignee
+									? (people.get(search.assignee)?.name ?? "Someone")
+									: "Anyone's"}
+							</SelectValue>
+						</SelectTrigger>
+						<SelectContent align="start">
+							<SelectItem value="all">Anyone's</SelectItem>
+							<SelectSeparator />
+							{page.people.map((p) => (
+								<SelectItem
+									key={p.reader}
+									value={p.reader}
+								>
+									<Avatar
+										name={p.name}
+										agent={p.type === "agent"}
+									/>
+									{p.name}
+									{p.reader === page.me ? " (you)" : ""}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				)}
 				<SearchBox
 					value={search.q ?? ""}
 					onChange={(q) => to({ q: q || undefined })}
@@ -391,6 +618,10 @@ function Received() {
 											<TableCell className="py-3">
 												{/* On phones the badges wrap under the subject instead of squeezing it. */}
 												<span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+													<PriorityFlag
+														priority={r.priority}
+														label={false}
+													/>
 													<span
 														className={cn(
 															"max-w-full truncate",
@@ -420,6 +651,38 @@ function Received() {
 													{r.status === "resolved" && (
 														<Badge variant="outline">Resolved</Badge>
 													)}
+													{r.held && (
+														<Badge
+															variant="outline"
+															className="text-amber-700 dark:text-amber-300"
+														>
+															<ShieldAlert />
+															Held
+														</Badge>
+													)}
+													{r.snoozed_until && (
+														<Badge
+															variant="outline"
+															title={formatDateTime(r.snoozed_until)}
+														>
+															<AlarmClock />
+															Back {formatAgo(r.snoozed_until, now)}
+														</Badge>
+													)}
+													<SlaBadge
+														sla={r.sla}
+														status={r.status}
+													/>
+													{r.csat?.rating ? (
+														<Stars rating={r.csat.rating} />
+													) : null}
+													{r.tags.map((t) => (
+														<TagChip
+															key={t}
+															tag={t}
+															catalog={page.tags}
+														/>
+													))}
 												</span>
 												<span className="mt-0.5 block truncate text-sm text-muted-foreground">
 													<Ph>
@@ -432,10 +695,30 @@ function Received() {
 												</span>
 											</TableCell>
 											<TableCell
-												className="w-20 py-3 text-right align-top text-muted-foreground tabular-nums"
+												className="w-24 py-3 text-right align-top text-muted-foreground tabular-nums"
 												title={formatDateTime(r.last_message_at)}
 											>
-												<Ph>{formatAgo(r.last_message_at, now)}</Ph>
+												<span className="flex items-center justify-end gap-2">
+													{r.assignee && (
+														<span
+															title={
+																r.assignee.reader === page.me
+																	? "You have it"
+																	: `${r.assignee.name} has it`
+															}
+														>
+															<Avatar
+																name={r.assignee.name}
+																agent={r.assignee.type === "agent"}
+																className={cn(
+																	r.assignee.reader === page.me &&
+																		"ring-2 ring-brand/40",
+																)}
+															/>
+														</span>
+													)}
+													<Ph>{formatAgo(r.last_message_at, now)}</Ph>
+												</span>
 											</TableCell>
 										</TableRow>
 									);

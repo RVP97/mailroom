@@ -10,6 +10,7 @@ import {
 	TriangleAlert,
 	User,
 	Webhook,
+	Workflow,
 } from "lucide-react";
 import { useId, useState } from "react";
 import { toast } from "sonner";
@@ -48,6 +49,7 @@ import {
 } from "@/functions/inboxes";
 import { errorMessage } from "@/lib/errors";
 import { formatAgo, formatDateTime } from "@/lib/format";
+import { DEFAULT_INBOX_SETTINGS } from "@/lib/inbox-settings";
 import { useMe } from "@/lib/me";
 import { allows } from "@/lib/permissions";
 import { Ph, Sketch, usePage } from "@/lib/sketch";
@@ -64,12 +66,17 @@ export const Route = createFileRoute("/_app/received/inboxes/$id")({
 
 type Data = Awaited<ReturnType<typeof getInboxFn>>;
 type Credential = Data["credentials"][number];
-type Permission = "read" | "attachments" | "triage" | "draft" | "send";
+type Permission = "read" | "attachments" | "triage" | "notes" | "draft" | "send";
 
 const PERMISSIONS: { value: Permission; title: string; description: string }[] = [
 	{ value: "read", title: "Read", description: "Conversations and messages (always on)." },
 	{ value: "attachments", title: "Attachments", description: "Download what was attached." },
-	{ value: "triage", title: "Resolve", description: "Resolve or reopen conversations." },
+	{
+		value: "triage",
+		title: "Triage",
+		description: "Resolve, tag, snooze, prioritize and assign conversations.",
+	},
+	{ value: "notes", title: "Notes", description: "Leave internal notes for the team." },
 	{ value: "draft", title: "Draft", description: "Write drafts for a person to approve." },
 	{ value: "send", title: "Send", description: "Send replies itself, without approval." },
 ];
@@ -87,6 +94,7 @@ function InboxSketch() {
 			send_allow: [],
 			send_block: [],
 			description: null,
+			settings: DEFAULT_INBOX_SETTINGS,
 			created_at: "",
 			updated_at: "",
 		},
@@ -178,6 +186,18 @@ function InboxPage() {
 								>
 									<MessagesSquare />
 									Conversations
+								</Link>
+							</Button>
+							<Button
+								variant="outline"
+								asChild
+							>
+								<Link
+									to="/received/workflow/$id"
+									params={{ id: inbox.id }}
+								>
+									<Workflow />
+									Workflow
 								</Link>
 							</Button>
 							{canManage && (

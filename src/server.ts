@@ -70,6 +70,14 @@ async function publicPage(request: Request, url: URL): Promise<Response | null> 
 			}),
 		);
 	}
+	// The rating survey sent after a conversation is resolved (src/server/inbox-workflow.ts).
+	if (
+		url.pathname.startsWith("/rate/") &&
+		(request.method === "GET" || request.method === "POST")
+	) {
+		const { handleRate } = await import("./server/inbox-workflow");
+		return secured(await handleRate(request));
+	}
 	// Images in emails, uploaded in the email editor (src/server/media.ts).
 	if (
 		url.pathname.startsWith("/media/") &&

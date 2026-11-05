@@ -38,6 +38,7 @@ import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { createInboxFn, listInboxesFn } from "@/functions/inboxes";
 import { errorMessage } from "@/lib/errors";
 import { formatAgo, formatDateTime } from "@/lib/format";
+import { DEFAULT_INBOX_SETTINGS } from "@/lib/inbox-settings";
 import { useMe } from "@/lib/me";
 import { allows } from "@/lib/permissions";
 import { Ph, rememberedRows, Sketch, sample, usePage, useRememberRows } from "@/lib/sketch";
@@ -70,6 +71,7 @@ function InboxesSketch() {
 			send_allow: [],
 			send_block: [],
 			description: null,
+			settings: DEFAULT_INBOX_SETTINGS,
 			created_at: "",
 			updated_at: "",
 			credentials: 1,

@@ -48,6 +48,8 @@ import { Route as AppNewslettersIndexRouteImport } from './routes/_app/newslette
 import { Route as AppNewslettersIdRouteImport } from './routes/_app/newsletters.$id'
 import { Route as AppReceivedIndexRouteImport } from './routes/_app/received.index'
 import { Route as AppReceivedIdRouteImport } from './routes/_app/received.$id'
+import { Route as AppReceivedRepliesRouteImport } from './routes/_app/received.replies'
+import { Route as AppReceivedReportsRouteImport } from './routes/_app/received.reports'
 import { Route as AppReceivedRulesRouteImport } from './routes/_app/received.rules'
 import { Route as AppSuppressionsIndexRouteImport } from './routes/_app/suppressions.index'
 import { Route as AppSuppressionsIdRouteImport } from './routes/_app/suppressions.$id'
@@ -63,6 +65,7 @@ import { Route as AppReceivedChatIdRouteImport } from './routes/_app/received.ch
 import { Route as AppReceivedInboxesIndexRouteImport } from './routes/_app/received.inboxes.index'
 import { Route as AppReceivedInboxesIdRouteImport } from './routes/_app/received.inboxes.$id'
 import { Route as AppReceivedMIdRouteImport } from './routes/_app/received.m.$id'
+import { Route as AppReceivedWorkflowIdRouteImport } from './routes/_app/received.workflow.$id'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -258,6 +261,16 @@ const AppReceivedIdRoute = AppReceivedIdRouteImport.update({
   path: '/received/$id',
   getParentRoute: () => AppRoute,
 } as any)
+const AppReceivedRepliesRoute = AppReceivedRepliesRouteImport.update({
+  id: '/received/replies',
+  path: '/received/replies',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppReceivedReportsRoute = AppReceivedReportsRouteImport.update({
+  id: '/received/reports',
+  path: '/received/reports',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppReceivedRulesRoute = AppReceivedRulesRouteImport.update({
   id: '/received/rules',
   path: '/received/rules',
@@ -333,6 +346,11 @@ const AppReceivedMIdRoute = AppReceivedMIdRouteImport.update({
   path: '/received/m/$id',
   getParentRoute: () => AppRoute,
 } as any)
+const AppReceivedWorkflowIdRoute = AppReceivedWorkflowIdRouteImport.update({
+  id: '/received/workflow/$id',
+  path: '/received/workflow/$id',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -362,6 +380,8 @@ export interface FileRoutesByFullPath {
   '/logs/$id': typeof AppLogsIdRoute
   '/newsletters/$id': typeof AppNewslettersIdRoute
   '/received/$id': typeof AppReceivedIdRoute
+  '/received/replies': typeof AppReceivedRepliesRoute
+  '/received/reports': typeof AppReceivedReportsRoute
   '/received/rules': typeof AppReceivedRulesRoute
   '/suppressions/$id': typeof AppSuppressionsIdRoute
   '/templates/$id': typeof AppTemplatesIdRoute
@@ -386,6 +406,7 @@ export interface FileRoutesByFullPath {
   '/received/chat/$id': typeof AppReceivedChatIdRoute
   '/received/inboxes/$id': typeof AppReceivedInboxesIdRoute
   '/received/m/$id': typeof AppReceivedMIdRoute
+  '/received/workflow/$id': typeof AppReceivedWorkflowIdRoute
   '/contacts/forms/': typeof AppContactsFormsIndexRoute
   '/received/inboxes/': typeof AppReceivedInboxesIndexRoute
 }
@@ -417,6 +438,8 @@ export interface FileRoutesByTo {
   '/logs/$id': typeof AppLogsIdRoute
   '/newsletters/$id': typeof AppNewslettersIdRoute
   '/received/$id': typeof AppReceivedIdRoute
+  '/received/replies': typeof AppReceivedRepliesRoute
+  '/received/reports': typeof AppReceivedReportsRoute
   '/received/rules': typeof AppReceivedRulesRoute
   '/suppressions/$id': typeof AppSuppressionsIdRoute
   '/templates/$id': typeof AppTemplatesIdRoute
@@ -441,6 +464,7 @@ export interface FileRoutesByTo {
   '/received/chat/$id': typeof AppReceivedChatIdRoute
   '/received/inboxes/$id': typeof AppReceivedInboxesIdRoute
   '/received/m/$id': typeof AppReceivedMIdRoute
+  '/received/workflow/$id': typeof AppReceivedWorkflowIdRoute
   '/contacts/forms': typeof AppContactsFormsIndexRoute
   '/received/inboxes': typeof AppReceivedInboxesIndexRoute
 }
@@ -474,6 +498,8 @@ export interface FileRoutesById {
   '/_app/logs/$id': typeof AppLogsIdRoute
   '/_app/newsletters/$id': typeof AppNewslettersIdRoute
   '/_app/received/$id': typeof AppReceivedIdRoute
+  '/_app/received/replies': typeof AppReceivedRepliesRoute
+  '/_app/received/reports': typeof AppReceivedReportsRoute
   '/_app/received/rules': typeof AppReceivedRulesRoute
   '/_app/suppressions/$id': typeof AppSuppressionsIdRoute
   '/_app/templates/$id': typeof AppTemplatesIdRoute
@@ -498,6 +524,7 @@ export interface FileRoutesById {
   '/_app/received/chat/$id': typeof AppReceivedChatIdRoute
   '/_app/received/inboxes/$id': typeof AppReceivedInboxesIdRoute
   '/_app/received/m/$id': typeof AppReceivedMIdRoute
+  '/_app/received/workflow/$id': typeof AppReceivedWorkflowIdRoute
   '/_app/contacts/forms/': typeof AppContactsFormsIndexRoute
   '/_app/received/inboxes/': typeof AppReceivedInboxesIndexRoute
 }
@@ -531,6 +558,8 @@ export interface FileRouteTypes {
     | '/logs/$id'
     | '/newsletters/$id'
     | '/received/$id'
+    | '/received/replies'
+    | '/received/reports'
     | '/received/rules'
     | '/suppressions/$id'
     | '/templates/$id'
@@ -555,6 +584,7 @@ export interface FileRouteTypes {
     | '/received/chat/$id'
     | '/received/inboxes/$id'
     | '/received/m/$id'
+    | '/received/workflow/$id'
     | '/contacts/forms/'
     | '/received/inboxes/'
   fileRoutesByTo: FileRoutesByTo
@@ -586,6 +616,8 @@ export interface FileRouteTypes {
     | '/logs/$id'
     | '/newsletters/$id'
     | '/received/$id'
+    | '/received/replies'
+    | '/received/reports'
     | '/received/rules'
     | '/suppressions/$id'
     | '/templates/$id'
@@ -610,6 +642,7 @@ export interface FileRouteTypes {
     | '/received/chat/$id'
     | '/received/inboxes/$id'
     | '/received/m/$id'
+    | '/received/workflow/$id'
     | '/contacts/forms'
     | '/received/inboxes'
   id:
@@ -642,6 +675,8 @@ export interface FileRouteTypes {
     | '/_app/logs/$id'
     | '/_app/newsletters/$id'
     | '/_app/received/$id'
+    | '/_app/received/replies'
+    | '/_app/received/reports'
     | '/_app/received/rules'
     | '/_app/suppressions/$id'
     | '/_app/templates/$id'
@@ -666,6 +701,7 @@ export interface FileRouteTypes {
     | '/_app/received/chat/$id'
     | '/_app/received/inboxes/$id'
     | '/_app/received/m/$id'
+    | '/_app/received/workflow/$id'
     | '/_app/contacts/forms/'
     | '/_app/received/inboxes/'
   fileRoutesById: FileRoutesById
@@ -957,6 +993,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppReceivedIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/received/replies': {
+      id: '/_app/received/replies'
+      path: '/received/replies'
+      fullPath: '/received/replies'
+      preLoaderRoute: typeof AppReceivedRepliesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/received/reports': {
+      id: '/_app/received/reports'
+      path: '/received/reports'
+      fullPath: '/received/reports'
+      preLoaderRoute: typeof AppReceivedReportsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/received/rules': {
       id: '/_app/received/rules'
       path: '/received/rules'
@@ -1062,6 +1112,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppReceivedMIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/received/workflow/$id': {
+      id: '/_app/received/workflow/$id'
+      path: '/received/workflow/$id'
+      fullPath: '/received/workflow/$id'
+      preLoaderRoute: typeof AppReceivedWorkflowIdRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -1086,6 +1143,8 @@ interface AppRouteChildren {
   AppLogsIdRoute: typeof AppLogsIdRoute
   AppNewslettersIdRoute: typeof AppNewslettersIdRoute
   AppReceivedIdRoute: typeof AppReceivedIdRoute
+  AppReceivedRepliesRoute: typeof AppReceivedRepliesRoute
+  AppReceivedReportsRoute: typeof AppReceivedReportsRoute
   AppReceivedRulesRoute: typeof AppReceivedRulesRoute
   AppSuppressionsIdRoute: typeof AppSuppressionsIdRoute
   AppTemplatesIdRoute: typeof AppTemplatesIdRoute
@@ -1109,6 +1168,7 @@ interface AppRouteChildren {
   AppReceivedChatIdRoute: typeof AppReceivedChatIdRoute
   AppReceivedInboxesIdRoute: typeof AppReceivedInboxesIdRoute
   AppReceivedMIdRoute: typeof AppReceivedMIdRoute
+  AppReceivedWorkflowIdRoute: typeof AppReceivedWorkflowIdRoute
   AppContactsFormsIndexRoute: typeof AppContactsFormsIndexRoute
   AppReceivedInboxesIndexRoute: typeof AppReceivedInboxesIndexRoute
 }
@@ -1134,6 +1194,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppLogsIdRoute: AppLogsIdRoute,
   AppNewslettersIdRoute: AppNewslettersIdRoute,
   AppReceivedIdRoute: AppReceivedIdRoute,
+  AppReceivedRepliesRoute: AppReceivedRepliesRoute,
+  AppReceivedReportsRoute: AppReceivedReportsRoute,
   AppReceivedRulesRoute: AppReceivedRulesRoute,
   AppSuppressionsIdRoute: AppSuppressionsIdRoute,
   AppTemplatesIdRoute: AppTemplatesIdRoute,
@@ -1157,6 +1219,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppReceivedChatIdRoute: AppReceivedChatIdRoute,
   AppReceivedInboxesIdRoute: AppReceivedInboxesIdRoute,
   AppReceivedMIdRoute: AppReceivedMIdRoute,
+  AppReceivedWorkflowIdRoute: AppReceivedWorkflowIdRoute,
   AppContactsFormsIndexRoute: AppContactsFormsIndexRoute,
   AppReceivedInboxesIndexRoute: AppReceivedInboxesIndexRoute,
 }
