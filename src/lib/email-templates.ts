@@ -969,14 +969,14 @@ export function buildStarter(
 		brand: brand.name || "us",
 		p,
 		img: (name) => `${origin}/templates/${name}.jpg`,
-		logo: ({ align = "center", width, onDark } = {}) => {
+		logo: ({ align = "center", width } = {}) => {
 			if (choice === "off") return [];
 			if (!brand.logo)
 				// No logo: the brand's name, set as a wordmark, so it never looks like something's missing.
 				return brand.name ? [h(`${esc(brand.name)}`, 3, align)] : [];
-			const own = brand.logoBackground ?? null;
-			// On a dark band, a logo without a color of its own sits on white so it never disappears.
-			const background = own ?? (onDark ? "#ffffff" : null);
+			// Only the color the brand picked for behind its logo: no white rings added around it
+			// (the logo panel offers one when a dark logo needs it on a dark band).
+			const background = brand.logoBackground ?? null;
 			return [
 				{
 					id: id(),
@@ -986,7 +986,7 @@ export function buildStarter(
 					width: width ?? (choice === "circle" ? 56 : 48),
 					align,
 					href: "",
-					shape: choice === "original" && background ? "rounded" : choice,
+					shape: choice,
 					background,
 				},
 			];
