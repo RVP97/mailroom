@@ -19,8 +19,8 @@ import { iso } from "./time";
  * else INBOUND, and ARCHIVE_EMAILS=false turns it off for the whole deployment.
  */
 
-export type ArchiveKind = "emails" | "bodies" | "received";
-export const ARCHIVE_KINDS: ArchiveKind[] = ["emails", "bodies", "received"];
+export type ArchiveKind = "emails" | "bodies" | "received" | "chats";
+export const ARCHIVE_KINDS: ArchiveKind[] = ["emails", "bodies", "received", "chats"];
 
 export const archiveBucket = (): R2Bucket | null => {
 	const c = cfg();
@@ -233,6 +233,30 @@ export async function archiveReceived(
 		bucket,
 		"received",
 		rows,
+		(r) => r.organization_id,
+		(r) => r.created_at,
+	);
+}
+
+/**
+ * Website chats past retention, each with its lines (archive/<brand>/chats/<day>/…, by the day
+ * it started). Their files stay out: they're deleted with the chat.
+ */
+export async function archiveChats(bucket: R2Bucket, conversationIds: string[]) {
+	if (!conversationIds.length) return;
+	const chats = await db
+		.select()
+		.from(schema.conversations)
+		.where(inArray(schema.conversations.id, conversationIds));
+	const lines = await db
+		.select()
+		.from(schema.chatMessages)
+		.where(inArray(schema.chatMessages.conversation_id, conversationIds))
+		.orderBy(asc(schema.chatMessages.created_at));
+	await store(
+		bucket,
+		"chats",
+		chats.map((x) => ({ ...x, lines: lines.filter((l) => l.conversation_id === x.id) })),
 		(r) => r.organization_id,
 		(r) => r.created_at,
 	);

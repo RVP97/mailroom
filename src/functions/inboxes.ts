@@ -210,8 +210,8 @@ export const deleteConversationDraftFn = createServerFn({ method: "POST" })
 
 export const sendConversationReplyFn = createServerFn({ method: "POST" })
 	.middleware([can("inbox:reply")])
-	.validator(replyFields)
-	.handler(({ data: { conversation, draft, ...fields }, context }) =>
+	.validator(replyFields.extend({ client_id: z.string().max(80).optional() }))
+	.handler(({ data: { conversation, draft, client_id, ...fields }, context }) =>
 		call(async () =>
 			sendReply(
 				await personOf(context),
@@ -220,6 +220,7 @@ export const sendConversationReplyFn = createServerFn({ method: "POST" })
 				sender({ source: "dashboard" }),
 				{
 					draftId: draft,
+					clientId: client_id,
 				},
 			),
 		),
@@ -308,7 +309,7 @@ export const getInboxFn = createServerFn({ method: "GET" })
 			const inbox = await inboxFor(actor, data.id).catch(() => {
 				throw new Response("Inbox not found", { status: 404 });
 			});
-			const [credentials, hooks, activity, brands, siblings] = await Promise.all([
+			const [credentials, hooks, activity, brands, siblings, chat] = await Promise.all([
 				listCredentials(inbox),
 				db
 					.select()
@@ -319,11 +320,23 @@ export const getInboxFn = createServerFn({ method: "GET" })
 				viewScope(context.organizationId).then((v) => v.brands),
 				// The brand's inboxes, for a credential's reach.
 				listInboxes({ brands: [inbox.organization_id], inboxIds: null }),
+				import("@/server/chat").then(async (m) => {
+					const w = await m.getChatWidget(inbox.id);
+					return w
+						? {
+								enabled: w.enabled,
+								origins: w.origins,
+								stats: await m.chatStats(inbox.id),
+							}
+						: null;
+				}),
 			]);
 			const { baseUrl } = await import("@/server/env");
 			return {
 				inbox: inboxView(inbox),
 				inboxes: siblings.map(lite),
+				chat,
+				retention_days: inbox.retention_days,
 				brand: brands.find((b) => b.id === inbox.organization_id) ?? null,
 				credentials: credentials.map(credentialView),
 				webhooks: hooks.map(({ secret: _s, ...h }) => h),

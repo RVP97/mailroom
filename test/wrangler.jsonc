@@ -5,8 +5,16 @@
 	"compatibility_date": "2026-08-20",
 	"compatibility_flags": ["nodejs_compat"],
 	"d1_databases": [{ "binding": "DB", "database_name": "mailroom-test", "database_id": "test" }],
-	"durable_objects": { "bindings": [{ "name": "DISPATCHER", "class_name": "Dispatcher" }] },
-	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Dispatcher"] }],
+	"durable_objects": {
+		"bindings": [
+			{ "name": "DISPATCHER", "class_name": "Dispatcher" },
+			{ "name": "CHAT_ROOM", "class_name": "ChatRoom" }
+		]
+	},
+	"migrations": [
+		{ "tag": "v1", "new_sqlite_classes": ["Dispatcher"] },
+		{ "tag": "v2", "new_sqlite_classes": ["ChatRoom"] }
+	],
 	"kv_namespaces": [{ "binding": "OAUTH_KV", "id": "test" }],
 	"r2_buckets": [{ "binding": "INBOUND", "bucket_name": "mailroom-inbound-test" }],
 	"ratelimits": [

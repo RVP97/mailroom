@@ -65,8 +65,17 @@ async function wantedDomains(brand: string) {
 				isNotNull(schema.signupForms.website),
 			),
 		);
+	// Website chats' sites too (src/server/chat.ts); Turnstile covers each one's subdomains.
+	const chats = await db
+		.select({ origins: schema.chatWidgets.origins })
+		.from(schema.chatWidgets)
+		.where(eq(schema.chatWidgets.organization_id, brand));
 	const own = hostOf(baseUrl());
-	const hosts = [own, ...rows.map((r) => hostOf(r.website))].filter((h): h is string => !!h);
+	const hosts = [
+		own,
+		...rows.map((r) => hostOf(r.website)),
+		...chats.flatMap((c) => c.origins),
+	].filter((h): h is string => !!h && h !== "localhost" && !/^127\./.test(h));
 	return [...new Set(hosts)];
 }
 
@@ -148,7 +157,11 @@ export async function verifyTurnstile(brand: string, token: string, ip: string |
 			signal: AbortSignal.timeout(5000),
 		});
 		const out = (await r.json()) as { success?: boolean; hostname?: string };
-		return out.success === true && (!out.hostname || widget.domains.includes(out.hostname));
+		const host = out.hostname?.toLowerCase();
+		return (
+			out.success === true &&
+			(!host || widget.domains.some((d) => host === d || host.endsWith(`.${d}`)))
+		);
 	} catch {
 		return false;
 	}

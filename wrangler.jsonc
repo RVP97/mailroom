@@ -25,8 +25,19 @@
 	"kv_namespaces": [{ "binding": "OAUTH_KV" }],
 	// One Dispatcher per deployment: the AWS account's send rate and the queue of batch and
 	// scheduled emails (src/server/dispatcher.ts). SQLite-backed, so it also runs on the free plan.
-	"durable_objects": { "bindings": [{ "name": "DISPATCHER", "class_name": "Dispatcher" }] },
-	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Dispatcher"] }],
+	// One ChatRoom per website chat: its open WebSockets (the visitor's tabs, the dashboard), so a
+	// reply or "typing…" shows at once (src/server/chat-room.ts). It stores nothing; idle sockets
+	// hibernate.
+	"durable_objects": {
+		"bindings": [
+			{ "name": "DISPATCHER", "class_name": "Dispatcher" },
+			{ "name": "CHAT_ROOM", "class_name": "ChatRoom" }
+		]
+	},
+	"migrations": [
+		{ "tag": "v1", "new_sqlite_classes": ["Dispatcher"] },
+		{ "tag": "v2", "new_sqlite_classes": ["ChatRoom"] }
+	],
 	// The API's rate limits (src/server/rate-limit.ts): requests per 10 seconds, per API key and,
 	// without a valid key, per IP.
 	"ratelimits": [

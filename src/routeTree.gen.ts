@@ -59,6 +59,7 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as AppContactsFormsIndexRouteImport } from './routes/_app/contacts.forms.index'
 import { Route as AppContactsFormsIdRouteImport } from './routes/_app/contacts.forms.$id'
 import { Route as AppInsightsKindKeyRouteImport } from './routes/_app/insights.$kind.$key'
+import { Route as AppReceivedChatIdRouteImport } from './routes/_app/received.chat.$id'
 import { Route as AppReceivedInboxesIndexRouteImport } from './routes/_app/received.inboxes.index'
 import { Route as AppReceivedInboxesIdRouteImport } from './routes/_app/received.inboxes.$id'
 import { Route as AppReceivedMIdRouteImport } from './routes/_app/received.m.$id'
@@ -312,6 +313,11 @@ const AppInsightsKindKeyRoute = AppInsightsKindKeyRouteImport.update({
   path: '/insights/$kind/$key',
   getParentRoute: () => AppRoute,
 } as any)
+const AppReceivedChatIdRoute = AppReceivedChatIdRouteImport.update({
+  id: '/received/chat/$id',
+  path: '/received/chat/$id',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppReceivedInboxesIndexRoute = AppReceivedInboxesIndexRouteImport.update({
   id: '/received/inboxes/',
   path: '/received/inboxes/',
@@ -377,6 +383,7 @@ export interface FileRoutesByFullPath {
   '/webhooks/': typeof AppWebhooksIndexRoute
   '/contacts/forms/$id': typeof AppContactsFormsIdRoute
   '/insights/$kind/$key': typeof AppInsightsKindKeyRoute
+  '/received/chat/$id': typeof AppReceivedChatIdRoute
   '/received/inboxes/$id': typeof AppReceivedInboxesIdRoute
   '/received/m/$id': typeof AppReceivedMIdRoute
   '/contacts/forms/': typeof AppContactsFormsIndexRoute
@@ -431,6 +438,7 @@ export interface FileRoutesByTo {
   '/webhooks': typeof AppWebhooksIndexRoute
   '/contacts/forms/$id': typeof AppContactsFormsIdRoute
   '/insights/$kind/$key': typeof AppInsightsKindKeyRoute
+  '/received/chat/$id': typeof AppReceivedChatIdRoute
   '/received/inboxes/$id': typeof AppReceivedInboxesIdRoute
   '/received/m/$id': typeof AppReceivedMIdRoute
   '/contacts/forms': typeof AppContactsFormsIndexRoute
@@ -487,6 +495,7 @@ export interface FileRoutesById {
   '/_app/webhooks/': typeof AppWebhooksIndexRoute
   '/_app/contacts/forms/$id': typeof AppContactsFormsIdRoute
   '/_app/insights/$kind/$key': typeof AppInsightsKindKeyRoute
+  '/_app/received/chat/$id': typeof AppReceivedChatIdRoute
   '/_app/received/inboxes/$id': typeof AppReceivedInboxesIdRoute
   '/_app/received/m/$id': typeof AppReceivedMIdRoute
   '/_app/contacts/forms/': typeof AppContactsFormsIndexRoute
@@ -543,6 +552,7 @@ export interface FileRouteTypes {
     | '/webhooks/'
     | '/contacts/forms/$id'
     | '/insights/$kind/$key'
+    | '/received/chat/$id'
     | '/received/inboxes/$id'
     | '/received/m/$id'
     | '/contacts/forms/'
@@ -597,6 +607,7 @@ export interface FileRouteTypes {
     | '/webhooks'
     | '/contacts/forms/$id'
     | '/insights/$kind/$key'
+    | '/received/chat/$id'
     | '/received/inboxes/$id'
     | '/received/m/$id'
     | '/contacts/forms'
@@ -652,6 +663,7 @@ export interface FileRouteTypes {
     | '/_app/webhooks/'
     | '/_app/contacts/forms/$id'
     | '/_app/insights/$kind/$key'
+    | '/_app/received/chat/$id'
     | '/_app/received/inboxes/$id'
     | '/_app/received/m/$id'
     | '/_app/contacts/forms/'
@@ -1022,6 +1034,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInsightsKindKeyRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/received/chat/$id': {
+      id: '/_app/received/chat/$id'
+      path: '/received/chat/$id'
+      fullPath: '/received/chat/$id'
+      preLoaderRoute: typeof AppReceivedChatIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/received/inboxes/': {
       id: '/_app/received/inboxes/'
       path: '/received/inboxes'
@@ -1087,6 +1106,7 @@ interface AppRouteChildren {
   AppWebhooksIndexRoute: typeof AppWebhooksIndexRoute
   AppContactsFormsIdRoute: typeof AppContactsFormsIdRoute
   AppInsightsKindKeyRoute: typeof AppInsightsKindKeyRoute
+  AppReceivedChatIdRoute: typeof AppReceivedChatIdRoute
   AppReceivedInboxesIdRoute: typeof AppReceivedInboxesIdRoute
   AppReceivedMIdRoute: typeof AppReceivedMIdRoute
   AppContactsFormsIndexRoute: typeof AppContactsFormsIndexRoute
@@ -1134,6 +1154,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppWebhooksIndexRoute: AppWebhooksIndexRoute,
   AppContactsFormsIdRoute: AppContactsFormsIdRoute,
   AppInsightsKindKeyRoute: AppInsightsKindKeyRoute,
+  AppReceivedChatIdRoute: AppReceivedChatIdRoute,
   AppReceivedInboxesIdRoute: AppReceivedInboxesIdRoute,
   AppReceivedMIdRoute: AppReceivedMIdRoute,
   AppContactsFormsIndexRoute: AppContactsFormsIndexRoute,

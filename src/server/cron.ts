@@ -29,7 +29,7 @@ import { retryDueDeliveries } from "./webhooks";
 
 /**
  * Every minute: wake the Dispatcher (scheduled emails), queue broadcasts' next contacts, move automations on, settle sends that died mid-way and retry
- * webhook deliveries. Every 5 minutes: domains still being verified and SES's status of the
+ * webhook deliveries, and website chats' emails (the team's notifications, visitors' replies). Every 5 minutes: domains still being verified and SES's status of the
  * tenants (the least recently checked first), tracking hosts waiting for their CNAME and, until
  * it's done once, moving open and click tracking from SES to Mailroom, and receiving domains
  * whose MX doesn't point at SES yet. Every hour (minute 7): bounce and complaint alerts, domains to pause
@@ -51,6 +51,12 @@ export async function runCron(scheduledTime: number) {
 		retryDueDeliveries(scheduledTime),
 		runBroadcasts(scheduledTime),
 		runAutomations(scheduledTime),
+		// Website chats: the team's email about new messages, and the team's replies to
+		// visitors who left (src/server/chat.ts).
+		import("./chat").then(async (m) => {
+			await m.notifyTeam(scheduledTime);
+			await m.emailVisitors(scheduledTime);
+		}),
 	];
 	if (awsConfigured() && minute % 5 === 0)
 		jobs.push(

@@ -2,6 +2,7 @@ import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import {
 	Bot,
 	KeyRound,
+	MessageCircle,
 	MessagesSquare,
 	Plus,
 	RefreshCw,
@@ -90,6 +91,8 @@ function InboxSketch() {
 			updated_at: "",
 		},
 		brand: null,
+		chat: null,
+		retention_days: null,
 		credentials: [],
 		webhooks: [],
 		activity: [],
@@ -121,6 +124,12 @@ const ACTIONS: Record<string, string> = {
 	"reply.sent": "sent a reply",
 	"attachment.downloaded": "downloaded an attachment",
 	"message.read": "read a message",
+	"chat.created": "set up the website chat",
+	"chat.updated": "changed the website chat",
+	"chat.key_rotated": "made a new chat key",
+	"chat.deleted": "removed the website chat",
+	"conversation.deleted": "deleted a conversation",
+	"chat.started": "started a chat",
 };
 
 function InboxPage() {
@@ -215,6 +224,12 @@ function InboxPage() {
 					<IdChip value={inbox.id} />
 				</Fact>
 			</Facts>
+
+			<WebsiteChat
+				inbox={inbox.id}
+				chat={data.chat}
+				canManage={canManage}
+			/>
 
 			{canManage && <Settings inbox={inbox} />}
 
@@ -366,6 +381,77 @@ const lines = (s: string) =>
 		.split(/[\s,;]+/)
 		.map((x) => x.trim())
 		.filter(Boolean);
+
+/** The inbox's website chat, at a glance, with the way to its settings. */
+function WebsiteChat({
+	inbox,
+	chat,
+	canManage,
+}: {
+	inbox: string;
+	chat: Data["chat"];
+	canManage: boolean;
+}) {
+	return (
+		<Section
+			title="Website chat"
+			description="A chat bubble on your website. Visitors chat live; the team gets each chat by email and answers by replying, or here."
+			actions={
+				(chat || canManage) && (
+					<Button
+						variant={chat ? "outline" : "default"}
+						asChild
+					>
+						<Link
+							to="/received/chat/$id"
+							params={{ id: inbox }}
+						>
+							<MessageCircle />
+							{chat ? "Chat settings" : "Set up"}
+						</Link>
+					</Button>
+				)
+			}
+		>
+			{chat ? (
+				<Card className="flex-row flex-wrap items-center gap-x-6 gap-y-2 px-5 py-4 text-sm">
+					<span className="flex items-center gap-2">
+						<span
+							className={
+								chat.enabled
+									? "size-2 rounded-full bg-emerald-500"
+									: "size-2 rounded-full bg-muted-foreground/40"
+							}
+						/>
+						<span className="font-medium">{chat.enabled ? "On" : "Off"}</span>
+					</span>
+					<span className="min-w-0 truncate text-muted-foreground">
+						{chat.origins.length
+							? chat.origins.join(", ")
+							: "Not on a website yet: add yours in Install"}
+					</span>
+					<span className="ml-auto flex gap-4 text-muted-foreground tabular-nums">
+						<Link
+							to="/received"
+							search={{ inbox }}
+							className="hover:text-foreground"
+						>
+							<b className="font-semibold text-foreground">{chat.stats.open}</b> open
+						</Link>
+						<span>
+							<b className="font-semibold text-foreground">{chat.stats.month}</b> in
+							30 days
+						</span>
+					</span>
+				</Card>
+			) : (
+				<p className="text-sm text-muted-foreground">
+					Not set up. Chats would arrive here as conversations, next to email.
+				</p>
+			)}
+		</Section>
+	);
+}
 
 function Settings({ inbox }: { inbox: Data["inbox"] }) {
 	const router = useRouter();

@@ -1,11 +1,17 @@
 import { instrumentDurableObjectWithSentry, withSentry } from "@sentry/cloudflare";
 import handler from "@tanstack/react-start/server-entry";
+import { ChatRoom as ChatRoomObject } from "./server/chat-room";
 import { Dispatcher as DispatcherObject } from "./server/dispatcher";
 import { sentryOptions } from "./server/sentry";
 
 export const Dispatcher = instrumentDurableObjectWithSentry(
 	(env: Env) => sentryOptions(env) ?? {},
 	DispatcherObject,
+);
+
+export const ChatRoom = instrumentDurableObjectWithSentry(
+	(env: Env) => sentryOptions(env) ?? {},
+	ChatRoomObject,
 );
 
 const SECURITY_HEADERS: Record<string, string> = {
@@ -157,6 +163,16 @@ export default withSentry(sentryOptions, {
 		if (url.pathname.startsWith("/api/") && !url.pathname.startsWith("/api/auth/")) {
 			const { handleApi } = await import("./server/api");
 			return secured(await handleApi(request));
+		}
+		// Website chat: the widget's script and endpoints (CORS, by its websites), and the
+		// dashboard's live connection to a chat (src/server/chat-public.ts).
+		if (url.pathname.startsWith("/chat/")) {
+			const { handleChat } = await import("./server/chat-public");
+			return secured(await handleChat(request));
+		}
+		if (url.pathname.startsWith("/chat-live/")) {
+			const { handleTeamLive } = await import("./server/chat-public");
+			return secured(await handleTeamLive(request));
 		}
 		const page = await publicPage(request, url);
 		if (page) return page;

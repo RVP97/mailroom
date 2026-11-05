@@ -32,11 +32,12 @@ interface __BaseEnv_Env {
 	OPERATOR_NAME: string;
 	CONTACT_EMAIL: string;
 	DISPATCHER: DurableObjectNamespace<import("./src/server").Dispatcher>;
+	CHAT_ROOM: DurableObjectNamespace<import("./src/server").ChatRoom>;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {
 		mainModule: typeof import("./src/server");
-		durableNamespaces: "Dispatcher";
+		durableNamespaces: "Dispatcher" | "ChatRoom";
 	}
 	interface Env extends __BaseEnv_Env {}
 }

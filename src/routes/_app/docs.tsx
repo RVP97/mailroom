@@ -148,7 +148,7 @@ const ENDPOINTS: [group: string, Endpoint[]][] = [
 			[
 				"GET",
 				"/archive",
-				"The brand's long-term archive in R2 (kind: emails, bodies or received; cursor): what retention took, as gzip NDJSON by day.",
+				"The brand's long-term archive in R2 (kind: emails, bodies, received or chats; cursor): what retention took, as gzip NDJSON by day.",
 			],
 			["GET", "/archive/file?key=…", "Download one archive file."],
 		],

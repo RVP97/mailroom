@@ -1,0 +1,650 @@
+import { eq } from "drizzle-orm";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import {
+	type ChatSender,
+	emailVisitors,
+	notifyTeam,
+	originAllowed,
+	originHost,
+	replyText,
+	saveChatWidget,
+} from "@/server/chat";
+import { handleChat } from "@/server/chat-public";
+import { getConversation, purgeConversations, sendReply } from "@/server/conversations";
+import { db, schema } from "@/server/db";
+import { purgeReceived, receiveSes } from "@/server/inbound";
+import { createInbox, type Inbox, type InboxActor } from "@/server/inboxes";
+import { setSetting } from "@/server/settings";
+import { fakeOutside, seedOrg, uid, useTopic } from "./helpers";
+
+vi.mock("cloudflare:workers", async (original) => ({
+	...(await original<typeof import("cloudflare:workers")>()),
+	waitUntil: () => {},
+}));
+
+const BUCKET = "mailroom-inbound-123456789012-us-east-1";
+const SITE = "https://www.acme-hotel.test";
+
+beforeAll(async () => {
+	await useTopic();
+	await setSetting("aws_account_id", "123456789012");
+	await setSetting("inbound_bucket", BUCKET);
+	await setSetting("inbound_rule_set", "mailroom");
+	await setSetting("inbound_set_up_at", new Date().toISOString());
+});
+
+// biome-ignore lint/suspicious/noExplicitAny: the endpoints' answers, read loosely in tests
+type Json = any;
+
+/** A brand receiving at its domain, a Support inbox with a chat on acme-hotel.test. */
+async function setUp(o: { askEmail?: "off" | "optional" | "required" } = {}) {
+	const org = await seedOrg();
+	await db
+		.update(schema.domains)
+		.set({
+			receiving: true,
+			receiving_status: "active",
+			receiving_host: org.domain,
+			sending: true,
+		})
+		.where(eq(schema.domains.id, org.domainId));
+	const inbox = await createInbox(org.id, {
+		name: "Support",
+		local_part: "support",
+		domain: org.domain,
+	});
+	const { widget } = await saveChatWidget(
+		inbox,
+		{
+			origins: ["acme-hotel.test"],
+			notify: ["owner@acme-hotel.test"],
+			ask_email: o.askEmail ?? "optional",
+			design: { title: "Acme Hotel", color: "#0f766e" },
+		},
+		{ userId: null },
+	);
+	return { org, inbox, widget };
+}
+
+async function call(
+	key: string,
+	action: string,
+	o: {
+		method?: string;
+		body?: unknown;
+		token?: string;
+		origin?: string | null;
+		query?: string;
+	} = {},
+) {
+	const headers: Record<string, string> = {};
+	if (o.origin !== null) headers.origin = o.origin ?? SITE;
+	if (o.token) headers.authorization = `Bearer ${o.token}`;
+	if (o.body) headers["content-type"] = "application/json";
+	const res = await handleChat(
+		new Request(`https://mailroom.test/chat/${key}/${action}${o.query ?? ""}`, {
+			method: o.method ?? (o.body ? "POST" : "GET"),
+			headers,
+			body: o.body ? JSON.stringify(o.body) : undefined,
+		}),
+	);
+	return {
+		status: res.status,
+		headers: res.headers,
+		json: (await res.json().catch(() => null)) as Json,
+	};
+}
+
+async function start(
+	key: string,
+	text = "Hi! Is breakfast included?",
+	extra: Record<string, unknown> = {},
+) {
+	const r = await call(key, "start", {
+		body: { text, page: `${SITE}/rooms`, client_id: uid(), ...extra },
+	});
+	expect(r.status).toBe(201);
+	return r.json as { token: string; conversation: { id: string }; messages: Json[] };
+}
+
+function person(organizationId: string, name = "Pat Rivera"): InboxActor {
+	return {
+		organizationId,
+		brands: [organizationId],
+		inboxIds: null,
+		permissions: new Set(["read", "attachments", "triage", "draft", "send"]),
+		sendScope: "anyone",
+		type: "person",
+		id: `user_${uid()}`,
+		name,
+		reader: `user:${uid()}`,
+	};
+}
+
+const noEmail = { send: async () => "never" };
+
+/** Captures what the cron emails. */
+function sender() {
+	const sent: Record<string, Json>[] = [];
+	const s: ChatSender = {
+		send: async (_brand, input) => {
+			sent.push(input);
+			return `email-${sent.length}`;
+		},
+	};
+	return { s, sent };
+}
+
+describe("website chat: settings", () => {
+	it("keeps websites as hostnames and allows their subdomains, Mailroom's host and nothing else", async () => {
+		expect(originHost("https://www.acme.com/path?x")).toBe("www.acme.com");
+		expect(originHost("*.acme.com")).toBe("acme.com");
+		expect(originHost("acme.com:8080")).toBe("acme.com");
+		expect(originHost("localhost")).toBe("localhost");
+		expect(originHost("not a host")).toBeNull();
+		const w = { origins: ["acme.com"] };
+		expect(originAllowed(w, "https://acme.com")).toBe(true);
+		expect(originAllowed(w, "https://shop.acme.com")).toBe(true);
+		expect(originAllowed(w, "https://evilacme.com")).toBe(false);
+		expect(originAllowed(w, "http://acme.com")).toBe(false);
+		expect(originAllowed(w, "https://mailroom.test")).toBe(true);
+		expect(originAllowed(w, null)).toBe(false);
+	});
+
+	it("serves the widget with its settings, and nothing for an unknown key", async () => {
+		const { widget } = await setUp();
+		const res = await handleChat(
+			new Request(`https://mailroom.test/chat/${widget.public_key}.js`),
+		);
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-type")).toContain("javascript");
+		const body = await res.text();
+		expect(body).toContain("mailroomChat(");
+		expect(body).toContain('"title":"Acme Hotel"');
+		expect(body).toContain('"color":"#0f766e"');
+		expect(body).not.toContain("owner@acme-hotel.test");
+		const none = await handleChat(
+			new Request("https://mailroom.test/chat/mrc_aaaaaaaaaaaaaaaaaaaaaaaa.js"),
+		);
+		expect(none.status).toBe(404);
+	});
+});
+
+describe("website chat: the visitor", () => {
+	it("answers only the chat's websites (CORS), and starts a chat on the first message", async () => {
+		const { widget, inbox } = await setUp();
+		const elsewhere = await call(widget.public_key, "start", {
+			body: { text: "hi" },
+			origin: "https://evil.test",
+		});
+		expect(elsewhere.status).toBe(403);
+		expect(elsewhere.headers.get("access-control-allow-origin")).toBeNull();
+		const preflight = await call(widget.public_key, "start", { method: "OPTIONS" });
+		expect(preflight.status).toBe(204);
+		expect(preflight.headers.get("access-control-allow-origin")).toBe(SITE);
+
+		const started = await start(widget.public_key);
+		expect(started.token).toMatch(/^mrv_/);
+		expect(started.messages).toHaveLength(1);
+		expect(started.messages[0]).toMatchObject({
+			author: "visitor",
+			text: "Hi! Is breakfast included?",
+		});
+		const x = await db
+			.select()
+			.from(schema.conversations)
+			.where(eq(schema.conversations.id, started.conversation.id))
+			.get();
+		expect(x).toMatchObject({
+			channel: "chat",
+			inbox_id: inbox.id,
+			subject: "Hi! Is breakfast included?",
+			contact: "Website visitor",
+			page_url: `${SITE}/rooms`,
+			status: "open",
+			messages: 1,
+		});
+		expect(x?.chat_key).toMatch(/^[a-z0-9]{12}$/);
+		// The token is never stored as it is.
+		const v = await db
+			.select()
+			.from(schema.chatVisitors)
+			.where(eq(schema.chatVisitors.conversation_id, x?.id ?? ""))
+			.get();
+		expect(v?.token_hash).not.toContain("mrv_");
+	});
+
+	it("needs the visitor's token for the chat, and keeps each chat to its widget", async () => {
+		const a = await setUp();
+		const b = await setUp();
+		const chat = await start(a.widget.public_key);
+		expect((await call(a.widget.public_key, "messages")).status).toBe(401);
+		expect((await call(b.widget.public_key, "messages", { token: chat.token })).status).toBe(
+			401,
+		);
+		const mine = await call(a.widget.public_key, "messages", { token: chat.token });
+		expect(mine.status).toBe(200);
+		expect(mine.json.messages).toHaveLength(1);
+	});
+
+	it("takes messages once each (client ids), only after the last one asked for, and limits the pace", async () => {
+		const { widget } = await setUp();
+		const chat = await start(widget.public_key);
+		const first = chat.messages[0].id;
+		const again = { text: "Also, is parking free?", client_id: "c-1" };
+		const one = await call(widget.public_key, "messages", { body: again, token: chat.token });
+		const two = await call(widget.public_key, "messages", { body: again, token: chat.token });
+		expect(one.status).toBe(201);
+		expect(two.json.message.id).toBe(one.json.message.id);
+		const after = await call(widget.public_key, "messages", {
+			token: chat.token,
+			query: `?after=${first}`,
+		});
+		expect(after.json.messages.map((m: Json) => m.text)).toEqual(["Also, is parking free?"]);
+		let last = 0;
+		for (let i = 0; i < 25; i++)
+			last = (
+				await call(widget.public_key, "messages", {
+					body: { text: `spam ${i}` },
+					token: chat.token,
+				})
+			).status;
+		expect(last).toBe(429);
+	});
+
+	it("asks for the email first when the chat requires it", async () => {
+		const { widget } = await setUp({ askEmail: "required" });
+		const r = await call(widget.public_key, "start", { body: { text: "hello" } });
+		expect(r.status).toBe(422);
+		const ok = await start(widget.public_key, "hello", {
+			email: "Ana@Guest.test",
+			name: "Ana",
+		});
+		const x = await db
+			.select()
+			.from(schema.conversations)
+			.where(eq(schema.conversations.id, ok.conversation.id))
+			.get();
+		expect(x).toMatchObject({
+			visitor_email: "ana@guest.test",
+			visitor_name: "Ana",
+			contact: "ana@guest.test",
+		});
+	});
+
+	it("stores a visitor's file in R2 and serves it only by its signed link", async () => {
+		const { widget } = await setUp();
+		const chat = await start(widget.public_key);
+		const form = new FormData();
+		form.append(
+			"file",
+			new File([new Uint8Array([137, 80, 78, 71])], "photo.png", { type: "image/png" }),
+		);
+		const res = await handleChat(
+			new Request(`https://mailroom.test/chat/${widget.public_key}/files`, {
+				method: "POST",
+				headers: { origin: SITE, authorization: `Bearer ${chat.token}` },
+				body: form,
+			}),
+		);
+		expect(res.status).toBe(201);
+		const { message } = (await res.json()) as Json;
+		expect(message.files[0]).toMatchObject({ filename: "photo.png", image: true, size: 4 });
+		const file = await handleChat(new Request(message.files[0].url));
+		expect(file.status).toBe(200);
+		expect(file.headers.get("content-type")).toBe("image/png");
+		const forged = await handleChat(new Request(message.files[0].url.replace(/.$/, "x")));
+		expect(forged.status).toBe(404);
+		// A script isn't a file it takes.
+		const bad = new FormData();
+		bad.append("file", new File(["<svg onload=alert(1)>"], "x.svg", { type: "image/svg+xml" }));
+		const refused = await handleChat(
+			new Request(`https://mailroom.test/chat/${widget.public_key}/files`, {
+				method: "POST",
+				headers: { origin: SITE, authorization: `Bearer ${chat.token}` },
+				body: bad,
+			}),
+		);
+		expect(refused.status).toBe(422);
+	});
+
+	it("stops at once when the chat is turned off", async () => {
+		const { widget, inbox } = await setUp();
+		await saveChatWidget(inbox, { enabled: false });
+		const r = await call(widget.public_key, "start", { body: { text: "hi" } });
+		expect(r.status).toBe(410);
+	});
+});
+
+describe("website chat: the team", () => {
+	it("answers in the chat from the dashboard (and the API), shown in the conversation's timeline", async () => {
+		const { org, widget } = await setUp();
+		const chat = await start(widget.public_key);
+		const pat = person(org.id);
+		const reply = await sendReply(pat, chat.conversation.id, { text: "Yes, it is!" }, noEmail);
+		expect(reply).toMatchObject({ channel: "chat", text: "Yes, it is!" });
+		const seen = await call(widget.public_key, "messages", { token: chat.token });
+		expect(seen.json.messages.at(-1)).toMatchObject({
+			author: "team",
+			name: "Pat",
+			text: "Yes, it is!",
+		});
+		// Their last names and ids stay with the team.
+		expect(JSON.stringify(seen.json)).not.toContain("Rivera");
+		const full = await getConversation(pat, chat.conversation.id);
+		expect(full.channel).toBe("chat");
+		expect(full.timeline.map((t) => t.type)).toEqual(["chat", "chat"]);
+		expect(full.timeline.at(-1)).toMatchObject({
+			author: { type: "person", name: "Pat Rivera" },
+			via: "api",
+		});
+	});
+
+	it("emails the team a minute's messages at once, Reply-To the chat's address, unless someone read them", async () => {
+		const { org, widget, inbox } = await setUp();
+		const t0 = Date.parse("2025-03-01T10:00:00Z");
+		vi.setSystemTime(t0);
+		const chat = await start(widget.public_key, "First question");
+		await call(widget.public_key, "messages", {
+			body: { text: "Second question" },
+			token: chat.token,
+		});
+		vi.useRealTimers();
+		const { s, sent } = sender();
+		expect(await notifyTeam(t0 + 10_000, s)).toBe(0);
+		expect(await notifyTeam(t0 + 60_000, s)).toBe(1);
+		const x = await db
+			.select()
+			.from(schema.conversations)
+			.where(eq(schema.conversations.id, chat.conversation.id))
+			.get();
+		expect(sent[0]).toMatchObject({
+			to: ["owner@acme-hotel.test"],
+			reply_to: [`support+chat-${x?.chat_key}@${org.domain}`],
+		});
+		expect(sent[0]?.from).toBe(`Visitor via chat <${inbox.address}>`);
+		expect(sent[0]?.text).toContain("First question");
+		expect(sent[0]?.text).toContain("Second question");
+		expect(sent[0]?.text).toContain("Write your reply above this line");
+		// Sent once.
+		expect(await notifyTeam(t0 + 120_000, s)).toBe(0);
+		// Read in the dashboard first: no email.
+		vi.setSystemTime(t0 + 200_000);
+		await call(widget.public_key, "messages", { body: { text: "Third" }, token: chat.token });
+		vi.useRealTimers();
+		await getConversation(person(org.id), chat.conversation.id, {
+			markRead: true,
+			now: t0 + 210_000,
+		});
+		expect(await notifyTeam(t0 + 300_000, s)).toBe(0);
+		expect(sent).toHaveLength(1);
+	});
+
+	it("emails a visitor who left the team's reply (only what the team wrote), and never one who saw it", async () => {
+		const { org, widget, inbox } = await setUp();
+		const t0 = Date.parse("2025-03-02T11:00:00Z");
+		vi.setSystemTime(t0);
+		const chat = await start(widget.public_key, "Secret visitor text", {
+			email: "ana@guest.test",
+		});
+		vi.setSystemTime(t0 + 60_000);
+		await sendReply(
+			person(org.id),
+			chat.conversation.id,
+			{ text: "We have a room for you." },
+			noEmail,
+		);
+		vi.useRealTimers();
+		const { s, sent } = sender();
+		expect(await emailVisitors(t0 + 2 * 60_000, s)).toBe(0);
+		expect(await emailVisitors(t0 + 5 * 60_000, s)).toBe(1);
+		const x = await db
+			.select()
+			.from(schema.conversations)
+			.where(eq(schema.conversations.id, chat.conversation.id))
+			.get();
+		expect(sent[0]).toMatchObject({
+			to: ["ana@guest.test"],
+			reply_to: [`support+chatv-${x?.chat_key}@${org.domain}`],
+			subject: "Your chat with Acme Hotel",
+		});
+		expect(sent[0]?.from).toBe(`Acme Hotel <${inbox.address}>`);
+		expect(sent[0]?.text).toContain("We have a room for you.");
+		expect(sent[0]?.text).not.toContain("Secret visitor text");
+		expect(sent[0]?.text).toContain(`${SITE}/rooms#mailroom-chat`);
+		// The visitor saw the next one in the widget: nothing to email.
+		vi.setSystemTime(t0 + 6 * 60_000);
+		await sendReply(person(org.id), chat.conversation.id, { text: "Anything else?" }, noEmail);
+		await call(widget.public_key, "seen", { body: {}, token: chat.token });
+		vi.useRealTimers();
+		expect(await emailVisitors(t0 + 20 * 60_000, s)).toBe(0);
+	});
+});
+
+describe("website chat: answering by email", () => {
+	function fakeS3(objects: Map<string, string>) {
+		return fakeOutside({
+			extra: async (url, init) => {
+				if (url.host === `${BUCKET}.s3.us-east-1.amazonaws.com`) {
+					const key = url.pathname.slice(1);
+					if ((init?.method ?? "GET") === "GET") {
+						const raw = objects.get(key);
+						return raw === undefined
+							? new Response("", { status: 404 })
+							: new Response(raw);
+					}
+					objects.delete(key);
+					return new Response("");
+				}
+				return undefined;
+			},
+		});
+	}
+
+	async function arrive(o: { to: string; from: string; text: string; dkim?: string }) {
+		const objects = new Map<string, string>();
+		fakeS3(objects);
+		const key = `inbound/${uid()}`;
+		objects.set(
+			key,
+			[
+				`From: ${o.from}`,
+				`To: ${o.to}`,
+				"Subject: Re: Chat with Visitor",
+				`Message-ID: <${uid()}@mail.test>`,
+				"MIME-Version: 1.0",
+				"Content-Type: text/plain; charset=utf-8",
+				"",
+				o.text,
+				"",
+			].join("\r\n"),
+		);
+		const at = new Date().toISOString();
+		return receiveSes({
+			notificationType: "Received",
+			mail: { messageId: `ses-${uid()}`, timestamp: at, destination: [o.to] },
+			receipt: {
+				timestamp: at,
+				recipients: [o.to],
+				spamVerdict: { status: "PASS" },
+				virusVerdict: { status: "PASS" },
+				dkimVerdict: { status: o.dkim ?? "PASS" },
+				dmarcVerdict: { status: o.dkim ?? "PASS" },
+				spfVerdict: { status: "PASS" },
+				action: { type: "S3", bucketName: BUCKET, objectKey: key },
+			},
+		});
+	}
+
+	it("turns a notified address's reply into the team's line, without what it quotes", async () => {
+		const { org, widget } = await setUp();
+		const chat = await start(widget.public_key);
+		const x = await db
+			.select()
+			.from(schema.conversations)
+			.where(eq(schema.conversations.id, chat.conversation.id))
+			.get();
+		const to = `support+chat-${x?.chat_key}@${org.domain}`;
+		const r = await arrive({
+			to,
+			from: "Owner Person <owner@acme-hotel.test>",
+			text: "Yes, breakfast is included.\n\nOn Wed, Nov 5, 2026 at 10:00 AM Visitor via chat <support@x.test>\nwrote:\n> Hi! Is breakfast included?",
+		});
+		expect(r).toBe("applied");
+		const seen = await call(widget.public_key, "messages", { token: chat.token });
+		expect(seen.json.messages.at(-1)).toMatchObject({
+			author: "team",
+			name: "Owner",
+			text: "Yes, breakfast is included.",
+		});
+		// Not kept as an email too.
+		const kept = await db
+			.select()
+			.from(schema.receivedEmails)
+			.where(eq(schema.receivedEmails.organization_id, org.id));
+		expect(kept).toHaveLength(0);
+	});
+
+	it("keeps anyone else's email to that address out of the chat", async () => {
+		const { org, widget } = await setUp();
+		const chat = await start(widget.public_key);
+		const x = await db
+			.select()
+			.from(schema.conversations)
+			.where(eq(schema.conversations.id, chat.conversation.id))
+			.get();
+		const to = `support+chat-${x?.chat_key}@${org.domain}`;
+		// A stranger, and the owner's address without DKIM (forged).
+		await arrive({ to, from: "mallory@evil.test", text: "Click this link" });
+		await arrive({ to, from: "owner@acme-hotel.test", text: "Forged", dkim: "FAIL" });
+		const seen = await call(widget.public_key, "messages", { token: chat.token });
+		expect(seen.json.messages).toHaveLength(1);
+		const kept = await db
+			.select()
+			.from(schema.receivedEmails)
+			.where(eq(schema.receivedEmails.organization_id, org.id));
+		expect(kept).toHaveLength(2);
+	});
+
+	it("puts the visitor's emailed answer in the chat", async () => {
+		const { org, widget } = await setUp();
+		const chat = await start(widget.public_key, "hi", { email: "ana@guest.test" });
+		const x = await db
+			.select()
+			.from(schema.conversations)
+			.where(eq(schema.conversations.id, chat.conversation.id))
+			.get();
+		await arrive({
+			to: `support+chatv-${x?.chat_key}@${org.domain}`,
+			from: "Ana <ana@guest.test>",
+			text: "Two adults, please.\n\nEl mié, 5 nov 2026 a las 10:00, Acme Hotel (<support@x.test>) escribió:\n> We have a room",
+		});
+		const seen = await call(widget.public_key, "messages", { token: chat.token });
+		expect(seen.json.messages.at(-1)).toMatchObject({
+			author: "visitor",
+			text: "Two adults, please.",
+		});
+	});
+
+	it("reads only the new words of a reply", () => {
+		expect(replyText("Thanks!\n\n##- Write your reply above this line -##\nold")).toBe(
+			"Thanks!",
+		);
+		expect(replyText("Sure\n\nOn Tue, Nov 4, 2026, Ana <a@b.c> wrote:\n> q")).toBe("Sure");
+		expect(replyText("Ok\n-- \nPat\nAcme")).toBe("Ok");
+		expect(replyText("Listo\n\nEnviado desde mi iPhone")).toBe("Listo");
+		expect(
+			replyText("Fine\n\nFrom: Ana <a@b.c>\nSent: Tuesday\nTo: x\nSubject: y\n\nold"),
+		).toBe("Fine");
+		expect(replyText("> only a quote")).toBe("");
+	});
+});
+
+describe("website chat: retention", () => {
+	async function chatAt(inbox: Inbox, at: string) {
+		const id = crypto.randomUUID();
+		await db.insert(schema.conversations).values({
+			id,
+			organization_id: inbox.organization_id,
+			inbox_id: inbox.id,
+			subject: "Old chat",
+			contact: "Website visitor",
+			last_message_at: at,
+			created_at: at,
+			updated_at: at,
+			channel: "chat",
+			chat_key: `k${uid()}`.slice(0, 12),
+		});
+		await db.insert(schema.chatMessages).values({
+			id: crypto.randomUUID(),
+			organization_id: inbox.organization_id,
+			conversation_id: id,
+			inbox_id: inbox.id,
+			author: "visitor",
+			text: "old",
+			via: "widget",
+			created_at: at,
+		});
+		return id;
+	}
+	const exists = async (id: string) =>
+		!!(await db
+			.select()
+			.from(schema.conversations)
+			.where(eq(schema.conversations.id, id))
+			.get());
+
+	it("deletes an inbox's chats after its own period, keeps them when it says always, and the rest after the deployment's", async () => {
+		const now = Date.parse("2026-11-05T03:00:00Z");
+		const days = (n: number) => new Date(now - n * 86_400_000).toISOString();
+		const week = await setUp();
+		await saveChatWidget(week.inbox, { retention_days: 7 });
+		const always = await setUp();
+		await saveChatWidget(always.inbox, { retention_days: 0 });
+		const usual = await setUp();
+		const a = await chatAt(week.inbox, days(8));
+		const b = await chatAt(week.inbox, days(6));
+		const c = await chatAt(always.inbox, days(400));
+		const d = await chatAt(usual.inbox, days(31));
+		const e = await chatAt(usual.inbox, days(29));
+		await purgeReceived(now);
+		expect(await exists(a)).toBe(false);
+		expect(await exists(b)).toBe(true);
+		expect(await exists(c)).toBe(true);
+		expect(await exists(d)).toBe(false);
+		expect(await exists(e)).toBe(true);
+		const lines = await db
+			.select()
+			.from(schema.chatMessages)
+			.where(eq(schema.chatMessages.conversation_id, a));
+		expect(lines).toHaveLength(0);
+		await purgeConversations(days(1), 1, now);
+	});
+});
+
+describe("website chat: live", () => {
+	it("pushes the team's reply to the visitor's socket, and the visitor's typing to the team's", async () => {
+		const { org, widget } = await setUp();
+		const chat = await start(widget.public_key);
+		const res = await handleChat(
+			new Request(
+				`https://mailroom.test/chat/${widget.public_key}/live?token=${chat.token}`,
+				{
+					headers: { upgrade: "websocket", origin: SITE },
+				},
+			),
+		);
+		expect(res.status).toBe(101);
+		const ws = res.webSocket as WebSocket;
+		ws.accept();
+		const got: Json[] = [];
+		ws.addEventListener("message", (e) => got.push(JSON.parse(e.data as string)));
+		await sendReply(person(org.id), chat.conversation.id, { text: "Live hello" }, noEmail);
+		await vi.waitFor(() => expect(got.some((e) => e.type === "message")).toBe(true));
+		expect(got.find((e) => e.type === "message").message).toMatchObject({
+			author: "team",
+			text: "Live hello",
+		});
+		ws.close();
+	});
+});
