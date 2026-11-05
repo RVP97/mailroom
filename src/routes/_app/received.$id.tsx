@@ -36,7 +36,6 @@ import {
 	SlaBadge,
 	SnoozeMenu,
 	Stars,
-	TagChip,
 	TagsMenu,
 	TriageBar,
 } from "@/components/inbox-triage";
@@ -489,19 +488,10 @@ function ConversationPage() {
 						{busy && ["assignee", "priority", "tags", "snooze"].includes(busy) && (
 							<Spinner />
 						)}
-						<span className="flex flex-wrap items-center gap-1.5">
-							{c.tags.map((t) => (
-								<TagChip
-									key={t}
-									tag={t}
-									catalog={workflow.tags}
-								/>
-							))}
-							<SlaBadge
-								sla={c.sla}
-								status={c.status}
-							/>
-						</span>
+						<SlaBadge
+							sla={c.sla}
+							status={c.status}
+						/>
 					</TriageBar>
 				)}
 			</div>
@@ -929,7 +919,7 @@ function NoteText({ text, names }: { text: string; names: string[] }) {
 				p.startsWith("@") && names.includes(p.slice(1)) ? (
 					<span
 						key={i}
-						className="rounded bg-brand/10 px-1 font-medium text-brand"
+						className="font-medium text-brand"
 					>
 						{p}
 					</span>
@@ -982,14 +972,14 @@ function TimelineItem({
 		const mine = `${t.author.type === "agent" ? "cred" : "user"}:${t.author.id}` === me;
 		const names = t.mentions.map((m) => m.name);
 		return (
-			<Card className="gap-2 bg-amber-50/70 px-5 py-4 shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--warning)_30%,transparent)] dark:bg-amber-500/[0.05]">
+			<Card className="gap-2 border-dashed px-5 py-4">
 				<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
 					<span className="flex items-center gap-2 font-medium">
-						<StickyNote className="size-4 text-amber-600 dark:text-amber-400" />
+						<StickyNote className="size-4 text-muted-foreground" />
 						Note
 					</span>
 					<Author author={t.author} />
-					<span className="text-xs text-muted-foreground">Only your team sees it</span>
+					<span className="text-sm text-muted-foreground">only your team sees it</span>
 					<span className="ml-auto flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
 						<span title={formatDateTime(t.at)}>{formatAgo(t.at)}</span>
 						{canReply && mine && (
@@ -1056,13 +1046,12 @@ function TimelineItem({
 					{flagged && t.flags && (
 						<Tooltip>
 							<TooltipTrigger asChild>
-								<Badge
-									variant="outline"
-									className="text-amber-700 dark:text-amber-300"
-								>
-									<ShieldAlert />
-									{t.held ? "Held from agents" : "Looks off"}
-								</Badge>
+								<span className="inline-flex">
+									<StatusBadge
+										status="held"
+										label={t.held ? "Held from agents" : "Looks off"}
+									/>
+								</span>
 							</TooltipTrigger>
 							<TooltipContent className="max-w-xs">
 								<ul className="flex flex-col gap-1">
@@ -1611,13 +1600,7 @@ function Composer({
 	};
 	const note = mode === "note";
 	return (
-		<Card
-			className={cn(
-				"gap-4 px-5 py-4",
-				note &&
-					"bg-amber-50/50 shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--warning)_30%,transparent)] dark:bg-amber-500/[0.04]",
-			)}
-		>
+		<Card className={cn("gap-4 px-5 py-4", note && "border-dashed")}>
 			<form
 				className="contents"
 				onSubmit={(e) => {

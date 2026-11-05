@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { DateTimePicker } from "@/components/date-picker";
+import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -114,11 +115,11 @@ export function TagChip({
 	className?: string;
 }) {
 	const c = colorOf(tag, catalog);
+	// Drawn like a gray StatusBadge: the tag's color is only its dot.
 	return (
 		<span
 			className={cn(
-				"inline-flex h-5 max-w-40 shrink-0 items-center gap-1.5 rounded-full px-2 text-xs font-medium",
-				c?.chip,
+				"inline-flex h-5 max-w-40 shrink-0 items-center gap-1.5 rounded-full pr-2 pl-1.5 text-xs font-medium text-foreground/80 shadow-[inset_0_0_0_1px_var(--border)]",
 				className,
 			)}
 		>
@@ -154,8 +155,27 @@ export function TagsMenu({
 					size="sm"
 					disabled={disabled}
 				>
-					<Tag />
-					{tags.length ? `${tags.length} ${tags.length === 1 ? "tag" : "tags"}` : "Tag"}
+					{tags.length ? (
+						<span className="flex -space-x-0.5">
+							{tags.slice(0, 3).map((t) => (
+								<span
+									key={t}
+									className={cn(
+										"size-2 rounded-full ring-2 ring-background",
+										colorOf(t, catalog)?.dot,
+									)}
+								/>
+							))}
+						</span>
+					) : (
+						<Tag />
+					)}
+					<span
+						className="max-w-40 truncate"
+						title={tags.length ? tags.join(", ") : undefined}
+					>
+						{tags.length ? tags.join(", ") : "Tag"}
+					</span>
 					<ChevronDown className="opacity-60" />
 				</Button>
 			</PopoverTrigger>
@@ -227,8 +247,8 @@ export function TagsMenu({
 // ── Priority ───────────────────────────────────────────────────────────────
 
 export const PRIORITY: Record<Priority, { label: string; icon: string; text: string }> = {
-	urgent: { label: "Urgent", icon: "text-red-500", text: "text-red-700 dark:text-red-300" },
-	high: { label: "High", icon: "text-orange-500", text: "text-orange-700 dark:text-orange-300" },
+	urgent: { label: "Urgent", icon: "text-destructive", text: "text-destructive" },
+	high: { label: "High", icon: "text-warning", text: "text-foreground" },
 	normal: { label: "Normal", icon: "text-muted-foreground", text: "text-muted-foreground" },
 	low: { label: "Low", icon: "text-faint", text: "text-muted-foreground" },
 };
@@ -538,7 +558,6 @@ export function SnoozeMenu({
 						variant="outline"
 						size="sm"
 						disabled={disabled}
-						className={cn(until && "text-amber-700 dark:text-amber-300")}
 					>
 						<AlarmClock />
 						{until ? `Until ${short.format(new Date(until))}` : "Snooze"}
@@ -624,16 +643,38 @@ export function SlaBadge({
 	return (
 		<span
 			title={s.due ? formatDateTime(s.due) : undefined}
+			className="inline-flex"
+		>
+			<StatusBadge
+				status={s.tone === "red" ? "overdue" : s.tone === "amber" ? "due_soon" : "due"}
+				label={s.text}
+				className={cn("tabular-nums", className)}
+			/>
+		</span>
+	);
+}
+
+/** When it's due, as quiet text for a list row: colored only once it's close or late. */
+export function SlaText({ sla, status }: { sla: Sla; status: string }) {
+	const s = slaState(sla, status);
+	if (!s) return null;
+	return (
+		<span
+			title={s.due ? formatDateTime(s.due) : undefined}
 			className={cn(
-				"inline-flex h-5 shrink-0 items-center gap-1 rounded-full px-2 text-xs font-medium tabular-nums",
-				s.tone === "red" && "bg-red-500/10 text-red-700 dark:text-red-300",
-				s.tone === "amber" && "bg-amber-500/12 text-amber-800 dark:text-amber-300",
-				s.tone === "gray" && "bg-muted text-muted-foreground",
-				className,
+				"inline-flex items-center gap-1 text-xs whitespace-nowrap tabular-nums",
+				s.tone === "red"
+					? "font-medium text-destructive"
+					: s.tone === "amber"
+						? "font-medium text-[color-mix(in_oklch,var(--warning),var(--foreground)_30%)]"
+						: "text-muted-foreground",
 			)}
 		>
 			<Clock className="size-3" />
-			{s.text}
+			{s.text
+				.replace(/^Reply due /, "Due ")
+				.replace(/^Resolve due /, "Resolve ")
+				.replace(/^\w+ overdue /, "Overdue ")}
 		</span>
 	);
 }
@@ -649,7 +690,7 @@ export function Stars({ rating, className }: { rating: number; className?: strin
 					key={n}
 					className={cn(
 						"size-3.5",
-						n <= rating ? "fill-amber-400 text-amber-400" : "text-border-strong",
+						n <= rating ? "fill-warning text-warning" : "text-border-strong",
 					)}
 				/>
 			))}

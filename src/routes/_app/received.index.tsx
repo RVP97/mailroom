@@ -1,6 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
-	AlarmClock,
 	BarChart3,
 	Bot,
 	Inbox,
@@ -9,17 +8,17 @@ import {
 	PenLine,
 	Route as RouteIcon,
 	Search,
-	ShieldAlert,
 	Zap,
 } from "lucide-react";
 import { z } from "zod";
 import { ApiDrawer } from "@/components/api-drawer";
 import { BrandFilter } from "@/components/brand-filter";
 import { InboundAddress } from "@/components/inbound-address";
-import { Avatar, PriorityFlag, SlaBadge, Stars, TagChip } from "@/components/inbox-triage";
+import { Avatar, PriorityFlag, SlaText, Stars, TagChip } from "@/components/inbox-triage";
 import { CopyText, Page, PageHeader, TableCard, TablePager } from "@/components/page";
 import { RowsPending } from "@/components/route-states";
 import { SearchBox } from "@/components/search-box";
+import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -372,20 +371,12 @@ function Received() {
 						{counted("snoozed", "Snoozed")}
 					</ToggleGroupItem>
 					{(page.views.overdue > 0 || view === "overdue") && (
-						<ToggleGroupItem
-							value="overdue"
-							className="text-red-700 dark:text-red-300"
-						>
+						<ToggleGroupItem value="overdue">
 							{counted("overdue", "Overdue")}
 						</ToggleGroupItem>
 					)}
 					{(page.views.held > 0 || view === "held") && (
-						<ToggleGroupItem
-							value="held"
-							className="text-amber-700 dark:text-amber-300"
-						>
-							{counted("held", "Held")}
-						</ToggleGroupItem>
+						<ToggleGroupItem value="held">{counted("held", "Held")}</ToggleGroupItem>
 					)}
 					<ToggleGroupItem value="resolved">Resolved</ToggleGroupItem>
 					<ToggleGroupItem value="all">All</ToggleGroupItem>
@@ -651,28 +642,18 @@ function Received() {
 													{r.status === "resolved" && (
 														<Badge variant="outline">Resolved</Badge>
 													)}
-													{r.held && (
-														<Badge
-															variant="outline"
-															className="text-amber-700 dark:text-amber-300"
-														>
-															<ShieldAlert />
-															Held
-														</Badge>
-													)}
+													{r.held && <StatusBadge status="held" />}
 													{r.snoozed_until && (
-														<Badge
-															variant="outline"
+														<span
+															className="inline-flex"
 															title={formatDateTime(r.snoozed_until)}
 														>
-															<AlarmClock />
-															Back {formatAgo(r.snoozed_until, now)}
-														</Badge>
+															<StatusBadge
+																status="snoozed"
+																label={`Back ${formatAgo(r.snoozed_until, now)}`}
+															/>
+														</span>
 													)}
-													<SlaBadge
-														sla={r.sla}
-														status={r.status}
-													/>
 													{r.csat?.rating ? (
 														<Stars rating={r.csat.rating} />
 													) : null}
@@ -695,7 +676,7 @@ function Received() {
 												</span>
 											</TableCell>
 											<TableCell
-												className="w-24 py-3 text-right align-top text-muted-foreground tabular-nums"
+												className="w-32 py-3 text-right align-top text-muted-foreground tabular-nums"
 												title={formatDateTime(r.last_message_at)}
 											>
 												<span className="flex items-center justify-end gap-2">
@@ -718,6 +699,12 @@ function Received() {
 														</span>
 													)}
 													<Ph>{formatAgo(r.last_message_at, now)}</Ph>
+												</span>
+												<span className="mt-1 flex justify-end">
+													<SlaText
+														sla={r.sla}
+														status={r.status}
+													/>
 												</span>
 											</TableCell>
 										</TableRow>

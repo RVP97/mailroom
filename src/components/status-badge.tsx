@@ -31,6 +31,12 @@ const TONE: Record<string, Tone> = {
 	unsubscribed: "faint",
 	firewall: "faint",
 	canceled: "faint",
+	// A conversation's state (src/components/inbox-triage.tsx).
+	held: "amber",
+	due_soon: "amber",
+	overdue: "red",
+	due: "gray",
+	snoozed: "faint",
 };
 
 const STYLES: Record<Tone, { pill: string; dot: string }> = {

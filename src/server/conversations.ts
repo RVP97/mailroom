@@ -1605,12 +1605,12 @@ export async function sendReply(
 				o.automatic
 					? {
 							messages: sql`${c.messages} + 1`,
-							last_message_at: sql`max(${c.last_message_at}, ${at})`,
+							last_message_at: sql`max(${c.last_message_at}, ${iso(now)})`,
 							updated_at: iso(now),
 						}
 					: {
 							messages: sql`${c.messages} + 1`,
-							last_message_at: sql`max(${c.last_message_at}, ${at})`,
+							last_message_at: sql`max(${c.last_message_at}, ${iso(now)})`,
 							last_reply_at: at,
 							first_reply_at: sql`coalesce(${c.first_reply_at}, ${at})`,
 							replied_by: actor.type,
