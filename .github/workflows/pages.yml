@@ -1,11 +1,16 @@
 # The project's website (site/), published to GitHub Pages: https://rvp97.github.io/mailroom/
-# It only touches Pages; the app itself deploys through Workers Builds as before.
+# With it, the live demo at /demo/: the dashboard's own code built as static files, its database
+# seeded by the app itself (demo/). It only touches Pages; the app itself deploys through Workers
+# Builds as before.
 name: Website
 
 on:
   push:
     branches: [main]
-    paths: ["site/**", ".github/workflows/pages.yml"]
+    paths: ["site/**", "demo/**", "src/**", "drizzle/**", "package.json", "bun.lock", ".github/workflows/pages.yml"]
+  # Weekly, so the demo's dates stay fresh and its history recent.
+  schedule:
+    - cron: "17 6 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -25,8 +30,18 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      DEMO_BASE: /mailroom/demo/
+      DEMO_ORIGIN: https://rvp97.github.io
     steps:
       - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: bun install --frozen-lockfile
+      - name: Build the live demo
+        run: bun run demo:build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

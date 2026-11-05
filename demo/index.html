@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+		<title>Mailroom demo</title>
+		<meta name="description" content="Mailroom's dashboard with demo data, running entirely in your browser." />
+		<meta name="theme-color" content="#0c0c0d" />
+		<link rel="icon" href="../favicon.svg" type="image/svg+xml" />
+		<script>
+			// Dark unless you picked light, like the app.
+			(() => {
+				let d = true;
+				try {
+					const t = localStorage.getItem("theme");
+					d = t === "system" ? matchMedia("(prefers-color-scheme: dark)").matches : t !== "light";
+				} catch {}
+				document.documentElement.classList.toggle("dark", d);
+			})();
+		</script>
+		<style>
+			#boot { position: fixed; inset: 0; display: grid; place-items: center; font: 13px system-ui, sans-serif; color: #8a8f98; background: #0c0c0d; }
+			html:not(.dark) #boot { background: #f7f7f8; }
+		</style>
+	</head>
+	<body>
+		<div id="boot">Opening the demo…</div>
+		<div id="root"></div>
+		<script type="module" src="./main.tsx"></script>
+	</body>
+</html>
