@@ -21,6 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { listFormsFn, saveFormFn } from "@/functions/signup-forms";
 import { errorMessage } from "@/lib/errors";
+import { useLiveFrame } from "@/lib/live-frame";
 import {
 	canvasPage,
 	DEFAULT_DESIGN,
@@ -260,7 +261,6 @@ function FormBuilder() {
 									v={v}
 									set={set}
 									look={look}
-									hasLogo={!!input.logo}
 								/>
 							</TabsContent>
 							<TabsContent value="settings">
@@ -303,6 +303,19 @@ function Canvas({
 	host: string;
 }) {
 	const [phone, setPhone] = useState(false);
+	// Switching between desktop and phone: the page fades out, the frame resizes, it fades back.
+	const [resizing, setResizing] = useState(false);
+	const timers = useRef<number[]>([]);
+	useEffect(() => () => timers.current.forEach(clearTimeout), []);
+	const pickPhone = (x: boolean) => {
+		if (x === phone) return;
+		timers.current.forEach(clearTimeout);
+		setResizing(true);
+		timers.current = [
+			window.setTimeout(() => setPhone(x), 140),
+			window.setTimeout(() => setResizing(false), 520),
+		];
+	};
 	const [state, setState] = useState<"form" | "done">("form");
 	const [site, setSite] = useState<"light" | "dark">("light");
 	const doc = useMemo(
@@ -314,6 +327,39 @@ function Canvas({
 			}),
 		[input, design, state, turnstile, site],
 	);
+	// What a change of template, placement or state swaps out; those fade in rather than snap.
+	const kind = `${design.template}|${design.display}|${state}|${design.logo_position}`;
+	const lastKind = useRef(kind);
+	const frame = useLiveFrame(doc, (d, apply) => {
+		const slot = d.querySelector<HTMLElement>(".mr-slot");
+		const before = slot?.offsetHeight ?? 0;
+		const swapped = lastKind.current !== kind;
+		lastKind.current = kind;
+		apply();
+		const after = d.querySelector<HTMLElement>(".mr-slot");
+		const ease = "cubic-bezier(.2,.8,.2,1)";
+		// The page below the form glides to its new place instead of jumping.
+		if (after && after === slot && before && after.offsetHeight !== before)
+			after.animate(
+				[
+					{ height: `${before}px`, overflow: "clip", overflowClipMargin: "32px" },
+					{
+						height: `${after.offsetHeight}px`,
+						overflow: "clip",
+						overflowClipMargin: "32px",
+					},
+				],
+				{ duration: 340, easing: ease },
+			);
+		if (swapped && design.display === "inline")
+			d.querySelector(".mr-signup .mr-box")?.animate(
+				[
+					{ opacity: 0, transform: "translateY(6px) scale(.985)" },
+					{ opacity: 1, transform: "none" },
+				],
+				{ duration: 300, easing: ease },
+			);
+	});
 	const seg =
 		"flex h-7 items-center gap-1.5 rounded-[5px] px-2 text-xs text-muted-foreground transition-colors hover:text-foreground";
 	const on =
@@ -372,7 +418,7 @@ function Canvas({
 							aria-label={l}
 							title={l}
 							aria-pressed={phone === x}
-							onClick={() => setPhone(x)}
+							onClick={() => pickPhone(x)}
 							className={cn(seg, phone === x && on)}
 						>
 							<Icon className="size-3.5" />
@@ -383,7 +429,7 @@ function Canvas({
 			<div className="flex min-h-0 flex-1 items-stretch justify-center p-4 sm:p-6">
 				<div
 					className={cn(
-						"flex w-full flex-col overflow-hidden border border-border/80 bg-background shadow-[0_1px_2px_var(--shadow-color),0_24px_48px_-24px_var(--shadow-color-strong)] transition-[max-width] duration-300",
+						"flex w-full flex-col overflow-hidden border border-border/80 bg-background shadow-[0_1px_2px_var(--shadow-color),0_24px_48px_-24px_var(--shadow-color-strong)] transition-[max-width,border-radius] duration-[380ms] ease-[cubic-bezier(.2,.8,.2,1)]",
 						phone ? "max-w-[390px] rounded-[28px]" : "max-w-[1180px] rounded-xl",
 					)}
 				>
@@ -402,9 +448,14 @@ function Canvas({
 					</div>
 					<iframe
 						title="How the form looks on a website"
-						sandbox=""
-						srcDoc={doc}
-						className="block min-h-[480px] w-full flex-1"
+						ref={frame.ref}
+						sandbox={frame.sandbox}
+						srcDoc={frame.srcDoc}
+						onLoad={frame.onLoad}
+						className={cn(
+							"block min-h-[480px] w-full flex-1 transition-opacity ease-out",
+							resizing ? "opacity-0 duration-150" : "opacity-100 duration-300",
+						)}
 					/>
 				</div>
 			</div>
@@ -446,6 +497,7 @@ function Thumb({
 			),
 		[input, design, template],
 	);
+	const frame = useLiveFrame(doc);
 	return (
 		<button
 			type="button"
@@ -464,8 +516,10 @@ function Thumb({
 			>
 				<iframe
 					title={TEMPLATE_INFO[template].name}
-					sandbox=""
-					srcDoc={doc}
+					ref={frame.ref}
+					sandbox={frame.sandbox}
+					srcDoc={frame.srcDoc}
+					onLoad={frame.onLoad}
 					tabIndex={-1}
 					className="pointer-events-none absolute top-0 left-0 h-[510px] w-[680px] origin-top-left"
 					style={{ transform: `scale(${scale})` }}
@@ -485,6 +539,7 @@ function DesignPanel({
 	design: FormDesign;
 	look: (x: Partial<FormDesign>) => void;
 }) {
+	const hasLogo = !!input.logo;
 	return (
 		<>
 			<Group title="Template">
@@ -529,6 +584,66 @@ function DesignPanel({
 						["bar", "Top bar"],
 					]}
 				/>
+				{d.display === "popup" && (
+					<Labeled label="Behind it">
+						<Choice
+							value={d.overlay}
+							onChange={(x) => look({ overlay: x })}
+							options={[
+								["dim", "Dim"],
+								["blur", "Blur"],
+								["light", "Light"],
+								["none", "None"],
+							]}
+						/>
+					</Labeled>
+				)}
+				{d.display === "slide_in" && (
+					<Labeled label="Corner">
+						<Choice
+							value={d.slide_position}
+							onChange={(x) => look({ slide_position: x })}
+							options={[
+								["left", "Bottom left"],
+								["right", "Bottom right"],
+							]}
+						/>
+					</Labeled>
+				)}
+				{d.display === "bar" && (
+					<>
+						<Labeled label="Position">
+							<Choice
+								value={d.bar_position}
+								onChange={(x) => look({ bar_position: x })}
+								options={[
+									["top", "Top"],
+									["bottom", "Bottom"],
+								]}
+							/>
+						</Labeled>
+						<Labeled label="Style">
+							<Choice
+								value={d.bar_style}
+								onChange={(x) => look({ bar_style: x })}
+								options={[
+									["floating", "Floating"],
+									["full", "Full width"],
+								]}
+							/>
+						</Labeled>
+						<Labeled label="Color">
+							<Choice
+								value={d.bar_tone}
+								onChange={(x) => look({ bar_tone: x })}
+								options={[
+									["surface", "Background"],
+									["accent", "Button color"],
+								]}
+							/>
+						</Labeled>
+					</>
+				)}
 				{d.display !== "inline" && (
 					<>
 						<div className="grid grid-cols-[minmax(0,1fr)_6.5rem] gap-2">
@@ -669,7 +784,110 @@ function DesignPanel({
 					onChange={(x) => look({ gradient: x })}
 				/>
 			</Group>
-			<Group title="Style">
+			<Group title="Logo">
+				<SwitchRow
+					label="Show the brand's logo"
+					hint={
+						hasLogo
+							? undefined
+							: "This brand has no logo yet: add one in Settings › Organization."
+					}
+					checked={d.show_logo}
+					onChange={(x) => look({ show_logo: x })}
+				/>
+				{d.show_logo && (
+					<>
+						<Labeled label="Shape">
+							<Choice
+								value={d.logo_shape}
+								onChange={(x) => look({ logo_shape: x })}
+								options={[
+									["original", "As is"],
+									["rounded", "Rounded"],
+									["circle", "Circle"],
+								]}
+							/>
+						</Labeled>
+						<Labeled label="Size">
+							<Choice
+								value={d.logo_size}
+								onChange={(x) => look({ logo_size: x })}
+								options={[
+									["small", "S"],
+									["medium", "M"],
+									["large", "L"],
+								]}
+							/>
+						</Labeled>
+						{d.template !== "split" && d.display !== "bar" && (
+							<Labeled label="Place">
+								<Choice
+									value={d.logo_position}
+									onChange={(x) => look({ logo_position: x })}
+									options={[
+										["top", "Above title"],
+										["beside", "Beside title"],
+									]}
+								/>
+							</Labeled>
+						)}
+					</>
+				)}
+			</Group>
+			<Group title="Box">
+				<Labeled label="Width">
+					<Choice
+						value={d.width}
+						onChange={(x) => look({ width: x })}
+						options={[
+							["narrow", "Narrow"],
+							["regular", "Regular"],
+							["wide", "Wide"],
+						]}
+					/>
+				</Labeled>
+				<Labeled label="Border">
+					<Choice
+						value={d.border}
+						onChange={(x) => look({ border: x })}
+						options={[
+							["none", "None"],
+							["subtle", "Subtle"],
+							["accent", "Color"],
+						]}
+					/>
+				</Labeled>
+				<Labeled label="Corners">
+					<Choice
+						value={d.radius}
+						onChange={(x) => look({ radius: x })}
+						options={[
+							["none", "None"],
+							["small", "S"],
+							["medium", "M"],
+							["large", "L"],
+							["full", "Pill"],
+						]}
+					/>
+				</Labeled>
+				<Labeled label="Spacing">
+					<Choice
+						value={d.size}
+						onChange={(x) => look({ size: x })}
+						options={[
+							["compact", "Compact"],
+							["regular", "Regular"],
+							["large", "Roomy"],
+						]}
+					/>
+				</Labeled>
+				<SwitchRow
+					label="Shadow"
+					checked={d.shadow}
+					onChange={(x) => look({ shadow: x })}
+				/>
+			</Group>
+			<Group title="Text and fields">
 				<Field>
 					<FieldLabel>Font</FieldLabel>
 					<Select
@@ -691,16 +909,25 @@ function DesignPanel({
 						</SelectContent>
 					</Select>
 				</Field>
-				<Labeled label="Corners">
+				<Labeled label="Title">
 					<Choice
-						value={d.radius}
-						onChange={(x) => look({ radius: x })}
+						value={d.title_size}
+						onChange={(x) => look({ title_size: x })}
 						options={[
-							["none", "None"],
-							["small", "S"],
-							["medium", "M"],
-							["large", "L"],
-							["full", "Pill"],
+							["small", "Small"],
+							["regular", "Regular"],
+							["large", "Large"],
+						]}
+					/>
+				</Labeled>
+				<Labeled label="Button">
+					<Choice
+						value={d.button_style}
+						onChange={(x) => look({ button_style: x })}
+						options={[
+							["solid", "Solid"],
+							["soft", "Soft"],
+							["outline", "Outline"],
 						]}
 					/>
 				</Labeled>
@@ -715,17 +942,6 @@ function DesignPanel({
 						]}
 					/>
 				</Labeled>
-				<Labeled label="Size">
-					<Choice
-						value={d.size}
-						onChange={(x) => look({ size: x })}
-						options={[
-							["compact", "Compact"],
-							["regular", "Regular"],
-							["large", "Large"],
-						]}
-					/>
-				</Labeled>
 				<Labeled label="Align">
 					<Choice
 						value={d.align}
@@ -736,11 +952,6 @@ function DesignPanel({
 						]}
 					/>
 				</Labeled>
-				<SwitchRow
-					label="Shadow"
-					checked={d.shadow}
-					onChange={(x) => look({ shadow: x })}
-				/>
 			</Group>
 		</>
 	);
@@ -752,27 +963,15 @@ function ContentPanel({
 	v,
 	set,
 	look,
-	hasLogo,
 }: {
 	v: Fields;
 	set: <K extends keyof Fields>(k: K, x: Fields[K]) => void;
 	look: (x: Partial<FormDesign>) => void;
-	hasLogo: boolean;
 }) {
 	const d = v.design;
 	return (
 		<>
 			<Group title="Header">
-				<SwitchRow
-					label="Brand logo"
-					hint={
-						hasLogo
-							? undefined
-							: "This brand has no logo yet: add one in Settings › Organization."
-					}
-					checked={d.show_logo}
-					onChange={(x) => look({ show_logo: x })}
-				/>
 				<Field>
 					<FieldLabel htmlFor="form-eyebrow">Small line on top</FieldLabel>
 					<Input

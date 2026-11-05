@@ -266,4 +266,36 @@ describe("sign-up form design", () => {
 		expect(js.headers.get("content-type")).toContain("javascript");
 		expect(await js.text()).toContain("¡Gracias!");
 	});
+
+	it("takes the finer options: logo, border, button, overlay and the bar's look", async () => {
+		fakeOutside();
+		const org = await seedOrg();
+		const form = await createForm(org.id, {
+			name: "Bar",
+			from: `hola@${org.domain}`,
+			design: {
+				display: "bar",
+				bar_position: "bottom",
+				bar_tone: "accent",
+				border: "none",
+				logo_shape: "circle",
+				button_style: "outline",
+				overlay: "sideways",
+			},
+		});
+		expect(form.design).toMatchObject({
+			bar_position: "bottom",
+			bar_style: "floating",
+			bar_tone: "accent",
+			border: "none",
+			logo_shape: "circle",
+			button_style: "outline",
+			overlay: "dim",
+			width: "regular",
+		});
+		const { html } = await formEmbed(form);
+		expect(html).toContain("bottom:0");
+		expect(html).toContain("@keyframes mr-rise");
+		expect(html).toContain("border:0;");
+	});
 });
