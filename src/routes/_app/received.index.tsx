@@ -380,10 +380,11 @@ function Received() {
 												</span>
 											</TableCell>
 											<TableCell className="py-3">
-												<span className="flex min-w-0 items-center gap-2">
+												{/* On phones the badges wrap under the subject instead of squeezing it. */}
+												<span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
 													<span
 														className={cn(
-															"truncate",
+															"max-w-full truncate",
 															r.unread && "font-semibold",
 														)}
 													>
