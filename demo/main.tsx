@@ -1,4 +1,3 @@
-import "./shims/buffer";
 import { createHashHistory, createRouter, RouterProvider } from "@tanstack/react-router";
 import { StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
@@ -16,6 +15,7 @@ import { installOutside } from "./outside";
 import { ORG } from "./seed/ids";
 import { demoSession } from "./session";
 import { shiftDates } from "./shift";
+import { installBuffer } from "./shims/buffer";
 import { installWorker } from "./worker";
 import "./demo.css";
 
@@ -34,6 +34,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 async function start() {
+	installBuffer();
 	installClock();
 	installOutside();
 	// The database the build seeded (demo/build-db.mjs), its dates moved up to today.

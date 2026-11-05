@@ -53,5 +53,9 @@ class DemoBuffer extends Uint8Array {
 	}
 }
 
-const g = globalThis as { Buffer?: unknown };
-g.Buffer ??= DemoBuffer;
+/** Called, not just imported: package.json says only CSS has side effects, so the build would
+ * drop a bare `import "./shims/buffer"`. */
+export function installBuffer() {
+	const g = globalThis as { Buffer?: unknown };
+	g.Buffer ??= DemoBuffer;
+}
