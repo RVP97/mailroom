@@ -680,16 +680,35 @@ export function renderEmail(doc: EmailDoc, o: { title?: string } = {}) {
 		.filter(Boolean);
 	const faces = fontFaceCss(t);
 	const layout = layoutOf(doc.blocks, t);
-	const rows = doc.blocks
-		.map((b, i) => {
-			const l = layout[i] as (typeof layout)[number];
-			const r = t.radius;
-			const corners = l.bg
-				? `border-radius:${l.first ? r : 0}px ${l.first ? r : 0}px ${l.last ? r : 0}px ${l.last ? r : 0}px;`
-				: "";
-			const band = l.bg ? ` bgcolor="${l.bg}"` : "";
-			const bandCss = l.bg ? `background:${l.bg};${corners}` : "";
-			return `<tr><td class="mr-pad${l.bg ? " mr-band" : ""}"${band} style="padding:${l.top}px ${t.padding}px ${l.bottom}px;${bandCss}">${blockInner(b, bandTheme(t, l.bg))}</td></tr>`;
+	// A band is one cell holding all its blocks: rows of one color side by side leave hairline
+	// seams when an inbox or a preview scales the email.
+	const runs: { bg: string | null; items: number[] }[] = [];
+	for (const [i, l] of layout.entries()) {
+		const last = runs.at(-1);
+		if (l.bg && last?.bg === l.bg) last.items.push(i);
+		else runs.push({ bg: l.bg, items: [i] });
+	}
+	const r = t.radius;
+	const rows = runs
+		.map(({ bg, items }) => {
+			if (!bg)
+				return items
+					.map((i) => {
+						const l = layout[i] as (typeof layout)[number];
+						return `<tr><td class="mr-pad" style="padding:${l.top}px ${t.padding}px ${l.bottom}px;">${blockInner(doc.blocks[i] as Block, t)}</td></tr>`;
+					})
+					.join("\n");
+			const a = layout[items[0] as number] as (typeof layout)[number];
+			const z = layout[items.at(-1) as number] as (typeof layout)[number];
+			const bt = bandTheme(t, bg);
+			const inner = items
+				.map((i, k) => {
+					const top = k ? (layout[i] as (typeof layout)[number]).top : 0;
+					return `<tr><td style="padding:${top}px 0 0;">${blockInner(doc.blocks[i] as Block, bt)}</td></tr>`;
+				})
+				.join("");
+			const corners = `border-radius:${a.first ? r : 0}px ${a.first ? r : 0}px ${z.last ? r : 0}px ${z.last ? r : 0}px;`;
+			return `<tr><td class="mr-pad mr-band" bgcolor="${bg}" style="padding:${a.top}px ${t.padding}px ${z.bottom}px;background:${bg};${corners}"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${inner}</table></td></tr>`;
 		})
 		.join("\n");
 	return `<!doctype html>
