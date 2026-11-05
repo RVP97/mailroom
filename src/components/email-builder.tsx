@@ -2780,8 +2780,9 @@ export function Thumb({ doc, height = 900 }: { doc: EmailDoc; height?: number })
 				style={{
 					width: 680,
 					height,
-					transform: `scale(${scale})`,
-					transformOrigin: "0 0",
+					// Zoom lays the email out at its size (a transform's scaling leaves thin seams
+					// between bands of color).
+					zoom: scale,
 					border: 0,
 				}}
 			/>
