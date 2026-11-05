@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 import {
 	BookOpen,
+	Bot,
 	Building2,
 	ChartColumn,
 	ChevronsUpDown,
@@ -97,6 +98,13 @@ const SENDING: NavItem[] = [
 	{ to: "/emails", label: "Emails", icon: Mail, key: "e" },
 	{ to: "/insights", label: "Insights", icon: ChartColumn, key: "h" },
 	{ to: "/received", label: "Received", icon: Inbox, key: "i" },
+	{
+		to: "/received/inboxes",
+		label: "Agent inboxes",
+		icon: Bot,
+		key: "x",
+		also: ["/received/workflow"],
+	},
 	{ to: "/domains", label: "Domains", icon: Globe, key: "d" },
 	{ to: "/logs", label: "Logs", icon: ScrollText, key: "l" },
 	{ to: "/api-keys", label: "API keys", icon: KeyRound, key: "k" },
@@ -336,8 +344,12 @@ function SidebarContent({ me, onPicked }: { me: Me; onPicked?: () => void }) {
 
 function NavGroup({ label, items }: { label?: string; items: NavItem[] }) {
 	const { pathname } = useLocation();
-	const isActive = (to: string) =>
+	const under = (to: string) =>
 		to === "/" ? pathname === "/" : pathname === to || pathname.startsWith(`${to}/`);
+	const depth = (item: NavItem) =>
+		Math.max(-1, ...[item.to, ...(item.also ?? [])].filter(under).map((p) => p.length));
+	// The most specific item wins: /received/inboxes is Agent inboxes, not Received.
+	const best = Math.max(-1, ...items.map(depth));
 	return (
 		<div className="flex flex-col gap-px">
 			{label && <p className="eyebrow mb-1 px-2">{label}</p>}
@@ -345,7 +357,7 @@ function NavGroup({ label, items }: { label?: string; items: NavItem[] }) {
 				<NavLink
 					key={item.to}
 					item={item}
-					active={isActive(item.to)}
+					active={best >= 0 && depth(item) === best}
 				/>
 			))}
 		</div>

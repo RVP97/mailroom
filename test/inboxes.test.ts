@@ -549,7 +549,9 @@ describe("replies", () => {
 			},
 		);
 		expect(sent).toMatchObject({ status: "sent", text: "Proposed answer", sent_by: "Pat" });
-		expect(fake.sends).toHaveLength(1);
+		// A person's send waits the inbox's undo window (5 seconds unless changed) before it goes.
+		expect((sent as { scheduled_for?: string | null }).scheduled_for).toBeTruthy();
+		expect(fake.sends).toHaveLength(0);
 		const log = await db
 			.select()
 			.from(schema.inboxActivity)

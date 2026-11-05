@@ -37,7 +37,19 @@ import {
 } from "./env";
 import { ApiError, notFound, validation } from "./errors";
 import { answers, forward, rulesFor } from "./inbound-rules";
+import { assess, onInbound } from "./inbox-workflow";
 import { brandInboxes, inboxOf, purgeInboxActivity } from "./inboxes";
+
+/** A brand's own domain names (a sender's that looks like one of them is suspicious). */
+async function ownDomains(brandId: string) {
+	const rows = await db
+		.select({ name: schema.domains.name })
+		.from(schema.domains)
+		.where(eq(schema.domains.organization_id, brandId))
+		.catch(() => []);
+	return rows.map((r) => r.name);
+}
+
 import { forgetOrg } from "./org";
 import {
 	brandsOfOrganization,
@@ -780,6 +792,18 @@ export async function receiveSes(
 			console.error("inbound: message not stored in R2", error);
 			return "retry";
 		}
+		// Spam, phishing or prompt injection: agents may have it held from them.
+		const flags = assess({
+			from,
+			spam: verdict(e.receipt?.spamVerdict),
+			virus: verdict(e.receipt?.virusVerdict),
+			spf: verdict(e.receipt?.spfVerdict),
+			dkim: verdict(e.receipt?.dkimVerdict),
+			dmarc: verdict(e.receipt?.dmarcVerdict),
+			text: parsed?.text ?? null,
+			html: typeof parsed?.html === "string" ? parsed.html : null,
+			own: await ownDomains(o.brandId),
+		});
 		const row = {
 			id,
 			organization_id: o.brandId,
@@ -806,6 +830,8 @@ export async function receiveSes(
 			inbox_id: o.inboxId,
 			conversation_id: null as string | null,
 			references,
+			flags,
+			held: false,
 			created_at: at,
 		};
 		const inserted = await db
@@ -848,6 +874,24 @@ export async function receiveSes(
 			created_at: row.created_at,
 			tags: null,
 		});
+		// The inbox's workflow: holding suspicious mail, its rules, round robin, the SLA.
+		if (thread && o.inboxId)
+			await onInbound(
+				thread.conversationId,
+				{
+					messageId: id,
+					from: row.from,
+					to: row.to,
+					subject: row.subject,
+					text: parsed?.text ?? null,
+					attachments: attachments.length,
+					channel: "email",
+					created: thread.created,
+					flags,
+					at: Date.parse(row.created_at) || now,
+				},
+				now,
+			);
 		if (thread) {
 			const about = {
 				id: thread.conversationId,

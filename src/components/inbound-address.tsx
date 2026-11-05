@@ -65,7 +65,13 @@ export function InboundAddress({ brand, addresses }: { brand: string; addresses:
 				onClick={start}
 			>
 				<AtSign />
-				{addresses.picked ? "Change address" : "Use your own domain"}
+				{addresses.picked
+					? "Change address"
+					: addresses.hosts.length === 1 && addresses.hosts[0]
+						? `Show an address on ${addresses.hosts[0].host} instead`
+						: addresses.hosts.length
+							? "Show an address on your domain instead"
+							: "Receive on your own domain"}
 			</Button>
 			<Dialog
 				open={open}

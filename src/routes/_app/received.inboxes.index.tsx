@@ -38,6 +38,7 @@ import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { createInboxFn, listInboxesFn } from "@/functions/inboxes";
 import { errorMessage } from "@/lib/errors";
 import { formatAgo, formatDateTime } from "@/lib/format";
+import { DEFAULT_INBOX_SETTINGS } from "@/lib/inbox-settings";
 import { useMe } from "@/lib/me";
 import { allows } from "@/lib/permissions";
 import { Ph, rememberedRows, Sketch, sample, usePage, useRememberRows } from "@/lib/sketch";
@@ -70,6 +71,7 @@ function InboxesSketch() {
 			send_allow: [],
 			send_block: [],
 			description: null,
+			settings: DEFAULT_INBOX_SETTINGS,
 			created_at: "",
 			updated_at: "",
 			credentials: 1,
@@ -235,7 +237,17 @@ function CreateInbox({ data }: { data: Data }) {
 	return (
 		<Dialog
 			open={open}
-			onOpenChange={setOpen}
+			onOpenChange={(o) => {
+				// Picked on opening, from the page's data as it is now: the first paint (its
+				// skeleton) has no domains yet, so a choice made then would skip the person's own.
+				if (o) {
+					const b = brand || data.own;
+					setBrand(b);
+					const first = data.hosts.find((h) => h.brand === b);
+					setDomain(first?.id ?? (data.mailroomDomain ? MAILROOM : ""));
+				}
+				setOpen(o);
+			}}
 		>
 			<DialogTrigger asChild>
 				<Button>
@@ -350,7 +362,7 @@ function CreateInbox({ data }: { data: Data }) {
 										))}
 										{data.mailroomDomain && (
 											<SelectItem value={MAILROOM}>
-												The Mailroom address
+												{data.mailroomDomain} (no DNS needed)
 											</SelectItem>
 										)}
 									</SelectContent>

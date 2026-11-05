@@ -4,6 +4,8 @@ import type { KeyAuth } from "./api-keys";
 import { brandIds, brandIn } from "./brands";
 import {
 	type ConversationFilter,
+	claimConversation,
+	conversationFor,
 	deleteDraft,
 	draftFor,
 	getAttachment,
@@ -15,11 +17,32 @@ import {
 	saveDraft,
 	searchMessages,
 	sendReply,
+	unsendReply,
 	updateConversation,
 } from "./conversations";
 import { db, schema } from "./db";
 import { kickDispatcher, rateGate } from "./dispatcher";
 import { ApiError, validation } from "./errors";
+import {
+	addNote,
+	assignees,
+	deleteNote,
+	deleteRule,
+	deleteSavedReply,
+	listNotes,
+	listRules,
+	listSavedReplies,
+	noteView,
+	once,
+	orderRules,
+	PRIORITIES,
+	ruleView,
+	savedReplyFor,
+	savedReplyView,
+	saveRule,
+	saveSavedReply,
+	waitForMessages,
+} from "./inbox-workflow";
 import {
 	ALL_INBOX_PERMISSIONS,
 	activityView,
@@ -72,6 +95,38 @@ async function body(req: Request): Promise<Record<string, unknown>> {
 	} catch {
 		throw validation("The body must be JSON");
 	}
+}
+
+/**
+ * A POST that may carry an Idempotency-Key: the same key again (a retry after a timeout) gets
+ * the first answer instead of doing it twice.
+ */
+async function idempotent(
+	req: Request,
+	actor: InboxActor,
+	url: URL,
+	run: (b: Record<string, unknown>) => Promise<unknown>,
+	status = 201,
+) {
+	const raw = await req.text();
+	let b: Record<string, unknown> = {};
+	if (raw.trim()) {
+		try {
+			b = (JSON.parse(raw) ?? {}) as Record<string, unknown>;
+		} catch {
+			throw validation("The body must be JSON");
+		}
+	}
+	const key = req.headers.get("idempotency-key");
+	const who = actor.reader ?? `key:${actor.id ?? "app"}`;
+	const out = await once(who, key, `${req.method} ${url.pathname}\n${raw}`, async () => ({
+		status,
+		body: await run(b),
+	}));
+	return Response.json(out.body, {
+		status: out.status,
+		headers: out.replayed ? { "idempotent-replayed": "true" } : {},
+	});
 }
 
 const flag = (url: URL, name: string) => {
@@ -167,6 +222,7 @@ export const agentRoutes: [string, RegExp, Handler][] = [
 					markRead: flag(url, "mark_read") ?? false,
 					before: url.searchParams.get("before"),
 					limit: num(url, "limit"),
+					full: flag(url, "full") ?? false,
 				}),
 			),
 	],
@@ -179,13 +235,108 @@ export const agentRoutes: [string, RegExp, Handler][] = [
 	[
 		"POST",
 		/^\/conversations\/(?<id>[^/]+)\/drafts$/,
-		async (req, actor, p) => json(await saveDraft(actor, p.id as string, await body(req)), 201),
+		async (req, actor, p, url) =>
+			idempotent(req, actor, url, (b) => saveDraft(actor, p.id as string, b)),
 	],
 	[
 		"POST",
 		/^\/conversations\/(?<id>[^/]+)\/reply$/,
-		async (req, actor, p) =>
-			json(await sendReply(actor, p.id as string, await body(req), senderOf(actor)), 201),
+		async (req, actor, p, url) =>
+			idempotent(req, actor, url, (b) =>
+				sendReply(actor, p.id as string, b, senderOf(actor)),
+			),
+	],
+	[
+		"POST",
+		/^\/conversations\/(?<id>[^/]+)\/claim$/,
+		async (req, actor, p) => {
+			const v = z
+				.object({
+					minutes: z.number().int().min(1).max(240).optional(),
+					force: z.boolean().optional(),
+				})
+				.parse(await body(req));
+			return json(await claimConversation(actor, p.id as string, v));
+		},
+	],
+	[
+		"DELETE",
+		/^\/conversations\/(?<id>[^/]+)\/claim$/,
+		async (_req, actor, p) =>
+			json(await claimConversation(actor, p.id as string, { release: true })),
+	],
+	[
+		"GET",
+		/^\/conversations\/(?<id>[^/]+)\/notes$/,
+		async (_req, actor, p) => {
+			const { c } = await conversationFor(actor, p.id as string);
+			return json({ object: "list", data: (await listNotes(c.id)).map(noteView) });
+		},
+	],
+	[
+		"POST",
+		/^\/conversations\/(?<id>[^/]+)\/notes$/,
+		async (req, actor, p, url) =>
+			idempotent(req, actor, url, async (b) => {
+				const { c } = await conversationFor(actor, p.id as string);
+				return addNote(actor, c, b);
+			}),
+	],
+	[
+		"DELETE",
+		/^\/conversations\/(?<id>[^/]+)\/notes\/(?<note>[^/]+)$/,
+		async (_req, actor, p) => {
+			const { c } = await conversationFor(actor, p.id as string);
+			await deleteNote(actor, c, p.note as string);
+			return json({ object: "note", id: p.note, deleted: true });
+		},
+	],
+	[
+		"GET",
+		/^\/conversations\/(?<id>[^/]+)\/assignees$/,
+		async (_req, actor, p) => {
+			const { c } = await conversationFor(actor, p.id as string);
+			const inbox = c.inbox_id ? await inboxFor(actor, c.inbox_id).catch(() => null) : null;
+			return json({
+				object: "list",
+				data: (await assignees(actor.organizationId, inbox)).map(
+					({ email: _e, ...a }) => a,
+				),
+			});
+		},
+	],
+	[
+		"POST",
+		/^\/replies\/(?<id>[^/]+)\/unsend$/,
+		async (_req, actor, p) => json(await unsendReply(actor, p.id as string)),
+	],
+	[
+		"GET",
+		/^\/saved-replies$/,
+		async (_req, actor, _p, url) =>
+			json({
+				object: "list",
+				data: (await listSavedReplies(actor, { inbox: url.searchParams.get("inbox") })).map(
+					savedReplyView,
+				),
+			}),
+	],
+	[
+		"GET",
+		/^\/saved-replies\/(?<id>[^/]+)$/,
+		async (_req, actor, p) => json(savedReplyView(await savedReplyFor(actor, p.id as string))),
+	],
+	[
+		"GET",
+		/^\/messages\/wait$/,
+		async (_req, actor, _p, url) =>
+			json(
+				await waitForMessages(actor, {
+					inbox: url.searchParams.get("inbox"),
+					since: url.searchParams.get("since"),
+					seconds: Number(url.searchParams.get("timeout") ?? 20),
+				}),
+			),
 	],
 	[
 		"PATCH",
@@ -208,13 +359,10 @@ export const agentRoutes: [string, RegExp, Handler][] = [
 	[
 		"POST",
 		/^\/drafts\/(?<id>[^/]+)\/send$/,
-		async (req, actor, p) => {
+		async (req, actor, p, url) => {
 			const d = await draftFor(actor, p.id as string);
-			return json(
-				await sendReply(actor, d.conversation_id, await body(req), senderOf(actor), {
-					draftId: d.id,
-				}),
-				201,
+			return idempotent(req, actor, url, (b) =>
+				sendReply(actor, d.conversation_id, b, senderOf(actor), { draftId: d.id }),
 			);
 		},
 	],
@@ -283,10 +431,19 @@ export const agentRoutes: [string, RegExp, Handler][] = [
 
 function filters(url: URL, inbox: string | null): ConversationFilter {
 	const status = url.searchParams.get("status");
+	const priority = url.searchParams.get("priority");
+	const sla = url.searchParams.get("sla");
 	return {
 		inbox,
-		status: status === "resolved" || status === "all" ? status : "open",
+		status: status === "resolved" || status === "all" || status === "snoozed" ? status : "open",
 		unread: flag(url, "unread"),
+		assignee: url.searchParams.get("assignee"),
+		tag: url.searchParams.get("tag"),
+		priority: (PRIORITIES as readonly string[]).includes(priority ?? "")
+			? (priority as ConversationFilter["priority"])
+			: null,
+		sla: sla === "due" || sla === "breached" ? sla : null,
+		held: flag(url, "held"),
 		search: url.searchParams.get("search") ?? url.searchParams.get("q"),
 		after: url.searchParams.get("after"),
 		limit: num(url, "limit"),
@@ -443,9 +600,112 @@ export const adminRoutes: [string, RegExp, AdminHandler][] = [
 	],
 ];
 
+/** Saved replies and inbox rules, and the inbox report: full keys only. */
+adminRoutes.push(
+	[
+		"POST",
+		/^\/saved-replies$/,
+		async (req, auth) => {
+			const b = await body(req);
+			const actor = await keyActor(auth);
+			const brand =
+				typeof b.inbox_id === "string" && b.inbox_id
+					? (await inboxFor(actor, b.inbox_id)).organization_id
+					: typeof b.brand === "string"
+						? await brandIn(auth.organizationId, b.brand)
+						: (auth.brandId ?? auth.organizationId);
+			if (!actor.brands.includes(brand)) throw validation("`brand` isn't one of the key's");
+			return json(savedReplyView(await saveSavedReply(brand, b)), 201);
+		},
+	],
+	[
+		"PATCH",
+		/^\/saved-replies\/(?<id>[^/]+)$/,
+		async (req, auth, p) => {
+			const actor = await keyActor(auth);
+			const row = await savedReplyFor(actor, p.id as string);
+			const b = { ...savedReplyView(row), ...(await body(req)) };
+			return json(
+				savedReplyView(await saveSavedReply(row.organization_id, b, { id: row.id })),
+			);
+		},
+	],
+	[
+		"DELETE",
+		/^\/saved-replies\/(?<id>[^/]+)$/,
+		async (_req, auth, p) => {
+			const actor = await keyActor(auth);
+			const row = await savedReplyFor(actor, p.id as string);
+			await deleteSavedReply(actor.brands, row.id);
+			return json({ object: "saved_reply", id: row.id, deleted: true });
+		},
+	],
+	[
+		"GET",
+		/^\/inboxes\/(?<id>[^/]+)\/rules$/,
+		async (_req, auth, p) => {
+			const inbox = await inboxFor(await keyActor(auth), p.id as string);
+			return json({ object: "list", data: (await listRules(inbox.id)).map(ruleView) });
+		},
+	],
+	[
+		"POST",
+		/^\/inboxes\/(?<id>[^/]+)\/rules$/,
+		async (req, auth, p) => {
+			const inbox = await inboxFor(await keyActor(auth), p.id as string);
+			return json(ruleView(await saveRule(inbox, await body(req))), 201);
+		},
+	],
+	[
+		"PUT",
+		/^\/inboxes\/(?<id>[^/]+)\/rules\/order$/,
+		async (req, auth, p) => {
+			const inbox = await inboxFor(await keyActor(auth), p.id as string);
+			const v = z.object({ ids: z.array(z.string()).max(200) }).parse(await body(req));
+			await orderRules(inbox, v.ids);
+			return json({ object: "list", data: (await listRules(inbox.id)).map(ruleView) });
+		},
+	],
+	[
+		"PATCH",
+		/^\/inboxes\/(?<id>[^/]+)\/rules\/(?<rule>[^/]+)$/,
+		async (req, auth, p) => {
+			const inbox = await inboxFor(await keyActor(auth), p.id as string);
+			const current = (await listRules(inbox.id)).find((r) => r.id === p.rule);
+			if (!current) throw new ApiError(404, "not_found", "Rule not found");
+			const b = { ...ruleView(current), ...(await body(req)) };
+			return json(ruleView(await saveRule(inbox, b, { id: current.id })));
+		},
+	],
+	[
+		"DELETE",
+		/^\/inboxes\/(?<id>[^/]+)\/rules\/(?<rule>[^/]+)$/,
+		async (_req, auth, p) => {
+			const inbox = await inboxFor(await keyActor(auth), p.id as string);
+			await deleteRule(inbox, p.rule as string);
+			return json({ object: "inbox_rule", id: p.rule, deleted: true });
+		},
+	],
+	[
+		"GET",
+		/^\/inboxes\/report$/,
+		async (_req, auth, _p, url) => {
+			const actor = await keyActor(auth);
+			const { inboxReport } = await import("./inbox-reports");
+			return json(
+				await inboxReport(actor, {
+					from: url.searchParams.get("from"),
+					to: url.searchParams.get("to"),
+					inbox: url.searchParams.get("inbox"),
+				}),
+			);
+		},
+	],
+);
+
 export const forbiddenForAgents = () =>
 	new ApiError(
 		403,
 		"inbox_credential",
-		"An inbox credential only reaches its inbox's paths (/inboxes, /conversations, /messages, /drafts)",
+		"An inbox credential only reaches its inbox's paths (/inboxes, /conversations, /messages, /drafts, /replies, /saved-replies)",
 	);

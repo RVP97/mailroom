@@ -57,6 +57,13 @@ export async function runCron(scheduledTime: number) {
 			await m.notifyTeam(scheduledTime);
 			await m.emailVisitors(scheduledTime);
 		}),
+		// Inboxes' workflow: snoozed conversations whose time came, SLA warnings and breaches,
+		// and satisfaction surveys for what was resolved (src/server/inbox-workflow.ts).
+		import("./inbox-workflow").then(async (m) => {
+			await m.wakeSnoozed(scheduledTime);
+			await m.checkSla(scheduledTime);
+			if (minute % 5 === 0) await m.sendSurveys(scheduledTime);
+		}),
 	];
 	if (awsConfigured() && minute % 5 === 0)
 		jobs.push(
@@ -172,4 +179,5 @@ export async function purge(now: number) {
 	await purgeMailDomains(now);
 	await purgeMailboxChecks(now);
 	await purgeReceived(now);
+	await import("./inbox-workflow").then((m) => m.purgeIdempotency(now));
 }

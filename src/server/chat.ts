@@ -681,6 +681,24 @@ async function postVisitorLine(
 		snippet,
 		attachments: line.attachments?.length ?? 0,
 	};
+	// The inbox's workflow (rules, round robin, the SLA): a chat is held to it like an email.
+	const { onInbound } = await import("./inbox-workflow");
+	await onInbound(
+		x.id,
+		{
+			messageId: null,
+			from: x.visitor_email ?? x.contact,
+			to: [],
+			subject: x.subject,
+			text: m.text,
+			attachments: line.attachments?.length ?? 0,
+			channel: "chat",
+			created: !!o.created,
+			flags: null,
+			at: now,
+		},
+		now,
+	);
 	if (o.created) await inboxEvent(about, "inbox.conversation.created", summary, now);
 	await inboxEvent(about, "inbox.message.received", summary, now);
 	return line;
@@ -997,6 +1015,7 @@ export async function teamSays(
 				messages: sql`${c.messages} + 1`,
 				last_message_at: sql`max(${c.last_message_at}, ${at})`,
 				last_reply_at: at,
+				first_reply_at: sql`coalesce(${c.first_reply_at}, ${at})`,
 				replied_by: actor.type,
 				updated_at: at,
 			})
@@ -1016,6 +1035,8 @@ export async function teamSays(
 			.values({ conversation_id: x.id, reader: actor.reader, read_at: at })
 			.onConflictDoUpdate({ target: [r.conversation_id, r.reader], set: { read_at: at } });
 	}
+	const { slaReplied } = await import("./inbox-workflow");
+	await slaReplied(x as never, now);
 	const links = await linkKey(line, now);
 	await pushToRoom(
 		x.id,

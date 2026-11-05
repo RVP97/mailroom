@@ -6,6 +6,7 @@ import { db, schema } from "./db";
 import type { ActivityDetail, InboxPermission } from "./db/schema";
 import { inboundDomain } from "./env";
 import { ApiError, notFound, validation } from "./errors";
+import { settingsOf } from "./inbox-workflow";
 import { iso } from "./time";
 
 /**
@@ -25,11 +26,19 @@ import { iso } from "./time";
 export type Inbox = typeof schema.inboxes.$inferSelect;
 export type InboxCredential = typeof schema.inboxCredentials.$inferSelect;
 
-export const INBOX_PERMISSIONS = ["read", "attachments", "triage", "draft", "send"] as const;
+export const INBOX_PERMISSIONS = [
+	"read",
+	"attachments",
+	"triage",
+	"notes",
+	"draft",
+	"send",
+] as const;
 export const PERMISSION_TEXT: Record<InboxPermission, string> = {
 	read: "read messages",
 	attachments: "download attachments",
-	triage: "resolve or reopen conversations",
+	triage: "resolve, tag, snooze, prioritize or assign conversations",
+	notes: "write internal notes",
 	draft: "write drafts",
 	send: "send email",
 };
@@ -73,7 +82,7 @@ export function memberActor(o: {
 		inboxIds: null,
 		permissions: new Set<InboxPermission>(
 			o.canReply
-				? ["read", "attachments", "triage", "draft", "send"]
+				? ["read", "attachments", "triage", "notes", "draft", "send"]
 				: ["read", "attachments"],
 		),
 		sendScope: "anyone",
@@ -146,7 +155,13 @@ export const inboxInput = z.object({
 	description: z.string().trim().max(500).nullish(),
 });
 
-export const inboxUpdate = inboxInput.omit({ local_part: true, domain: true }).partial();
+export const inboxUpdate = inboxInput
+	.omit({ local_part: true, domain: true })
+	.partial()
+	.extend({
+		/** Its workflow (InboxSettings in src/server/inbox-workflow.ts), merged one level deep. */
+		settings: z.record(z.string(), z.unknown()).optional(),
+	});
 
 export async function inboxAddress(brandId: string, local: string, domainRef?: string | null) {
 	if (!LOCAL_PART.test(local) || local.includes(".."))
@@ -215,6 +230,10 @@ export async function createInbox(
 
 export async function updateInbox(inbox: Inbox, raw: unknown, now = Date.now()) {
 	const v = inboxUpdate.parse(raw ?? {});
+	if (v.settings) {
+		const { updateSettings } = await import("./inbox-workflow");
+		await updateSettings(inbox, v.settings, now);
+	}
 	const set = {
 		...(v.name !== undefined ? { name: v.name } : {}),
 		...(v.reply_from !== undefined
@@ -317,6 +336,7 @@ export const inboxView = (i: Inbox) => ({
 	send_allow: i.send_allow ?? [],
 	send_block: i.send_block ?? [],
 	description: i.description,
+	settings: settingsOf(i),
 	created_at: i.created_at,
 	updated_at: i.updated_at,
 });
@@ -380,7 +400,7 @@ function newToken() {
 export const credentialInput = z.object({
 	name: z.string().trim().min(1).max(100),
 	/** read is always included; the default is read-only. */
-	permissions: z.array(z.enum(INBOX_PERMISSIONS)).max(5).optional(),
+	permissions: z.array(z.enum(INBOX_PERMISSIONS)).max(INBOX_PERMISSIONS.length).optional(),
 	send_scope: z.enum(["replies", "anyone"]).optional(),
 	/** "inbox" (the one it's made on; the default), "inboxes" (inbox_ids) or "brand" (all). */
 	scope: z.enum(["inbox", "inboxes", "brand"]).optional(),

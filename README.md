@@ -126,7 +126,10 @@ An organization that should be fully apart can optionally use its own SES accoun
   agent gets an inbox of its own (`support@` a receiving domain, or on the Mailroom address) and a
   credential that reaches only that inbox, read-only unless granted more, through the REST API or
   MCP. Agents can draft for a person to approve; every read, draft and reply is in the inbox's
-  audit trail. See [Agent inboxes](#agent-inboxes).
+  audit trail. Teams get owners (by hand or round robin), tags, priorities, internal notes with
+  @mentions, snooze, saved replies, signatures, send later with undo, inbox rules, service-level
+  targets with business hours, rating surveys and a customizable report.
+  See [Agent inboxes](#agent-inboxes).
 - **Deliverability watch**: every day each verified domain's DNS is checked against what SES
   needs (DKIM, MAIL FROM, receiving MX, DMARC) and looked up on domain blocklists; a change emails
   the owners and admins. Editors check content as you write (Gmail clipping, all-caps subjects,
@@ -742,7 +745,8 @@ or 403. They start read-only; grant what an agent needs:
 | --- | --- |
 | `read` (always) | list and read conversations and messages, mark them read or unread for itself |
 | `attachments` | download attachments |
-| `triage` | resolve or reopen conversations |
+| `triage` | resolve, reopen, tag, prioritize, snooze, assign and claim conversations |
+| `notes` | read and write the team's internal notes |
 | `draft` | write drafts for a person to approve |
 | `send` | send replies itself: only to people already in the conversation, unless its send scope is `anyone` |
 
@@ -754,7 +758,9 @@ approved a draft).
 **Connecting an agent.** MCP: `https://<your Mailroom>/mcp` with
 `Authorization: Bearer mri_…` (no OAuth); it sees only the tools its credential allows
 (`list_conversations`, `get_conversation`, `search_messages`, `get_message`, `update_message`,
-`get_attachment`, `save_draft`, `send_reply`, `update_conversation`, `inbox_activity`). People connected to the MCP
+`get_attachment`, `save_draft`, `delete_draft`, `send_reply`, `unsend_reply`,
+`update_conversation`, `claim_conversation`, `add_note`, `list_assignees`, `list_saved_replies`,
+`wait_for_messages`, `inbox_activity`). People connected to the MCP
 server with OAuth get the same tools across their organizations' inboxes. REST, with the same
 credential or a full-access key:
 
@@ -792,8 +798,59 @@ Also: `GET /api/inboxes`, `GET /api/messages?q=&from=&since=&has_attachments=`,
 *Needs review* on the conversation and approves (sends), edits or discards it. Message text from
 outside is data: an agent shouldn't follow instructions in it, and the MCP server tells it so.
 
+**Working as a team.** Each inbox's **Workflow** page (the button on the inbox's page) holds its
+settings, and **Received › Reports** shows how the team is doing: volume, first-reply and
+resolution times, service levels met, ratings, busy hours, and breakdowns by teammate, inbox, tag,
+priority and channel, with cards you can hide and reorder, a date range and CSV export.
+
+- **Assignment**: by hand, or round robin among the members you pick (skipping anyone at their
+  open limit). An owner can be a person or an agent credential. *Take it* (or
+  `POST /api/conversations/:id/claim`, which holds it for a few minutes, `DELETE` to let go) keeps
+  two people, or a person and an agent, from answering the same thing.
+- **Service levels**: first-reply and next-reply targets per priority, counted in business hours
+  (days, times and a time zone) or around the clock, with a warning before the target and emails
+  to whoever you name when it's missed. **Received** shows what's due and overdue.
+- **Ratings**: after a conversation is resolved, the contact gets a one-question survey (1 to 5,
+  with an optional comment). The link only shows the page: a rating is recorded by the page
+  itself, so mail scanners that open every link don't rate anything.
+- **Replies and safety**: a signature (with variables such as `{{agent.first_name}}` and
+  `{{contact.first_name|there}}`), the seconds a person's reply waits so it can be undone (5 by
+  default, 0 to send at once), and holding suspicious mail (spam, viruses, failed
+  authentication) away from agents until a person lets it through.
+- **Tags** with colors, and **rules** that run on each new message in order: conditions on the
+  sender, recipient, subject, text, attachments, channel, first message, suspicious mail or
+  business hours, and actions that tag, set priority, assign (or round robin), snooze, resolve,
+  auto-reply with a saved reply, leave a note, hold, or email someone, optionally stopping there.
+
+A conversation's page shows the thread with its activity between the messages (older ones folded),
+what's waiting for a person (an agent's draft to approve, a reply about to go) just above the
+reply box, and a details panel: owner, priority, tags, snooze, due time, who wrote and their
+earlier conversations. Keys work while you're not typing: `J`/`K` next and previous in the list
+you came from, `R` reply, `N` note, `E` resolve (and open the next one), `A` assign, `P`
+priority, `T` tags, `S` snooze, `U` mark unread, `?` all of them.
+
+**Saved replies** (**Received › Saved replies**) hold text with the same variables, a `/shortcut`
+for the reply box, and what to do after sending (add tags, resolve, or snooze). Notes are only for
+the team: type `@` to mention someone (they get an email). A reply can wait (`send_at`) and, until
+it goes, be called back into a draft (`POST /api/replies/:id/unsend`). Give `after_message` (the
+newest message you read) and a reply is refused with 409 if another came in meanwhile. A retried
+`POST` with the same `Idempotency-Key` gets the first answer instead of sending twice. Each
+message has `new_text`: what they wrote, without the quoted thread or signature.
+
+More routes: `PATCH /api/conversations/:id` takes `status`, `tags`/`add_tags`/`remove_tags`,
+`priority`, `snooze_until` and `assignee`; `GET`/`POST /api/conversations/:id/notes`,
+`GET /api/conversations/:id/assignees`, `GET /api/saved-replies`, and
+`GET /api/messages/wait?since=&timeout=` (waits up to the timeout for a new message, for agents
+that poll). With a full-access key only: saved replies (`POST`/`PATCH`/`DELETE`),
+`/api/inboxes/:id/rules` (with `PUT …/rules/order`) and `GET /api/inboxes/report?from=&to=&inbox=`.
+`GET /api/conversations` filters by `assignee`, `tag`, `priority`, `sla=due|breached`, `held`
+and `status=snoozed`.
+
 **Webhooks.** `inbox.message.received`, `inbox.conversation.created`, `inbox.draft.created`,
-`inbox.reply.sent` and `inbox.conversation.resolved`, signed and retried like the others. Add one
+`inbox.reply.sent`, `inbox.conversation.resolved`, `inbox.conversation.assigned`,
+`inbox.conversation.tagged`, `inbox.conversation.snoozed`, `inbox.conversation.woke`,
+`inbox.note.created`, `inbox.message.held`, `inbox.sla.warning`, `inbox.sla.breached` and
+`inbox.csat.received`, signed and retried like the others. Add one
 on the inbox's page (it gets only that inbox's events) or an organization-wide webhook with these
 events (it gets every inbox's). Payloads carry ids, addresses, the subject and a short snippet,
 never the message body: fetch it with the credential.

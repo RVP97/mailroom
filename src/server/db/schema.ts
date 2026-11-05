@@ -395,6 +395,10 @@ export const receivedEmails = sqliteTable(
 		conversation_id: text("conversation_id"),
 		/** Its References header's ids, for threading (space separated, without <>). */
 		references: text("references"),
+		/** Why it looks suspicious (src/server/inbox-workflow.ts): reasons, worst first; null: none. */
+		flags: text("flags", { mode: "json" }).$type<MessageFlags>(),
+		/** Held from agents until a person releases it (the inbox holds suspicious mail). */
+		held: integer("held", { mode: "boolean" }).notNull().default(false),
 		created_at: text("created_at").notNull(),
 	},
 	(t) => [
@@ -440,6 +444,9 @@ export const inboxes = sqliteTable(
 		/** How long its conversations are kept after their last message: days; 0: always;
 		 * null: the deployment's INBOUND_RETENTION_DAYS. */
 		retention_days: integer("retention_days"),
+		/** How it works (InboxSettings in src/server/inbox-workflow.ts): assignment, SLA, CSAT,
+		 * signature, tags, holding suspicious mail, undo send. */
+		settings: text("settings", { mode: "json" }).$type<Record<string, unknown>>(),
 		created_by: text("created_by"),
 		created_at: text("created_at").notNull(),
 		updated_at: text("updated_at").notNull(),
@@ -451,7 +458,14 @@ export const inboxes = sqliteTable(
 );
 
 /** What an inbox credential may do: read is always on; the rest are granted one by one. */
-export type InboxPermission = "read" | "attachments" | "triage" | "draft" | "send";
+export type InboxPermission = "read" | "attachments" | "triage" | "notes" | "draft" | "send";
+
+/** Why a received message looks suspicious, for people and for holding it from agents. */
+export interface MessageFlags {
+	/** 0–100: past 50 it's held (when the inbox holds suspicious mail). */
+	score: number;
+	reasons: { code: string; text: string }[];
+}
 
 /**
  * An inbox's credentials (mri_…): shown once, kept as a SHA-256, held to the one inbox. Revoked
@@ -528,9 +542,37 @@ export const conversations = sqliteTable(
 		chat_key: text("chat_key"),
 		/** Chat only: when the visitor last had the chat in front of them, and last wrote. */
 		visitor_seen_at: text("visitor_seen_at"),
+		/** Who has it (src/server/inbox-workflow.ts): "user:<id>" | "cred:<id>"; null: nobody. */
+		assignee: text("assignee"),
+		assignee_name: text("assignee_name"),
+		/** A claim's end (an agent working on it); past it, nobody has it. null: assigned for good. */
+		claimed_until: text("claimed_until"),
+		tags: text("tags", { mode: "json" }).$type<string[]>(),
+		/** "urgent" | "high" | "normal" | "low". */
+		priority: text("priority").notNull().default("normal"),
+		/** Out of Open until then (a new message brings it back sooner). */
+		snoozed_until: text("snoozed_until"),
+		/** The first reply sent, for response times. */
+		first_reply_at: text("first_reply_at"),
+		/** The inbox's SLA: when the first reply and the resolution are due. */
+		sla_first_due_at: text("sla_first_due_at"),
+		sla_resolve_due_at: text("sla_resolve_due_at"),
+		/** What it missed: "first", "resolve" (comma separated); and when it was warned. */
+		sla_breached: text("sla_breached"),
+		sla_warned_at: text("sla_warned_at"),
+		/** Satisfaction: the survey sent on resolving, the answer (1–5) and its comment. */
+		csat_sent_at: text("csat_sent_at"),
+		csat_rating: integer("csat_rating"),
+		csat_comment: text("csat_comment"),
+		csat_at: text("csat_at"),
+		/** A held message is in it: agents don't see it until a person releases it. */
+		held_at: text("held_at"),
 	},
 	(t) => [
 		index("conversations_org_last_idx").on(t.organization_id, t.last_message_at),
+		index("conversations_assignee_idx").on(t.assignee, t.status),
+		index("conversations_snoozed_idx").on(t.snoozed_until),
+		index("conversations_sla_idx").on(t.sla_first_due_at),
 		index("conversations_inbox_last_idx").on(t.inbox_id, t.last_message_at),
 		index("conversations_last_idx").on(t.last_message_at),
 		uniqueIndex("conversations_chat_key_uidx").on(t.chat_key),
@@ -732,12 +774,111 @@ export const conversationReplies = sqliteTable(
 		author_name: text("author_name").notNull(),
 		/** Who sent it, when someone else did (a person approving an agent's draft). */
 		sent_by: text("sent_by"),
+		/** An agent's draft a person sent: "unchanged" or "edited" (how far agents are trusted). */
+		review: text("review"),
 		email_id: text("email_id"),
 		sent_at: text("sent_at"),
 		created_at: text("created_at").notNull(),
 		updated_at: text("updated_at").notNull(),
 	},
 	(t) => [index("conversation_replies_conversation_idx").on(t.conversation_id, t.created_at)],
+);
+
+/** An internal note on a conversation: never sent; people and agents leave them for each other. */
+export const conversationNotes = sqliteTable(
+	"conversation_notes",
+	{
+		id: text("id").primaryKey(),
+		organization_id: orgId(),
+		conversation_id: text("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		inbox_id: text("inbox_id"),
+		/** "agent" | "person" | "api". */
+		author_type: text("author_type").notNull(),
+		author_id: text("author_id"),
+		author_name: text("author_name").notNull(),
+		text: text("text").notNull(),
+		/** Members it @mentions (each was emailed). */
+		mentions: text("mentions", { mode: "json" }).$type<{ id: string; name: string }[]>(),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [index("conversation_notes_conversation_idx").on(t.conversation_id, t.created_at)],
+);
+
+/** A reusable answer (a macro): text with variables, and what using it also does. */
+export const savedReplies = sqliteTable(
+	"saved_replies",
+	{
+		id: text("id").primaryKey(),
+		/** The brand's id. */
+		organization_id: orgId(),
+		/** Only this inbox's; null: every inbox of the brand. */
+		inbox_id: text("inbox_id").references(() => inboxes.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		/** Typed after / in the reply box. */
+		shortcut: text("shortcut"),
+		text: text("text").notNull(),
+		/** Also: tags added, the status after sending ("resolved"), snoozed this many days. */
+		add_tags: text("add_tags", { mode: "json" }).$type<string[]>(),
+		set_status: text("set_status"),
+		snooze_days: integer("snooze_days"),
+		uses: integer("uses").notNull().default(0),
+		created_by: text("created_by"),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [index("saved_replies_org_idx").on(t.organization_id)],
+);
+
+/** A rule of an inbox's, run on each message that comes in (after threading), in order. */
+export const inboxRules = sqliteTable(
+	"inbox_rules",
+	{
+		id: text("id").primaryKey(),
+		organization_id: orgId(),
+		inbox_id: text("inbox_id")
+			.notNull()
+			.references(() => inboxes.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+		position: integer("position").notNull().default(0),
+		/** "all" | "any" of the conditions. */
+		match: text("match").notNull().default("all"),
+		conditions: text("conditions", { mode: "json" })
+			.$type<{ field: string; op: string; value: string }[]>()
+			.notNull(),
+		actions: text("actions", { mode: "json" })
+			.$type<{ type: string; value?: string | number | null }[]>()
+			.notNull(),
+		/** Rules after it don't run when it matched. */
+		stop: integer("stop", { mode: "boolean" }).notNull().default(false),
+		matched: integer("matched").notNull().default(0),
+		last_matched_at: text("last_matched_at"),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [index("inbox_rules_inbox_idx").on(t.inbox_id, t.position)],
+);
+
+/** An Idempotency-Key a caller sent: the same key again gets the first answer, not a second send. */
+export const idempotencyKeys = sqliteTable(
+	"idempotency_keys",
+	{
+		/** Who sent it: "cred:<id>", "key:<id>", "user:<id>". */
+		actor: text("actor").notNull(),
+		key: text("key").notNull(),
+		/** The method and path, and a hash of the body: the same key for another request is refused. */
+		request: text("request").notNull(),
+		status: integer("status"),
+		response: text("response"),
+		created_at: text("created_at").notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.actor, t.key] }),
+		index("idempotency_keys_created_idx").on(t.created_at),
+	],
 );
 
 /** What happened in an inbox, by whom: an agent reading, drafting, sending; people managing it. */

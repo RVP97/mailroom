@@ -7,6 +7,29 @@ import type { ReplyAttachment } from "./db/schema";
 import { cfg } from "./env";
 import { ApiError, notFound, validation } from "./errors";
 import { attachmentsView, downloadUrl, parsedMessage, receivedView } from "./inbound";
+import {
+	afterSavedReply,
+	assertFree,
+	assign,
+	claim,
+	holderOf,
+	listNotes,
+	newText,
+	noteView,
+	PRIORITIES,
+	planSla,
+	release,
+	releaseHeld,
+	type SavedReply,
+	savedReplyText,
+	setPriority,
+	setTags,
+	settingsOf,
+	signed,
+	slaReplied,
+	slaResolved,
+	snooze,
+} from "./inbox-workflow";
 import { checkSendLists, type Inbox, type InboxActor, inboxFor, logInbox, need } from "./inboxes";
 import { iso } from "./time";
 import type { InboxEvent } from "./webhooks";
@@ -144,6 +167,8 @@ export async function threadReceived(
 				messages: sql`${c.messages} + 1`,
 				status: "open",
 				resolved_at: null,
+				// A new message brings a snoozed conversation back.
+				snoozed_until: null,
 				// Out of order: an older message doesn't take the newest's place.
 				snippet: sql`CASE WHEN ${c.last_inbound_at} IS NULL OR ${c.last_inbound_at} <= ${row.created_at} THEN ${snippet} ELSE ${c.snippet} END`,
 				last_message_at: sql`max(${c.last_message_at}, ${row.created_at})`,
@@ -173,12 +198,14 @@ const chunk = <T>(list: T[], n: number) =>
 
 // ── Reading ────────────────────────────────────────────────────────────────
 
-/** What an actor may see: their brands, and an agent only its inboxes. */
-function visible(actor: Pick<InboxActor, "brands" | "inboxIds">) {
+/** What an actor may see: their brands, and an agent only its inboxes (and nothing held from
+ * agents: suspicious mail waits for a person). */
+function visible(actor: Pick<InboxActor, "brands" | "inboxIds"> & { type?: InboxActor["type"] }) {
 	if (!actor.brands.length || actor.inboxIds?.length === 0) return sql`0`;
 	return and(
 		inArray(c.organization_id, actor.brands),
 		actor.inboxIds ? inArray(c.inbox_id, actor.inboxIds) : undefined,
+		actor.type === "agent" ? isNull(c.held_at) : undefined,
 	);
 }
 
@@ -202,26 +229,58 @@ const draftsSql = sql<number>`(SELECT count(*) FROM ${rp} d WHERE d.conversation
 export interface ConversationFilter {
 	/** An inbox's id or address; "none": the brand's other addresses. */
 	inbox?: string | null;
-	status?: "open" | "resolved" | "all" | null;
+	/** "open" leaves out snoozed ones; "snoozed": only those. */
+	status?: "open" | "snoozed" | "resolved" | "all" | null;
 	unread?: boolean | null;
+	/** "me", "none" (nobody has it), "anyone" (someone has it) or a reader ("user:…", "cred:…"). */
+	assignee?: string | null;
+	tag?: string | null;
+	priority?: (typeof PRIORITIES)[number] | null;
+	/** "due": a reply or resolution is due; "breached": it missed one. */
+	sla?: "due" | "breached" | null;
+	/** People only: conversations holding mail back from agents. */
+	held?: boolean | null;
 	/** In the subject or the contact. */
 	search?: string | null;
 	/** Cursor: the last id of the previous page. */
 	after?: string | null;
 	limit?: number;
+	now?: number;
 }
 
 export async function listConversations(actor: InboxActor, f: ConversationFilter = {}) {
 	need(actor, "read");
 	const limit = Math.min(Math.max(f.limit ?? 25, 1), 100);
+	const at = iso(f.now ?? Date.now());
 	const conds = [visible(actor)];
 	if (f.inbox === "none") {
 		if (actor.inboxIds) return { has_more: false, data: [] };
 		conds.push(isNull(c.inbox_id));
 	} else if (f.inbox) conds.push(eq(c.inbox_id, (await inboxFor(actor, f.inbox)).id));
 	const status = f.status ?? "open";
-	if (status !== "all") conds.push(eq(c.status, status));
+	const awake = or(isNull(c.snoozed_until), sql`${c.snoozed_until} <= ${at}`);
+	if (status === "open") conds.push(eq(c.status, "open"), awake);
+	else if (status === "snoozed") conds.push(sql`${c.snoozed_until} > ${at}`);
+	else if (status !== "all") conds.push(eq(c.status, status));
 	if (f.unread) conds.push(sql`${unreadSql(actor.reader)} = 1`);
+	const held = or(isNull(c.claimed_until), sql`${c.claimed_until} > ${at}`);
+	if (f.assignee === "none")
+		conds.push(or(isNull(c.assignee), sql`${c.claimed_until} <= ${at}`) as never);
+	else if (f.assignee === "anyone") conds.push(sql`${c.assignee} IS NOT NULL`, held as never);
+	else if (f.assignee) {
+		const who = f.assignee === "me" ? actor.reader : f.assignee;
+		if (!who) return { has_more: false, data: [] };
+		conds.push(eq(c.assignee, who), held as never);
+	}
+	if (f.tag?.trim())
+		conds.push(
+			sql`EXISTS (SELECT 1 FROM json_each(coalesce(${c.tags}, '[]')) t WHERE t.value = ${f.tag.trim().toLowerCase()})`,
+		);
+	if (f.priority) conds.push(eq(c.priority, f.priority));
+	if (f.sla === "breached") conds.push(sql`${c.sla_breached} IS NOT NULL`);
+	else if (f.sla === "due")
+		conds.push(sql`(${c.sla_first_due_at} IS NOT NULL OR ${c.sla_resolve_due_at} IS NOT NULL)`);
+	if (f.held && actor.type !== "agent") conds.push(sql`${c.held_at} IS NOT NULL`);
 	const search = f.search?.trim().toLowerCase();
 	if (search) {
 		const p = `%${search.replace(/[%_\\]/g, "\\$&")}%`;
@@ -256,16 +315,19 @@ export async function listConversations(actor: InboxActor, f: ConversationFilter
 		.limit(limit + 1);
 	return {
 		has_more: rows.length > limit,
-		data: rows.slice(0, limit).map((r) => conversationView(r.c, r, actor)),
+		data: rows.slice(0, limit).map((r) => conversationView(r.c, r, actor, f.now)),
 	};
 }
 
 export function conversationView(
 	x: Conversation,
 	extra: { unread: number | boolean; drafts: number },
-	actor?: Pick<InboxActor, "masked">,
+	actor?: Pick<InboxActor, "masked"> & { type?: InboxActor["type"] },
+	now = Date.now(),
 ) {
 	const dots = (s: string | null) => (s && actor?.masked ? maskDigits(s) : s);
+	const holder = holderOf(x, now);
+	const snoozed = !!x.snoozed_until && x.snoozed_until > iso(now);
 	return {
 		object: "conversation",
 		id: x.id,
@@ -284,6 +346,26 @@ export function conversationView(
 		replied_by: x.replied_by,
 		resolved_at: x.resolved_at,
 		created_at: x.created_at,
+		/** Who has it: an assignment, or an agent's claim until `until`. */
+		assignee: holder
+			? { reader: holder.reader, name: holder.name, type: holder.type, until: holder.until }
+			: null,
+		tags: x.tags ?? [],
+		priority: (x.priority ?? "normal") as (typeof PRIORITIES)[number],
+		snoozed_until: snoozed ? x.snoozed_until : null,
+		first_reply_at: x.first_reply_at,
+		sla: {
+			reply_due_at: x.sla_first_due_at,
+			resolve_due_at: x.sla_resolve_due_at,
+			breached: (x.sla_breached ?? "").split(",").filter(Boolean) as ("reply" | "resolve")[],
+		},
+		csat: x.csat_rating
+			? { rating: x.csat_rating, comment: x.csat_comment, at: x.csat_at }
+			: x.csat_sent_at
+				? { rating: null, comment: null, at: null, sent_at: x.csat_sent_at }
+				: null,
+		/** Mail in it waits for a person before agents see it (never true for an agent). */
+		held: actor?.type === "agent" ? false : !!x.held_at,
 		channel: (x.channel === "chat" ? "chat" : "email") as "chat" | "email",
 		...(x.channel === "chat"
 			? {
@@ -357,6 +439,8 @@ export async function getConversation(
 		before?: string | null;
 		limit?: number;
 		now?: number;
+		/** An agent's `text` is each message's new part (without what it quotes) unless this. */
+		full?: boolean;
 	} = {},
 ) {
 	need(actor, "read");
@@ -423,9 +507,12 @@ export async function getConversation(
 	const dots = (s: string | null | undefined) =>
 		s && actor.masked ? maskDigits(s) : (s ?? null);
 	const bodies = o.bodies ?? true;
+	const shortText = actor.type === "agent" && !o.full;
 	const inbound = await Promise.all(
 		messages.map(async (m) => {
 			const v = await receivedView(m, bodies);
+			const whole = (v as { text?: string | null }).text ?? null;
+			const fresh = newText(whole);
 			return {
 				type: "inbound" as const,
 				id: m.id,
@@ -440,7 +527,11 @@ export async function getConversation(
 				message_id: v.message_id,
 				...(bodies
 					? {
-							text: dots((v as { text?: string | null }).text),
+							text: dots(shortText && fresh.trimmed ? fresh.text : whole),
+							/** What it says new, without what it quotes or its signature. */
+							new_text: dots(fresh.text),
+							/** Whether `new_text` left something out (pass full=true for it all). */
+							quoted: fresh.trimmed,
 							// Masked readers get the text only (digits dotted), never the HTML.
 							...(o.html
 								? {
@@ -454,9 +545,21 @@ export async function getConversation(
 				attachments: v.attachments,
 				spam: v.spam,
 				verdicts: v.verdicts,
+				/** Why it looks suspicious (people only), and whether agents wait for a person. */
+				flags: actor.type === "agent" ? null : (m.flags ?? null),
+				held: actor.type === "agent" ? false : m.held,
 			};
 		}),
 	);
+	// Internal notes, on the newest page only (they're few).
+	const notes = o.before
+		? []
+		: (await listNotes(id)).map((x) => ({
+				type: "note" as const,
+				at: x.created_at,
+				...noteView(x),
+				text: dots(x.text) ?? "",
+			}));
 	const out = replies.map((r) => {
 		const e = emails.find((x) => x.id === r.email_id);
 		return {
@@ -471,8 +574,15 @@ export async function getConversation(
 			attachments: (r.attachments ?? []).map(({ key: _k, ...a }) => a),
 			author: { type: r.author_type, id: r.author_id, name: r.author_name },
 			sent_by: r.sent_by,
+			review: r.review as "unchanged" | "edited" | null,
 			email_id: r.email_id,
-			delivery: e ? (e.last_event ?? e.status) : null,
+			delivery: e
+				? e.status === "scheduled"
+					? "scheduled"
+					: (e.last_event ?? e.status)
+				: null,
+			/** Waiting to go (send later, or the undo window): it can still be called back. */
+			scheduled_for: e?.status === "scheduled" ? (r.sent_at ?? null) : null,
 		};
 	});
 	const origin = firstAnswers ? emails.find((e) => e.id === firstAnswers) : null;
@@ -503,6 +613,7 @@ export async function getConversation(
 		...inbound,
 		...out,
 		...chat,
+		...notes,
 	].sort((a, b) => a.at.localeCompare(b.at));
 	if (o.markRead && actor.reader) await markRead(actor, row.c, true, o.now);
 	// What an agent read is part of the inbox's audit trail.
@@ -633,6 +744,17 @@ export const conversationUpdate = z.object({
 	status: z.enum(["open", "resolved"]).optional(),
 	/** For the caller only: read or unread. */
 	read: z.boolean().optional(),
+	/** Replaces its tags; or add_tags / remove_tags. */
+	tags: z.array(z.string()).max(20).optional(),
+	add_tags: z.union([z.string(), z.array(z.string())]).optional(),
+	remove_tags: z.union([z.string(), z.array(z.string())]).optional(),
+	priority: z.enum(PRIORITIES).optional(),
+	/** ISO time: out of Open until then; null wakes it. */
+	snooze_until: z.string().nullable().optional(),
+	/** "me", a reader ("user:<id>", "cred:<id>"), or null for nobody. */
+	assignee: z.string().nullable().optional(),
+	/** People: let agents see the mail held in it. */
+	release_held: z.literal(true).optional(),
 });
 
 export async function updateConversation(
@@ -644,6 +766,17 @@ export async function updateConversation(
 	need(actor, "read");
 	const v = conversationUpdate.parse(raw ?? {});
 	const { c: x } = await conversationFor(actor, id);
+	if (v.tags !== undefined || v.add_tags !== undefined || v.remove_tags !== undefined)
+		x.tags = await setTags(
+			actor,
+			x,
+			{ tags: v.tags, add: v.add_tags, remove: v.remove_tags },
+			now,
+		);
+	if (v.priority) await setPriority(actor, x, v.priority, now);
+	if (v.assignee !== undefined) await assign(actor, x, v.assignee, now);
+	if (v.release_held) await releaseHeld(actor, x, now);
+	if (v.snooze_until !== undefined) await snooze(actor, x, v.snooze_until, now);
 	if (v.status && v.status !== x.status) {
 		need(actor, "triage");
 		await db
@@ -651,9 +784,12 @@ export async function updateConversation(
 			.set({
 				status: v.status,
 				resolved_at: v.status === "resolved" ? iso(now) : null,
+				...(v.status === "resolved" ? { snoozed_until: null } : {}),
 				updated_at: iso(now),
 			})
 			.where(eq(c.id, id));
+		if (v.status === "resolved") await slaResolved(x, now);
+		else await planSla({ ...x, status: "open", sla_resolve_due_at: null }, now);
 		await logInbox(actor, {
 			brandId: x.organization_id,
 			inboxId: x.inbox_id,
@@ -668,7 +804,22 @@ export async function updateConversation(
 	}
 	if (v.read !== undefined) await markRead(actor, x, v.read, now);
 	const fresh = await conversationFor(actor, id);
-	return conversationView(fresh.c, fresh, actor);
+	return conversationView(fresh.c, fresh, actor, now);
+}
+
+/** Claims it (an agent, for a while) or takes it (a person); `release` lets it go. */
+export async function claimConversation(
+	actor: InboxActor,
+	id: string,
+	o: { minutes?: number | null; force?: boolean; release?: boolean; now?: number } = {},
+) {
+	need(actor, "read");
+	const now = o.now ?? Date.now();
+	const { c: x } = await conversationFor(actor, id);
+	if (o.release) await release(actor, x, now);
+	else await claim(actor, x, { minutes: o.minutes, force: o.force, now });
+	const fresh = await conversationFor(actor, id);
+	return conversationView(fresh.c, fresh, actor, now);
 }
 
 const who = (a: Pick<InboxActor, "type" | "id" | "name">) => ({
@@ -679,11 +830,14 @@ const who = (a: Pick<InboxActor, "type" | "id" | "name">) => ({
 
 // ── Messages ───────────────────────────────────────────────────────────────
 
-function visibleMessages(actor: Pick<InboxActor, "brands" | "inboxIds">) {
+function visibleMessages(
+	actor: Pick<InboxActor, "brands" | "inboxIds"> & { type?: InboxActor["type"] },
+) {
 	if (!actor.brands.length || actor.inboxIds?.length === 0) return sql`0`;
 	return and(
 		inArray(re.organization_id, actor.brands),
 		actor.inboxIds ? inArray(re.inbox_id, actor.inboxIds) : undefined,
+		actor.type === "agent" ? eq(re.held, false) : undefined,
 	);
 }
 
@@ -694,6 +848,8 @@ export interface MessageSearch {
 	from?: string | null;
 	/** ISO date: received since. */
 	since?: string | null;
+	/** ISO time: received strictly after it (waiting for new mail). */
+	after_time?: string | null;
 	has_attachments?: boolean | null;
 	after?: string | null;
 	limit?: number;
@@ -720,6 +876,7 @@ export async function searchMessages(actor: InboxActor, f: MessageSearch = {}) {
 		);
 	if (f.from?.trim()) conds.push(sql`lower(${re.from}) LIKE ${like(f.from)} ESCAPE '\\'`);
 	if (f.since) conds.push(sql`${re.created_at} >= ${f.since}`);
+	if (f.after_time) conds.push(sql`${re.created_at} > ${f.after_time}`);
 	if (f.has_attachments)
 		conds.push(sql`json_array_length(coalesce(${re.attachments}, '[]')) > 0`);
 	if (f.after) {
@@ -876,6 +1033,15 @@ export const replyInput = z.object({
 	subject: z.string().trim().max(998).optional(),
 	/** A person may pick the From (an address on one of the brand's sending domains). */
 	from: z.string().trim().max(320).optional(),
+	/** The newest message the writer read: when another came in since, the send is refused
+	 * (409 conversation_changed) instead of answering something stale. */
+	after_message: z.string().max(80).optional(),
+	/** ISO time: sends it then (up to 30 days ahead); until then it can be called back. */
+	send_at: z.string().max(40).optional(),
+	/** A saved reply's id or shortcut: its text (when `text` isn't given), and what it also does. */
+	saved_reply_id: z.string().max(80).optional(),
+	/** false: without the inbox's signature. */
+	signature: z.boolean().optional(),
 });
 
 // ── Reply attachments ──────────────────────────────────────────────────────
@@ -1076,12 +1242,21 @@ export async function saveDraft(
 	const now = o.now ?? Date.now();
 	const v = replyInput.parse(raw ?? {});
 	const { c: x } = await conversationFor(actor, conversationId);
+	assertFree(actor, x, now);
+	if (v.saved_reply_id && v.text === undefined)
+		v.text = (await savedReplyText(actor, x, v.saved_reply_id)).text;
 	const inbox = await inboxOfConversation(x);
 	const d = await replyDefaults(x, inbox);
 	const from = actor.type === "agent" ? d.from : (v.from ?? d.from);
 	if (o.draftId) {
 		const draft = await draftFor(actor, o.draftId);
 		if (draft.conversation_id !== x.id) throw notFound("Draft");
+		// A person changing an agent's draft: it went out edited, not as the agent wrote it.
+		const edited =
+			draft.author_type === "agent" &&
+			actor.type !== "agent" &&
+			v.text !== undefined &&
+			v.text !== draft.text;
 		const attachments = v.attachments
 			? await prepareFiles(actor, x, v.attachments, draft.attachments ?? [])
 			: undefined;
@@ -1099,6 +1274,7 @@ export async function saveDraft(
 				...(v.cc ? { cc: v.cc.length ? v.cc : null } : {}),
 				...(v.subject ? { subject: v.subject } : {}),
 				...(actor.type !== "agent" && v.from ? { from: v.from } : {}),
+				...(edited ? { review: "edited" } : {}),
 				updated_at: iso(now),
 			})
 			.where(eq(rp.id, draft.id))
@@ -1135,6 +1311,7 @@ export async function saveDraft(
 		author_id: actor.id,
 		author_name: actor.name,
 		sent_by: null,
+		review: null,
 		email_id: null,
 		sent_at: null,
 		created_at: iso(now),
@@ -1179,7 +1356,7 @@ export async function deleteDraft(actor: InboxActor, id: string) {
 		inboxId: d.inbox_id,
 		conversationId: d.conversation_id,
 		action: "draft.discarded",
-		detail: { draft_id: d.id },
+		detail: { draft_id: d.id, author_type: d.author_type, author: d.author_name },
 	});
 }
 
@@ -1198,6 +1375,7 @@ export const replyView = (r: Reply) => ({
 	attachments: sentFiles(r.attachments ?? []),
 	author: { type: r.author_type, id: r.author_id, name: r.author_name },
 	sent_by: r.sent_by,
+	review: r.review,
 	email_id: r.email_id,
 	sent_at: r.sent_at,
 	created_at: r.created_at,
@@ -1222,14 +1400,37 @@ export async function sendReply(
 	conversationId: string,
 	raw: unknown,
 	sender: Sender,
-	o: { draftId?: string; now?: number; clientId?: string | null } = {},
+	o: {
+		draftId?: string;
+		now?: number;
+		clientId?: string | null;
+		/** A rule's automatic answer: it doesn't count as the team's reply (SLA, response times). */
+		automatic?: boolean;
+	} = {},
 ) {
 	need(actor, "send");
 	const now = o.now ?? Date.now();
 	const v = replyInput.parse(raw ?? {});
 	const { c: x } = await conversationFor(actor, conversationId);
+	if (!o.automatic) assertFree(actor, x, now);
 	const draft = o.draftId ? await draftFor(actor, o.draftId) : null;
 	if (draft && draft.conversation_id !== x.id) throw notFound("Draft");
+	let saved: SavedReply | null = null;
+	if (v.saved_reply_id) {
+		const used = await savedReplyText(actor, x, v.saved_reply_id);
+		saved = used.reply;
+		if (v.text === undefined && !draft) v.text = used.text;
+	}
+	// Something came in after what the writer read: they'd answer something stale.
+	if (v.after_message) {
+		const newest = await lastInbound(x.id);
+		if (newest && newest.id !== v.after_message)
+			throw new ApiError(
+				409,
+				"conversation_changed",
+				`A new message came in (${newest.id}) since the one this reply answers: read it first`,
+			);
+	}
 	// A website chat: the line goes to the chat (src/server/chat.ts).
 	if (x.channel === "chat") {
 		const { lineAsReply, teamSays } = await import("./chat");
@@ -1248,8 +1449,20 @@ export async function sendReply(
 	}
 	const inbox = await inboxOfConversation(x);
 	const d = await replyDefaults(x, inbox);
-	const text = v.text ?? draft?.text ?? "";
-	if (!text.trim()) throw validation("text: write the reply");
+	const written = v.text ?? draft?.text ?? "";
+	if (!written.trim()) throw validation("text: write the reply");
+	const text =
+		v.signature === false || o.automatic ? written : signed(written, inbox, actor.name);
+	// Send later (or the inbox's undo window for people in the dashboard).
+	const undo = settingsOf(inbox).undo_seconds;
+	let sendAt: number | null = null;
+	if (v.send_at) {
+		sendAt = Date.parse(v.send_at);
+		if (Number.isNaN(sendAt)) throw validation("send_at: an ISO 8601 date and time");
+		if (sendAt <= now + 5_000) sendAt = null;
+		else if (sendAt > now + 30 * 86_400_000) throw validation("send_at: up to 30 days ahead");
+	} else if (undo > 0 && actor.type === "person" && sender.dashboard && !o.automatic)
+		sendAt = now + undo * 1000;
 	const to = v.to?.length ? v.to : (draft?.to ?? d.to);
 	const cc = v.cc ?? draft?.cc ?? [];
 	const subject = v.subject || draft?.subject || d.subject;
@@ -1305,6 +1518,7 @@ export async function sendReply(
 			html:
 				html ??
 				`<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;white-space:pre-wrap">${escaped}</div>`,
+			...(sendAt ? { scheduled_at: iso(sendAt) } : {}),
 			...(parent
 				? {
 						headers: {
@@ -1334,12 +1548,13 @@ export async function sendReply(
 		text,
 		html,
 		email_id: emailId,
-		sent_at: iso(now),
+		sent_at: iso(sendAt ?? now),
 		updated_at: iso(now),
 	};
 	let replyId: string;
 	if (draft) {
 		replyId = draft.id;
+		const approving = draft.author_type === "agent" && actor.type !== "agent";
 		await db
 			.update(rp)
 			.set({
@@ -1348,6 +1563,12 @@ export async function sendReply(
 					draft.author_id === actor.id && draft.author_type === actor.type
 						? null
 						: actor.name,
+				// How agents' drafts fare: sent as written, or changed first.
+				review: approving
+					? draft.review === "edited" || (v.text !== undefined && v.text !== draft.text)
+						? "edited"
+						: "unchanged"
+					: draft.review,
 			})
 			.where(eq(rp.id, draft.id));
 	} else {
@@ -1362,10 +1583,12 @@ export async function sendReply(
 			author_id: actor.id,
 			author_name: actor.name,
 			sent_by: null,
+			review: null,
 			created_at: iso(now),
 			...values,
 		});
 	}
+	const at = iso(sendAt ?? now);
 	await db.batch([
 		db
 			.insert(schema.conversationRefs)
@@ -1378,15 +1601,25 @@ export async function sendReply(
 			.onConflictDoNothing(),
 		db
 			.update(c)
-			.set({
-				messages: sql`${c.messages} + 1`,
-				last_message_at: sql`max(${c.last_message_at}, ${iso(now)})`,
-				last_reply_at: iso(now),
-				replied_by: actor.type,
-				updated_at: iso(now),
-			})
+			.set(
+				o.automatic
+					? {
+							messages: sql`${c.messages} + 1`,
+							last_message_at: sql`max(${c.last_message_at}, ${iso(now)})`,
+							updated_at: iso(now),
+						}
+					: {
+							messages: sql`${c.messages} + 1`,
+							last_message_at: sql`max(${c.last_message_at}, ${iso(now)})`,
+							last_reply_at: at,
+							first_reply_at: sql`coalesce(${c.first_reply_at}, ${at})`,
+							replied_by: actor.type,
+							updated_at: iso(now),
+						},
+			)
 			.where(eq(c.id, x.id)),
 	] as never);
+	if (!o.automatic) await slaReplied(x, sendAt ?? now);
 	await markRead(actor, x, true, now);
 	await logInbox(actor, {
 		brandId: x.organization_id,
@@ -1406,11 +1639,94 @@ export async function sendReply(
 	await inboxEvent(
 		x,
 		"inbox.reply.sent",
-		{ reply_id: replyId, email_id: emailId, to, subject, sent_by: who(actor) },
+		{
+			reply_id: replyId,
+			email_id: emailId,
+			to,
+			subject,
+			sent_by: who(actor),
+			...(sendAt ? { send_at: iso(sendAt) } : {}),
+		},
 		now,
 	);
+	if (saved) {
+		const fresh = await db.select().from(c).where(eq(c.id, x.id)).get();
+		if (fresh) await afterSavedReply(actor, fresh, saved, now);
+	}
 	const row = await db.select().from(rp).where(eq(rp.id, replyId)).get();
-	return replyView(row as Reply);
+	return { ...replyView(row as Reply), scheduled_for: sendAt ? iso(sendAt) : null };
+}
+
+/**
+ * Calls back a reply that hasn't gone yet (send later, or the undo window): its email is
+ * canceled and the reply is a draft again.
+ */
+export async function unsendReply(actor: InboxActor, replyId: string, now = Date.now()) {
+	need(actor, "send");
+	const row = await db
+		.select({ r: rp })
+		.from(rp)
+		.innerJoin(c, eq(c.id, rp.conversation_id))
+		.where(and(eq(rp.id, replyId), visible(actor)))
+		.get();
+	if (!row || row.r.status !== "sent" || !row.r.email_id) throw notFound("Reply");
+	const r = row.r;
+	const [canceled] = await db
+		.update(schema.emails)
+		.set({ status: "canceled", send_at: null, last_event: "canceled", last_event_at: iso(now) })
+		.where(
+			and(eq(schema.emails.id, r.email_id as string), eq(schema.emails.status, "scheduled")),
+		)
+		.returning({ id: schema.emails.id });
+	if (!canceled)
+		throw new ApiError(409, "already_sent", "It has already gone: it can't be called back");
+	await db
+		.update(rp)
+		.set({
+			status: "draft",
+			email_id: null,
+			sent_at: null,
+			sent_by: null,
+			updated_at: iso(now),
+		})
+		.where(eq(rp.id, r.id));
+	// The conversation as if it hadn't been sent.
+	const others = await db
+		.select({ at: rp.sent_at })
+		.from(rp)
+		.where(and(eq(rp.conversation_id, r.conversation_id), eq(rp.status, "sent")));
+	const times = others.flatMap((o) => (o.at ? [o.at] : [])).sort();
+	const x = await db.select().from(c).where(eq(c.id, r.conversation_id)).get();
+	await db
+		.update(c)
+		.set({
+			messages: sql`max(${c.messages} - 1, 0)`,
+			last_reply_at: times.at(-1) ?? null,
+			first_reply_at: times[0] ?? null,
+			...(times.length ? {} : { replied_by: null }),
+			updated_at: iso(now),
+		})
+		.where(eq(c.id, r.conversation_id));
+	// What sending it also did (Send and resolve, a saved reply's resolve or snooze) is undone.
+	if (x && actor.permissions.has("triage")) {
+		if (x.status === "resolved" && x.resolved_at && x.resolved_at >= r.updated_at)
+			await updateConversation(actor, x.id, { status: "open" }, now);
+		else if (x.snoozed_until && x.updated_at >= r.updated_at && x.snoozed_until > iso(now))
+			await updateConversation(actor, x.id, { snooze_until: null }, now);
+	}
+	// The reply is due again (its due time from when they wrote).
+	const after = await db.select().from(c).where(eq(c.id, r.conversation_id)).get();
+	if (after?.status === "open") await planSla(after, now, { recompute: true });
+	await logInbox(actor, {
+		brandId: r.organization_id,
+		inboxId: r.inbox_id,
+		conversationId: r.conversation_id,
+		action: "reply.unsent",
+		detail: { reply_id: r.id },
+		now,
+	});
+	const fresh = await db.select().from(rp).where(eq(rp.id, r.id)).get();
+	return replyView(fresh as Reply);
 }
 
 // ── Events ─────────────────────────────────────────────────────────────────
