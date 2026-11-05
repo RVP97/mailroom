@@ -353,8 +353,8 @@ function Cleanup() {
 				onOpenChange={(v) => !v && setConfirm(null)}
 				title={
 					confirm === "delete"
-						? `Delete ${n.toLocaleString()} cold contacts?`
-						: `Unsubscribe ${n.toLocaleString()} cold contacts?`
+						? `Delete ${n.toLocaleString()} cold ${n === 1 ? "contact" : "contacts"}?`
+						: `Unsubscribe ${n.toLocaleString()} cold ${n === 1 ? "contact" : "contacts"}?`
 				}
 				description={
 					confirm === "delete"

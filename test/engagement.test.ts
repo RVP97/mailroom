@@ -42,6 +42,18 @@ describe("engagement", () => {
 			scoreOf({ sent: 2, opened: 0, clicked: 0, last_sent_at: null, last_engaged_at: null })
 				.level,
 		).toBe("new");
+		// One opened email (or four) is still too little to call anyone engaged.
+		const once = scoreOf(
+			{ sent: 1, opened: 1, clicked: 0, last_sent_at: null, last_engaged_at: iso(now - DAY) },
+			now,
+		);
+		expect(once).toMatchObject({ score: null, level: "new", stars: 0 });
+		expect(
+			scoreOf(
+				{ sent: 4, opened: 4, clicked: 2, last_sent_at: null, last_engaged_at: iso(now) },
+				now,
+			).level,
+		).toBe("new");
 		const fan = scoreOf(
 			{ sent: 6, opened: 6, clicked: 3, last_sent_at: null, last_engaged_at: iso(now - DAY) },
 			now,

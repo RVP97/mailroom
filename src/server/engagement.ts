@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
+import { MIN_EMAILS } from "@/lib/engagement";
 import type { Contact } from "./contacts";
 import { db, schema } from "./db";
 import { validation } from "./errors";
@@ -77,10 +78,9 @@ export async function engagementStats(
 	);
 }
 
-/** A 0–100 score, its level and 1–5 stars. Fewer than three emails is too new to tell. */
+/** A 0–100 score, its level and 1–5 stars. Fewer than MIN_EMAILS emails is too new to tell. */
 export function scoreOf(s: Stats | undefined, now = Date.now()) {
-	if (!s || (s.sent < 3 && !s.opened && !s.clicked))
-		return { score: null, level: "new" as Level, stars: 0 };
+	if (!s || s.sent < MIN_EMAILS) return { score: null, level: "new" as Level, stars: 0 };
 	const openRate = Math.min(1, (s.opened / s.sent) * 1.25);
 	const clickRate = Math.min(1, (s.clicked / s.sent) * 4);
 	const days = s.last_engaged_at

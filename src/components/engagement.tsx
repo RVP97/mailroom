@@ -1,4 +1,5 @@
 import { Card } from "@/components/ui/card";
+import { MIN_EMAILS } from "@/lib/engagement";
 import { formatAgo, formatDateTime } from "@/lib/format";
 import { Ph } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
@@ -47,9 +48,11 @@ export const LEVEL: Record<Level, { label: string; bar: string; text: string; hi
 		label: "Too new to tell",
 		bar: "bg-muted-foreground/40",
 		text: "text-muted-foreground",
-		hint: "Fewer than three emails so far",
+		hint: `Fewer than ${MIN_EMAILS} emails so far`,
 	},
 };
+
+const emails = (n: number) => (n === 1 ? "email" : "emails");
 
 export function EngagementMeter({
 	e,
@@ -98,6 +101,12 @@ export function EngagementCard({ e }: { e: EngagementView | null }) {
 	const level = e?.level ?? "new";
 	const m = LEVEL[level];
 	const sent = e?.sent ?? 0;
+	const opened = e?.opened ?? 0;
+	const clicked = e?.clicked ?? 0;
+	const tooFew = e?.score === null || e?.score === undefined;
+	const hint = tooFew
+		? `Not enough data yet: scored after ${MIN_EMAILS} emails${sent ? ` (${sent} so far)` : ""}`
+		: m.hint;
 	return (
 		<Card className="gap-4 p-5">
 			<div className="flex items-start justify-between gap-3">
@@ -118,14 +127,15 @@ export function EngagementCard({ e }: { e: EngagementView | null }) {
 			</div>
 			<div className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-3.5 py-3">
 				<EngagementMeter e={e} />
-				<span className="text-xs text-muted-foreground">{m.hint}</span>
+				<span className="text-right text-xs text-muted-foreground">{hint}</span>
 			</div>
 			<dl className="grid grid-cols-3 gap-3 text-sm">
 				{(
 					[
-						["Got", String(sent), "emails"],
-						["Opened", pct(e?.opened ?? 0, sent), `${e?.opened ?? 0} of them`],
-						["Clicked", pct(e?.clicked ?? 0, sent), `${e?.clicked ?? 0} of them`],
+						["Got", String(sent), emails(sent)],
+						// A rate from one or two emails says nothing: just the count until there's enough.
+						["Opened", tooFew ? String(opened) : pct(opened, sent), `of ${sent}`],
+						["Clicked", tooFew ? String(clicked) : pct(clicked, sent), `of ${sent}`],
 					] as const
 				).map(([k, v, sub]) => (
 					<div
@@ -150,7 +160,11 @@ export function EngagementCard({ e }: { e: EngagementView | null }) {
 						.
 					</>
 				) : sent ? (
-					"Hasn't opened or clicked any of them."
+					sent === 1 ? (
+						"Hasn't opened or clicked it."
+					) : (
+						"Hasn't opened or clicked any of them."
+					)
 				) : (
 					"No broadcast or automation email yet."
 				)}

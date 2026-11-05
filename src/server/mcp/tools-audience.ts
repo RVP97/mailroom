@@ -307,7 +307,7 @@ export const AUDIENCE_TOOLS: Tool[] = [
 		name: "get_engagement",
 		title: "Contact engagement",
 		description:
-			"How engaged a brand's contacts are (highly engaged, engaged, cold, new, by opens and clicks), and its cold contacts: subscribed ones that got at least min_emails marketing emails in `days` and opened and clicked none (the first 50, and how many). clean_up_contacts acts on them.",
+			"How engaged a brand's contacts are (highly engaged, engaged, cold, by opens and clicks; new: fewer than 5 marketing emails in 90 days, too few to score), and its cold contacts: subscribed ones that got at least min_emails marketing emails in `days` and opened and clicked none (the first 50, and how many). clean_up_contacts acts on them.",
 		input: {
 			organization,
 			brand: oneBrand,
