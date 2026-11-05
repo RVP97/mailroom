@@ -5,7 +5,7 @@ import { explainBounce } from "../../lib/bounces";
 import { findDmarc, txtRecords } from "../../lib/dmarc";
 import { maskDigits } from "../../lib/roles";
 import { archiveBucket, archiveLink, listArchive } from "../archive";
-import { brandIds, brandIn, brandNames, getBrand, removeBrand } from "../brands";
+import { brandIds, brandIn, brandNames, getBrand, removeBrand, viewScope } from "../brands";
 import { db, schema } from "../db";
 import { domainHealth } from "../deliverability";
 import { sendsReportsHere, withReportsAddress } from "../dmarc-address";
@@ -13,6 +13,25 @@ import { dnsHelp } from "../domain-connect";
 import { baseUrl, requestLogRetentionDays } from "../env";
 import { ApiError, notFound } from "../errors";
 import { checkAddress } from "../firewall";
+import {
+	assignees,
+	deleteRule,
+	deleteSavedReply,
+	listRules,
+	listSavedReplies,
+	orderRules,
+	RULE_ACTIONS,
+	RULE_FIELDS,
+	RULE_OPS,
+	ruleView,
+	savedReplyFor,
+	savedReplyView,
+	saveRule,
+	saveSavedReply,
+	settingsOf,
+	updateSettings,
+	VARIABLES,
+} from "../inbox-workflow";
 import {
 	activityView,
 	credentialView,
@@ -36,7 +55,9 @@ import { setTracking } from "../tracking";
 import { replayDelivery } from "../webhooks";
 import { personActor } from "./inbox-tools";
 import {
+	brand,
 	brandOf,
+	defined,
 	domainOf,
 	domainView,
 	logged,
@@ -55,6 +76,232 @@ async function managedInbox(ctx: McpContext, org: Membership, ref: string) {
 	const actor = await personActor(org, ctx);
 	return { actor, inbox: await inboxFor(actor, ref) };
 }
+
+const ruleShape = {
+	name: z.string().min(1).max(100),
+	enabled: z.boolean().optional().describe("Default true."),
+	match: z.enum(["all", "any"]).optional().describe("Every condition (default) or any one."),
+	conditions: z
+		.array(
+			z.object({
+				field: z.enum(RULE_FIELDS),
+				op: z.enum(RULE_OPS).optional().describe("Default contains."),
+				value: z
+					.string()
+					.max(500)
+					.optional()
+					.describe(
+						'What to compare; for yes/no fields (has_attachments, new_conversation, suspicious, business_hours) "true" or "false".',
+					),
+			}),
+		)
+		.max(20)
+		.describe("None: every new message matches."),
+	actions: z
+		.array(
+			z.object({
+				type: z.enum(RULE_ACTIONS),
+				value: z
+					.union([z.string().max(2000), z.number()])
+					.nullish()
+					.describe(
+						"add_tag: the tag; set_priority: urgent|high|normal|low; assign: a reader (list_assignees); snooze_hours: hours; auto_reply and note: the text; notify: an email address.",
+					),
+			}),
+		)
+		.min(1)
+		.max(20),
+	stop: z.boolean().optional().describe("Later rules don't run after this one matches."),
+};
+
+/** The inbox workflow (settings, rules, saved replies) and its report, for people. */
+const WORKFLOW_TOOLS: Tool[] = [
+	{
+		name: "get_inbox_workflow",
+		title: "Get an inbox's workflow",
+		description:
+			"An inbox's workflow: settings (signature, assignment and round robin, claim minutes, SLA targets per priority and business hours, CSAT survey, holding suspicious mail, undo seconds, tags), its rules in order, who can be assigned and the saved replies it can use.",
+		input: { organization, inbox: z.string().describe("The inbox's id or address.") },
+		readOnly: true,
+		run: async (a, ctx) => {
+			const org = orgAt(ctx, a.organization, "member");
+			const { actor, inbox } = await managedInbox(ctx, org, a.inbox as string);
+			const [rules, people, saved] = await Promise.all([
+				listRules(inbox.id),
+				assignees(org.id, inbox),
+				listSavedReplies(actor, { inbox: inbox.id }),
+			]);
+			return {
+				inbox: inboxView(inbox),
+				settings: settingsOf(inbox),
+				rules: rules.map(ruleView),
+				assignees: people.map(({ email: _e, ...p }) => p),
+				saved_replies: saved.map(savedReplyView),
+			};
+		},
+	},
+	{
+		name: "update_inbox_workflow",
+		title: "Change an inbox's workflow",
+		description:
+			'Changes an inbox\'s workflow settings. Pass only what changes; objects merge into what is there (sla: {enabled: true} keeps its targets). Fields: signature (text added under replies; {{agent.name}} works), assignment {mode: manual|round_robin, members: readers from list_assignees like "user:<id>", max_open}, claim_minutes, sla {enabled, targets: {urgent|high|normal|low: {reply, resolve}} in minutes, business_hours {timezone (IANA), days 0=Sunday…6, start, end "HH:MM"} or null for around the clock, warn_minutes, notify: emails}, csat {enabled, question, thanks, delay_minutes}, hold_suspicious, undo_seconds (0–60), tags [{name, color}]. Returns all the settings.',
+		input: {
+			organization,
+			inbox: z.string(),
+			settings: z.record(z.string(), z.unknown()),
+		},
+		run: async (a, ctx) => {
+			const org = orgAt(ctx, a.organization, "inbox:agents");
+			const { actor, inbox } = await managedInbox(ctx, org, a.inbox as string);
+			const settings = a.settings as Record<string, unknown>;
+			const next = await updateSettings(inbox, settings);
+			await logInbox(actor, {
+				brandId: inbox.organization_id,
+				inboxId: inbox.id,
+				action: "inbox.workflow_updated",
+				detail: { changed: Object.keys(settings), via: "assistant" },
+			});
+			return next;
+		},
+	},
+	{
+		name: "save_inbox_rule",
+		title: "Create or change an inbox rule",
+		description:
+			"Creates a rule that runs on each new message in an inbox (or changes one, with id): when its conditions match, it tags, sets priority, assigns, snoozes, resolves, auto-replies, leaves a note, holds the message or notifies someone. Rules run in order (order_inbox_rules). Changing a rule replaces it whole.",
+		input: { organization, inbox: z.string(), id: z.string().optional(), ...ruleShape },
+		run: async (a, ctx) => {
+			const org = orgAt(ctx, a.organization, "inbox:agents");
+			const { actor, inbox } = await managedInbox(ctx, org, a.inbox as string);
+			const { organization: _o, inbox: _i, id, ...rule } = a;
+			const row = await saveRule(inbox, rule, { id: id as string | undefined });
+			await logInbox(actor, {
+				brandId: inbox.organization_id,
+				inboxId: inbox.id,
+				action: id ? "rule.updated" : "rule.created",
+				detail: { rule: row.name, via: "assistant" },
+			});
+			return ruleView(row);
+		},
+	},
+	{
+		name: "delete_inbox_rule",
+		title: "Delete an inbox rule",
+		description: "Deletes one of an inbox's rules.",
+		input: { organization, inbox: z.string(), id: z.string() },
+		destructive: true,
+		run: async (a, ctx) => {
+			const org = orgAt(ctx, a.organization, "inbox:agents");
+			const { actor, inbox } = await managedInbox(ctx, org, a.inbox as string);
+			await deleteRule(inbox, a.id as string);
+			await logInbox(actor, {
+				brandId: inbox.organization_id,
+				inboxId: inbox.id,
+				action: "rule.deleted",
+				detail: { via: "assistant" },
+			});
+			return { deleted: true };
+		},
+	},
+	{
+		name: "order_inbox_rules",
+		title: "Reorder an inbox's rules",
+		description:
+			"Puts an inbox's rules in this order (rule ids; any left out keep their order after them). Returns the rules.",
+		input: { organization, inbox: z.string(), ids: z.array(z.string()).max(200) },
+		run: async (a, ctx) => {
+			const org = orgAt(ctx, a.organization, "inbox:agents");
+			const { inbox } = await managedInbox(ctx, org, a.inbox as string);
+			await orderRules(inbox, a.ids as string[]);
+			return (await listRules(inbox.id)).map(ruleView);
+		},
+	},
+	{
+		name: "save_saved_reply",
+		title: "Create or change a saved reply",
+		description: `Creates a saved reply (an approved answer people and agents reuse), or changes one with id. text can use variables: ${VARIABLES.map((v) => `{{${v.key}}}`).join(", ")}. inbox_id limits it to one inbox; without it, every inbox of the brand. After it's sent it can add tags, resolve the conversation or snooze it.`,
+		input: {
+			organization,
+			brand,
+			id: z.string().optional(),
+			name: z.string().min(1).max(100),
+			text: z.string().min(1).max(20_000),
+			inbox_id: z.string().nullish(),
+			shortcut: z
+				.string()
+				.nullish()
+				.describe("A short word to find it with (letters, digits, - or _)."),
+			add_tags: z.array(z.string()).max(10).nullish(),
+			set_status: z.enum(["resolved"]).nullish(),
+			snooze_days: z.number().int().min(1).max(90).nullish(),
+		},
+		run: async (a, ctx) => {
+			const org = orgAt(ctx, a.organization, "inbox:reply");
+			const actor = await personActor(org, ctx);
+			const { organization: _o, brand: b, id, ...reply } = a;
+			const owner = id
+				? (await savedReplyFor(actor, id as string)).organization_id
+				: reply.inbox_id
+					? (await inboxFor(actor, reply.inbox_id as string)).organization_id
+					: b
+						? await brandIn(org.id, b as string)
+						: org.id;
+			const row = await saveSavedReply(owner, defined(reply), {
+				id: id as string | undefined,
+				userId: ctx.userId,
+			});
+			await logged(ctx, org, id ? "saved_reply.updated" : "saved_reply.created", {
+				type: "saved_reply",
+				id: row.id,
+				name: row.name,
+			});
+			return savedReplyView(row);
+		},
+	},
+	{
+		name: "delete_saved_reply",
+		title: "Delete a saved reply",
+		description: "Deletes a saved reply.",
+		input: { organization, id: z.string() },
+		destructive: true,
+		run: async (a, ctx) => {
+			const org = orgAt(ctx, a.organization, "inbox:reply");
+			const actor = await personActor(org, ctx);
+			await deleteSavedReply(actor.brands, a.id as string);
+			await logged(ctx, org, "saved_reply.deleted", {
+				type: "saved_reply",
+				id: a.id as string,
+			});
+			return { deleted: true };
+		},
+	},
+	{
+		name: "inbox_report",
+		title: "Inbox report",
+		description:
+			"The inboxes' report for a period (default the last 30 days): totals (conversations, replies, first-reply and resolve times, SLA hits and misses, CSAT) against the period before, what's open now (unassigned, overdue, snoozed, held, waiting), a daily series, an hour-of-week heatmap, and breakdowns by inbox, assignee, responder, tag, channel and priority. inbox narrows it to one inbox; brand to one brand.",
+		input: {
+			organization,
+			brand,
+			inbox: z.string().nullish(),
+			from: z.string().nullish().describe("A date (YYYY-MM-DD) or ISO time."),
+			to: z.string().nullish(),
+		},
+		readOnly: true,
+		run: async (a, ctx) => {
+			const org = orgAt(ctx, a.organization, "member");
+			const { scope } = await viewScope(org.id, a.brand as string | undefined);
+			const person = await personActor(org, ctx);
+			const actor = typeof scope === "string" ? { ...person, brands: [scope] } : person;
+			const { inboxReport } = await import("../inbox-reports");
+			return inboxReport(actor, {
+				from: a.from as string | null | undefined,
+				to: a.to as string | null | undefined,
+				inbox: a.inbox as string | null | undefined,
+			});
+		},
+	},
+];
 
 const adminOnly = (ctx: McpContext) => {
 	if (!ctx.isAdmin)
@@ -828,4 +1075,5 @@ export const SETTINGS_TOOLS: Tool[] = [
 			return { costs, by_organization: await costByOrganization(costs).catch(() => null) };
 		},
 	},
+	...WORKFLOW_TOOLS,
 ];

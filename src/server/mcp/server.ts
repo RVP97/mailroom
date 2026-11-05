@@ -23,7 +23,7 @@ What's here, by area (everything the dashboard does):
 - Sending: send_email (also scheduled, with attachments or as a sandbox check), list_emails, get_email, cancel_email, get_stats, get_insights, get_insight_detail, sending_status.
 - Broadcasts and newsletters: save_broadcast (html, a block design or a template), send_broadcast (now, later, local time, A/B test), send_broadcast_test, review_broadcast (approval), list_versions / restore_version, comments, campaigns, newsletters (public archive, RSS, referrals), templates, saved sections, brand kits, upload_file for images.
 - Audience: contacts, import_contacts, segments, topics, properties, sign-up forms, get_growth, get_engagement / clean_up_contacts, automations and send_event.
-- Received mail and inboxes: list_received_emails, inbound rules, agent inboxes and their conversations (list_conversations, get_conversation, save_draft, send_reply…), website chat.
+- Received mail and inboxes: list_received_emails, inbound rules, agent inboxes and their conversations (list_conversations, get_conversation, save_draft, send_reply…), the inbox workflow (get_inbox_workflow, update_inbox_workflow for SLAs, business hours, round robin, CSAT and tags; save_inbox_rule, save_saved_reply), inbox_report, website chat.
 - Deliverability: domains (add, verify, DNS help, tracking, BIMI), check_deliverability, domain_health, dmarc_reports, suppressions, unsubscribes, the email firewall, lookup_recipient.
 - Team and settings: list_team, invite_member, change_member, roles and permissions, get/update_organization_settings, list_activity, list_access_log, webhooks and their deliveries, API keys and API logs.
 

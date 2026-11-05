@@ -1,7 +1,9 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { db, schema } from "@/server/db";
+import { createInbox } from "@/server/inboxes";
 import { buildServer } from "@/server/mcp/server";
 import { type McpContext, memberships } from "@/server/mcp/tools";
 import { fakeOutside, seedOrg, uid } from "./helpers";
@@ -334,5 +336,100 @@ describe("MCP coverage", () => {
 		).toMatch(/permission/);
 		expect((await call("duplicate_automation", { automation: auto.id })).id).not.toBe(auto.id);
 		expect((await call("delete_automation", { automation: auto.id })).deleted).toBe(auto.id);
+	});
+	it("sets up an inbox's workflow: settings, rules, saved replies and the report", async () => {
+		const org = await seedOrg();
+		await db
+			.update(schema.domains)
+			.set({ receiving: true, receiving_status: "active", receiving_host: org.domain })
+			.where(eq(schema.domains.id, org.domainId));
+		const inbox = await createInbox(org.id, {
+			name: "Support",
+			local_part: "support",
+			domain: org.domain,
+		});
+		const owner = await seedUser(org.id, "owner");
+		const { call } = await connect(owner.userId, owner.email);
+
+		const s = await call("update_inbox_workflow", {
+			inbox: inbox.id,
+			settings: {
+				signature: "— {{agent.name}}",
+				sla: {
+					enabled: true,
+					business_hours: {
+						timezone: "America/Mexico_City",
+						start: "09:00",
+						end: "18:00",
+					},
+				},
+				tags: [{ name: "billing", color: "blue" }],
+			},
+		});
+		expect(s.failed).toBeUndefined();
+		expect(s.sla.enabled).toBe(true);
+		expect(s.sla.targets.urgent.reply).toBe(60);
+		expect(
+			(
+				await call("update_inbox_workflow", {
+					inbox: inbox.id,
+					settings: { sla: { business_hours: { timezone: "Mars/Base" } } },
+				})
+			).failed,
+		).toMatch(/time zone/);
+
+		const r1 = await call("save_inbox_rule", {
+			inbox: inbox.id,
+			name: "Invoices",
+			conditions: [{ field: "subject", value: "invoice" }],
+			actions: [{ type: "add_tag", value: "billing" }],
+		});
+		expect(r1.failed).toBeUndefined();
+		const r2 = await call("save_inbox_rule", {
+			inbox: inbox.id,
+			name: "Urgent",
+			conditions: [{ field: "subject", op: "contains", value: "urgent" }],
+			actions: [{ type: "set_priority", value: "urgent" }],
+		});
+		const ordered = await call("order_inbox_rules", { inbox: inbox.id, ids: [r2.id, r1.id] });
+		expect(ordered.map((r: { id: string }) => r.id)).toEqual([r2.id, r1.id]);
+
+		const saved = await call("save_saved_reply", {
+			name: "Thanks",
+			text: "Hi {{contact.first_name|there}}, thanks!",
+			inbox_id: inbox.id,
+			shortcut: "thanks",
+			set_status: "resolved",
+		});
+		expect(saved.failed).toBeUndefined();
+		const wf = await call("get_inbox_workflow", { inbox: inbox.id });
+		expect(wf.settings.signature).toBe("— {{agent.name}}");
+		expect(wf.rules).toHaveLength(2);
+		expect(wf.saved_replies.map((x: { id: string }) => x.id)).toContain(saved.id);
+
+		const report = await call("inbox_report", { inbox: inbox.id });
+		expect(report.object).toBe("inbox_report");
+		expect(report.inbox.id).toBe(inbox.id);
+
+		// A Viewer reads, but changes nothing.
+		const viewer = await seedUser(org.id, "member");
+		const v = await connect(viewer.userId, viewer.email);
+		expect((await v.call("get_inbox_workflow", { inbox: inbox.id })).failed).toBeUndefined();
+		expect(
+			(
+				await v.call("save_inbox_rule", {
+					inbox: inbox.id,
+					name: "x",
+					conditions: [],
+					actions: [{ type: "resolve" }],
+				})
+			).failed,
+		).toMatch(/permission/);
+		expect((await v.call("delete_saved_reply", { id: saved.id })).failed).toMatch(/permission/);
+
+		expect((await call("delete_inbox_rule", { inbox: inbox.id, id: r1.id })).deleted).toBe(
+			true,
+		);
+		expect((await call("delete_saved_reply", { id: saved.id })).deleted).toBe(true);
 	});
 });
