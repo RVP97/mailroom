@@ -408,8 +408,8 @@ function Docs() {
 	const navigate = Route.useNavigate();
 	// Each brand has its own SMTP login and SES tenant.
 	useEffect(() => setFresh(null), []);
-	// The dashboard only renders in the browser.
-	const base = `${window.location.origin}/api`;
+	// The server's first paint draws this page as its own skeleton, where there is no window.
+	const base = `${typeof window === "undefined" ? "" : window.location.origin}/api`;
 	const region = sending?.tenant_arn?.split(":")[3] ?? "us-east-1";
 	const host = `email-smtp.${region}.amazonaws.com`;
 	const configurationSet = sending?.configuration_set ?? "mailroom-<organization>";

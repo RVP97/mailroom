@@ -45,7 +45,10 @@ export function DomainTracking({
 			? d.tracking_host
 			: tracking?.base
 				? new URL(tracking.base).host
-				: location.host;
+				: // The server's first paint draws the page as its skeleton, where there is no location.
+					typeof location === "undefined"
+					? ""
+					: location.host;
 
 	async function run(what: string, fn: () => Promise<unknown>, done?: string) {
 		setBusy(what);
