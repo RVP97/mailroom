@@ -55,6 +55,7 @@ import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
 	Dialog,
+	DialogBody,
 	DialogContent,
 	DialogDescription,
 	DialogHeader,
@@ -1388,19 +1389,34 @@ function FoldedItem({ item: t, onOpen }: { item: Item; onOpen: () => void }) {
 	);
 }
 
-const KEYS: [string[], string][] = [
-	[["J"], "Next conversation"],
-	[["K"], "Previous conversation"],
-	[["R"], "Reply"],
-	[["N"], "Note for the team"],
-	[["E"], "Resolve (and open the next one), or reopen"],
-	[["A"], "Assign"],
-	[["P"], "Priority"],
-	[["T"], "Tags"],
-	[["S"], "Snooze"],
-	[["U"], "Mark unread"],
-	[["⌘", "↵"], "Send what you wrote"],
-	[["?"], "These shortcuts"],
+const KEYS: { title: string; keys: [string[], string][] }[] = [
+	{
+		title: "Move",
+		keys: [
+			[["J"], "Next conversation"],
+			[["K"], "Previous conversation"],
+		],
+	},
+	{
+		title: "Write",
+		keys: [
+			[["R"], "Reply"],
+			[["N"], "Note for the team"],
+			[["⌘", "↵"], "Send"],
+			[["Esc"], "Close an empty reply box"],
+		],
+	},
+	{
+		title: "Triage",
+		keys: [
+			[["E"], "Resolve, then open the next"],
+			[["A"], "Assign"],
+			[["P"], "Priority"],
+			[["T"], "Tags"],
+			[["S"], "Snooze"],
+			[["U"], "Mark unread"],
+		],
+	},
 ];
 
 function Shortcuts({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
@@ -1409,28 +1425,41 @@ function Shortcuts({ open, onOpenChange }: { open: boolean; onOpenChange: (o: bo
 			open={open}
 			onOpenChange={onOpenChange}
 		>
-			<DialogContent className="sm:max-w-sm">
+			<DialogContent
+				className="sm:max-w-md"
+				onOpenAutoFocus={(e) => e.preventDefault()}
+			>
 				<DialogHeader>
 					<DialogTitle>Keyboard shortcuts</DialogTitle>
 					<DialogDescription>
-						On a conversation, while you're not typing.
+						On a conversation, while you're not typing. <Kbd>?</Kbd> opens this.
 					</DialogDescription>
 				</DialogHeader>
-				<ul className="flex flex-col">
-					{KEYS.map(([keys, what]) => (
-						<li
-							key={what}
-							className="flex items-center justify-between gap-4 border-b py-2 text-sm last:border-b-0"
+				<DialogBody className="gap-5">
+					{KEYS.map((group) => (
+						<section
+							key={group.title}
+							className="flex flex-col gap-1"
 						>
-							<span>{what}</span>
-							<span className="flex gap-1">
-								{keys.map((k) => (
-									<Kbd key={k}>{k}</Kbd>
+							<h3 className="eyebrow mb-1">{group.title}</h3>
+							<ul className="flex flex-col">
+								{group.keys.map(([keys, what]) => (
+									<li
+										key={what}
+										className="flex h-8 items-center justify-between gap-4 text-sm"
+									>
+										<span>{what}</span>
+										<span className="flex gap-1">
+											{keys.map((k) => (
+												<Kbd key={k}>{k}</Kbd>
+											))}
+										</span>
+									</li>
 								))}
-							</span>
-						</li>
+							</ul>
+						</section>
 					))}
-				</ul>
+				</DialogBody>
 			</DialogContent>
 		</Dialog>
 	);
