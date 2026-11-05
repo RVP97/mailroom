@@ -5,6 +5,7 @@ import {
 	CircleCheck,
 	Mail,
 	MailOpen,
+	MessageCircle,
 	MessagesSquare,
 	Paperclip,
 	PenLine,
@@ -18,6 +19,7 @@ import {
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ApiDrawer } from "@/components/api-drawer";
+import { ChatThread, type Live } from "@/components/chat-thread";
 import { Confirm } from "@/components/confirm";
 import { CopyValue } from "@/components/copy";
 import { Page } from "@/components/page";
@@ -30,6 +32,7 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { deleteConversationNowFn } from "@/functions/chat";
 import {
 	deleteConversationDraftFn,
 	getConversationFn,
@@ -80,6 +83,7 @@ function ConversationSketch() {
 			id: params.id ?? "",
 			brand_id: "",
 			inbox_id: null,
+			channel: "email",
 			subject: listed?.subject ?? "Question about my booking",
 			contact: listed?.contact ?? "guest@example.com",
 			status: "open",
@@ -142,6 +146,7 @@ const ACTIONS: Record<string, string> = {
 	"reply.sent": "sent a reply",
 	"attachment.downloaded": "downloaded an attachment",
 	"message.read": "read a message",
+	"chat.started": "opened the chat (the visitor's first message)",
 };
 
 function ConversationPage() {
@@ -204,6 +209,9 @@ function ConversationPage() {
 			setOlder((o) => ({ ...o, busy: false }));
 		}
 	};
+	const chat = c.channel === "chat";
+	const [live, setLive] = useState<Live | null>(null);
+	const canDelete = allows(me.active?.access, "inbox:reply");
 	return (
 		<Page className="gap-8">
 			<div className="flex flex-col gap-5">
@@ -231,9 +239,17 @@ function ConversationPage() {
 					)}
 				</nav>
 				<RecordHeader
-					icon={MessagesSquare}
+					icon={chat ? MessageCircle : MessagesSquare}
 					tone={c.status === "resolved" ? "gray" : "blue"}
-					kind={c.status === "resolved" ? "Resolved conversation" : "Open conversation"}
+					kind={
+						chat
+							? c.status === "resolved"
+								? "Resolved website chat"
+								: "Open website chat"
+							: c.status === "resolved"
+								? "Resolved conversation"
+								: "Open conversation"
+					}
 					title={c.subject || "(no subject)"}
 					actions={
 						<>
@@ -263,6 +279,31 @@ function ConversationPage() {
 									{busy === "status" ? <Spinner /> : <RotateCcw />}
 									Reopen
 								</Button>
+							)}
+							{chat && canDelete && (
+								<Confirm
+									trigger={
+										<Button
+											variant="ghost"
+											aria-label="Delete now"
+											title="Delete now"
+										>
+											<Trash2 />
+										</Button>
+									}
+									title="Delete this chat now?"
+									description="The messages and files go for good, and the visitor's chat ends. It doesn't wait for the inbox's retention."
+									action="Delete now"
+									onConfirm={async () => {
+										try {
+											await deleteConversationNowFn({ data: { id: c.id } });
+											toast.success("Chat deleted");
+											await router.navigate({ to: "/received" });
+										} catch (error) {
+											toast.error(await errorMessage(error));
+										}
+									}}
+								/>
 							)}
 							<ApiDrawer
 								title="This conversation in the API"
@@ -299,9 +340,54 @@ function ConversationPage() {
 			</div>
 
 			<Facts>
-				<Fact label="With">
-					<CopyValue value={c.contact} />
-				</Fact>
+				{chat ? (
+					<>
+						<Fact label="Visitor">
+							{c.visitor?.name || c.visitor?.email ? (
+								<span className="flex min-w-0 flex-col">
+									{c.visitor.name && (
+										<span className="truncate">
+											<Ph>{c.visitor.name}</Ph>
+										</span>
+									)}
+									{c.visitor.email && <CopyValue value={c.visitor.email} />}
+								</span>
+							) : (
+								<span className="text-muted-foreground">
+									Anonymous (no email left)
+								</span>
+							)}
+						</Fact>
+						{c.visitor?.page_url && (
+							<Fact label="Wrote from">
+								<a
+									href={c.visitor.page_url}
+									target="_blank"
+									rel="noreferrer"
+									className="truncate underline-offset-2 hover:underline"
+									title={c.visitor.page_url}
+								>
+									{pageOf(c.visitor.page_url)}
+								</a>
+							</Fact>
+						)}
+						<Fact label="On the site">
+							{live?.visitorOnline ? (
+								<span className="text-emerald-600 dark:text-emerald-400">Now</span>
+							) : c.visitor?.seen_at ? (
+								<span title={formatDateTime(c.visitor.seen_at)}>
+									{formatAgo(c.visitor.seen_at)}
+								</span>
+							) : (
+								"—"
+							)}
+						</Fact>
+					</>
+				) : (
+					<Fact label="With">
+						<CopyValue value={c.contact} />
+					</Fact>
+				)}
 				<Fact label="Inbox">
 					{inbox ? (
 						<Link
@@ -330,7 +416,15 @@ function ConversationPage() {
 				</Fact>
 			</Facts>
 
-			<ol className="flex flex-col gap-4">
+			{chat && (
+				<ChatThread
+					conversation={c}
+					canReply={canReply}
+					onLive={setLive}
+				/>
+			)}
+
+			<ol className={cn("flex flex-col gap-4", chat && "hidden")}>
 				{older.more && (
 					<li className="flex justify-center">
 						<Button
@@ -378,7 +472,7 @@ function ConversationPage() {
 				))}
 			</ol>
 
-			{canReply && !editing && (
+			{canReply && !editing && !chat && (
 				<Composer
 					conversation={c.id}
 					compose={compose}
@@ -418,6 +512,16 @@ function ConversationPage() {
 		</Page>
 	);
 }
+
+/** A page's address without the scheme: harborinn.com/rooms. */
+const pageOf = (url: string) => {
+	try {
+		const u = new URL(url);
+		return `${u.host}${u.pathname === "/" ? "" : u.pathname}`;
+	} catch {
+		return url;
+	}
+};
 
 /** «Ana López <ana@…>» as «Ana López», or the bare address. */
 const nameOf = (from: string) => /^(.+?)\s*<[^>]+>$/.exec(from)?.[1]?.replace(/^"|"$/g, "") ?? from;
@@ -588,6 +692,8 @@ function TimelineItem({
 				)}
 			</Card>
 		);
+	// A website chat's lines are drawn by ChatThread.
+	if (t.type === "chat") return null;
 	const draft = t.type === "draft";
 	return (
 		<Card
@@ -718,7 +824,7 @@ function SendDraft({
 }
 
 /** A reply or draft (one shape, told apart by `type`). */
-type Draft = Extract<Item, { author: unknown }>;
+type Draft = Extract<Item, { type: "reply" | "draft" }>;
 
 function Composer({
 	conversation,

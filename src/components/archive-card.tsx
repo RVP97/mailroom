@@ -15,7 +15,12 @@ import { errorMessage } from "@/lib/errors";
 
 type Data = Awaited<ReturnType<typeof listArchiveFn>>;
 
-const KIND = { emails: "Emails and events", bodies: "Content", received: "Received" } as const;
+const KIND = {
+	emails: "Emails and events",
+	bodies: "Content",
+	received: "Received",
+	chats: "Website chats",
+} as const;
 
 const size = (n: number) =>
 	n < 1024

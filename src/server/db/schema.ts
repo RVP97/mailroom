@@ -437,6 +437,9 @@ export const inboxes = sqliteTable(
 		send_allow: text("send_allow", { mode: "json" }).$type<string[]>(),
 		send_block: text("send_block", { mode: "json" }).$type<string[]>(),
 		description: text("description"),
+		/** How long its conversations are kept after their last message: days; 0: always;
+		 * null: the deployment's INBOUND_RETENTION_DAYS. */
+		retention_days: integer("retention_days"),
 		created_by: text("created_by"),
 		created_at: text("created_at").notNull(),
 		updated_at: text("updated_at").notNull(),
@@ -514,11 +517,121 @@ export const conversations = sqliteTable(
 		resolved_at: text("resolved_at"),
 		created_at: text("created_at").notNull(),
 		updated_at: text("updated_at").notNull(),
+		/** How it came in: "email" | "chat" (a website's chat widget, src/server/chat.ts). */
+		channel: text("channel").notNull().default("email"),
+		/** Chat only: what the visitor told us (unverified), and the page they wrote from. */
+		visitor_name: text("visitor_name"),
+		visitor_email: text("visitor_email"),
+		page_url: text("page_url"),
+		/** Chat only: the random tag of the addresses its emails are answered at
+		 * (<inbox>+chat-<key>@…: the team; +chatv-<key>: the visitor). */
+		chat_key: text("chat_key"),
+		/** Chat only: when the visitor last had the chat in front of them, and last wrote. */
+		visitor_seen_at: text("visitor_seen_at"),
 	},
 	(t) => [
 		index("conversations_org_last_idx").on(t.organization_id, t.last_message_at),
 		index("conversations_inbox_last_idx").on(t.inbox_id, t.last_message_at),
 		index("conversations_last_idx").on(t.last_message_at),
+		uniqueIndex("conversations_chat_key_uidx").on(t.chat_key),
+	],
+);
+
+/**
+ * An inbox's website chat (src/server/chat.ts): a widget on the brand's sites that opens a
+ * conversation in the inbox. Visitors see a chat; the team answers in the dashboard or by
+ * replying to the notification email.
+ */
+export const chatWidgets = sqliteTable(
+	"chat_widgets",
+	{
+		inbox_id: text("inbox_id")
+			.primaryKey()
+			.references(() => inboxes.id, { onDelete: "cascade" }),
+		/** The brand's id. */
+		organization_id: orgId(),
+		enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+		/** Public (it's on the website): mrc_…; rotating it stops the old one at once. */
+		public_key: text("public_key").notNull(),
+		/** The websites it may run on: hostnames, each with its subdomains. */
+		origins: text("origins", { mode: "json" }).$type<string[]>().notNull(),
+		/** How it looks and what it says (ChatDesign in src/server/chat.ts). */
+		design: text("design", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
+		/** "off" | "optional" | "required": asking the visitor for their email. */
+		ask_email: text("ask_email").notNull().default("optional"),
+		/** Who is emailed about new messages (and may answer by replying). */
+		notify: text("notify", { mode: "json" }).$type<string[]>().notNull(),
+		/** New chats a day, at most (past it the widget offers the inbox's address). */
+		daily_limit: integer("daily_limit").notNull().default(100),
+		created_by: text("created_by"),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [uniqueIndex("chat_widgets_key_uidx").on(t.public_key)],
+);
+
+export interface ChatAttachment {
+	id: string;
+	filename: string;
+	content_type: string;
+	size: number;
+	/** In the INBOUND bucket: chat/<brand>/<conversation>/<id>. */
+	key: string;
+	width?: number | null;
+	height?: number | null;
+}
+
+/** One line of a chat: the visitor's, the team's (a person or an agent), or Mailroom's own. */
+export const chatMessages = sqliteTable(
+	"chat_messages",
+	{
+		id: text("id").primaryKey(),
+		organization_id: orgId(),
+		conversation_id: text("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		inbox_id: text("inbox_id"),
+		/** "visitor" | "person" | "agent" | "api" | "system". */
+		author: text("author").notNull(),
+		author_id: text("author_id"),
+		author_name: text("author_name"),
+		text: text("text").notNull(),
+		attachments: text("attachments", { mode: "json" }).$type<ChatAttachment[]>(),
+		/** Where it was written: "widget" | "dashboard" | "email" | "api". */
+		via: text("via").notNull(),
+		/** The sender's own id for it (a retried send, an email delivered twice): once each. */
+		client_id: text("client_id"),
+		/** Who approved it, when it was someone else's draft. */
+		sent_by: text("sent_by"),
+		/** A visitor's line: when the team was emailed about it. A team's line: when the
+		 * visitor was emailed it (they had left). */
+		notified_at: text("notified_at"),
+		created_at: text("created_at").notNull(),
+	},
+	(t) => [
+		index("chat_messages_conversation_idx").on(t.conversation_id, t.created_at),
+		uniqueIndex("chat_messages_client_uidx").on(t.conversation_id, t.client_id),
+		index("chat_messages_pending_idx").on(t.notified_at, t.author, t.created_at),
+	],
+);
+
+/** A chat's visitor token (mrv_…, in the website's storage): its SHA-256, and where from. */
+export const chatVisitors = sqliteTable(
+	"chat_visitors",
+	{
+		token_hash: text("token_hash").primaryKey(),
+		conversation_id: text("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		inbox_id: text("inbox_id").notNull(),
+		/** A keyed hash of the IP, for the per-address limit (never the address). */
+		ip_hash: text("ip_hash"),
+		created_at: text("created_at").notNull(),
+		last_seen_at: text("last_seen_at"),
+	},
+	(t) => [
+		index("chat_visitors_conversation_idx").on(t.conversation_id),
+		index("chat_visitors_ip_idx").on(t.ip_hash, t.created_at),
 	],
 );
 

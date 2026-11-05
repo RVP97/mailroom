@@ -82,6 +82,7 @@ const num = (url: URL, name: string) => Number(url.searchParams.get(name)) || un
 
 /** Sends through the brand's queue and limits, like any email of the API's. */
 export const sender = (o: Pick<SendOptions, "source" | "apiKeyId">): Sender => ({
+	dashboard: o.source === "dashboard",
 	send: async (brand, input) => {
 		const [r] = await createEmails(brand, [parseSend(input)], {
 			...o,

@@ -284,6 +284,17 @@ export function conversationView(
 		replied_by: x.replied_by,
 		resolved_at: x.resolved_at,
 		created_at: x.created_at,
+		channel: (x.channel === "chat" ? "chat" : "email") as "chat" | "email",
+		...(x.channel === "chat"
+			? {
+					visitor: {
+						name: x.visitor_name,
+						email: x.visitor_email,
+						page_url: x.page_url,
+						seen_at: x.visitor_seen_at,
+					},
+				}
+			: {}),
 	};
 }
 
@@ -329,6 +340,7 @@ async function readState(reader: string | null, conversationId: string, ids: str
 	]);
 	return { mark: mark?.at ?? "", read: new Set(rows.map((r) => r.id)) };
 }
+const MAX_CHAT = 300;
 
 /**
  * A conversation with its timeline, newest page first: what came in (with bodies unless
@@ -464,6 +476,15 @@ export async function getConversation(
 		};
 	});
 	const origin = firstAnswers ? emails.find((e) => e.id === firstAnswers) : null;
+	// A website chat's lines (src/server/chat.ts), the newest MAX_CHAT.
+	const chat =
+		row.c.channel === "chat"
+			? await (async () => {
+					const { chatLines, teamLines } = await import("./chat");
+					const lines = await teamLines(await chatLines(id, { limit: MAX_CHAT }), o.now);
+					return lines.map((l) => ({ ...l, text: dots(l.text) ?? "" }));
+				})()
+			: [];
 	const timeline = [
 		...(origin
 			? [
@@ -481,6 +502,7 @@ export async function getConversation(
 			: []),
 		...inbound,
 		...out,
+		...chat,
 	].sort((a, b) => a.at.localeCompare(b.at));
 	if (o.markRead && actor.reader) await markRead(actor, row.c, true, o.now);
 	// What an agent read is part of the inbox's audit trail.
@@ -641,6 +663,8 @@ export async function updateConversation(
 		});
 		if (v.status === "resolved")
 			await inboxEvent(x, "inbox.conversation.resolved", { resolved_by: who(actor) }, now);
+		const { chatStatusChanged } = await import("./chat");
+		await chatStatusChanged(x, v.status);
 	}
 	if (v.read !== undefined) await markRead(actor, x, v.read, now);
 	const fresh = await conversationFor(actor, id);
@@ -1017,6 +1041,14 @@ async function participants(conversationId: string, own: string[]) {
 
 /** What a reply would be, filled in where the caller left it out. */
 async function replyDefaults(x: Conversation, inbox: Inbox | null) {
+	// A website chat's reply goes to the chat (and to the visitor's email only if they left).
+	if (x.channel === "chat")
+		return {
+			last: undefined,
+			to: x.visitor_email ? [x.visitor_email] : [],
+			subject: x.subject,
+			from: inbox ? (inbox.reply_from ?? (inbox.domain_id ? inbox.address : null)) : null,
+		};
 	const last = await lastInbound(x.id);
 	const to = last ? (last.reply_to?.length ? last.reply_to : [last.from]) : [x.contact];
 	const subject = /^re:/i.test(x.subject) ? x.subject : `Re: ${x.subject || "(no subject)"}`;
@@ -1175,6 +1207,8 @@ export const replyView = (r: Reply) => ({
 export interface Sender {
 	/** Sends an email of the brand's (createEmails with the caller's options); its id. */
 	send: (brandId: string, input: Record<string, unknown>) => Promise<string>;
+	/** Sent from the dashboard (a chat line says so). */
+	dashboard?: boolean;
 }
 
 /**
@@ -1188,16 +1222,32 @@ export async function sendReply(
 	conversationId: string,
 	raw: unknown,
 	sender: Sender,
-	o: { draftId?: string; now?: number } = {},
+	o: { draftId?: string; now?: number; clientId?: string | null } = {},
 ) {
 	need(actor, "send");
 	const now = o.now ?? Date.now();
 	const v = replyInput.parse(raw ?? {});
 	const { c: x } = await conversationFor(actor, conversationId);
-	const inbox = await inboxOfConversation(x);
-	const d = await replyDefaults(x, inbox);
 	const draft = o.draftId ? await draftFor(actor, o.draftId) : null;
 	if (draft && draft.conversation_id !== x.id) throw notFound("Draft");
+	// A website chat: the line goes to the chat (src/server/chat.ts).
+	if (x.channel === "chat") {
+		const { lineAsReply, teamSays } = await import("./chat");
+		const line = await teamSays(
+			actor,
+			x,
+			{
+				text: v.text ?? draft?.text ?? "",
+				via: actor.type === "person" && sender.dashboard ? "dashboard" : "api",
+				draft,
+				client_id: o.clientId ?? null,
+			},
+			now,
+		);
+		return lineAsReply(line, x);
+	}
+	const inbox = await inboxOfConversation(x);
+	const d = await replyDefaults(x, inbox);
 	const text = v.text ?? draft?.text ?? "";
 	if (!text.trim()) throw validation("text: write the reply");
 	const to = v.to?.length ? v.to : (draft?.to ?? d.to);
@@ -1385,13 +1435,39 @@ export async function inboxEvent(
 
 // ── Retention ──────────────────────────────────────────────────────────────
 
-/** Cron (daily, after the received emails): conversations with nothing newer than `before`. */
-export async function purgeConversations(before: string, rounds = 10) {
+/**
+ * Cron (daily, after the received emails): conversations with nothing newer than `before`, or
+ * than their inbox's own retention (`retention_days`; 0 keeps them). A chat's files go from R2
+ * with it, and organizations that keep an archive get its transcript there first.
+ */
+export async function purgeConversations(before: string, rounds = 10, now = Date.now()) {
+	const own = await db
+		.select({ id: schema.inboxes.id, days: schema.inboxes.retention_days })
+		.from(schema.inboxes)
+		.where(sql`${schema.inboxes.retention_days} IS NOT NULL`);
+	const others = own.length
+		? sql`(${c.inbox_id} IS NULL OR ${c.inbox_id} NOT IN (SELECT id FROM inboxes WHERE retention_days IS NOT NULL))`
+		: undefined;
+	await purgeWhere(and(lt(c.last_message_at, before), others), rounds);
+	for (const inbox of own)
+		if (inbox.days && inbox.days > 0)
+			await purgeWhere(
+				and(
+					eq(c.inbox_id, inbox.id),
+					lt(c.last_message_at, iso(now - inbox.days * 86_400_000)),
+				),
+				rounds,
+			);
+}
+
+async function purgeWhere(where: ReturnType<typeof and>, rounds: number) {
+	const { archiveBucket, archiveChats, archivingBrands } = await import("./archive");
+	const { deleteChatFiles } = await import("./chat");
 	for (let i = 0; i < rounds; i++) {
 		const rows = await db
-			.select({ id: c.id })
+			.select({ id: c.id, brand: c.organization_id, channel: c.channel })
 			.from(c)
-			.where(lt(c.last_message_at, before))
+			.where(where)
 			.orderBy(asc(c.last_message_at))
 			.limit(90);
 		if (!rows.length) return;
@@ -1409,6 +1485,17 @@ export async function purgeConversations(before: string, rounds = 10) {
 				),
 			);
 		await dropFiles(drafts.flatMap((d) => d.a ?? []));
+		const chats = rows.filter((r) => r.channel === "chat");
+		if (chats.length) {
+			const bucket = archiveBucket();
+			if (bucket) {
+				const on = await archivingBrands([...new Set(chats.map((r) => r.brand))]);
+				const keep = chats.filter((r) => on.has(r.brand)).map((r) => r.id);
+				// When R2 refuses, they wait for the next run.
+				if (keep.length) await archiveChats(bucket, keep);
+			}
+			await deleteChatFiles(chats.map((r) => r.id));
+		}
 		await db.delete(c).where(
 			inArray(
 				c.id,

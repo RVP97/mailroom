@@ -16,6 +16,7 @@ import {
 } from "./aws/receiving";
 import { type AwsConfig, createIdentity, getIdentity, SesError } from "./aws/ses";
 import { setTopicPolicy, topicPolicy } from "./aws/sns";
+import { chatEmailIn, chatTagOf } from "./chat";
 import {
 	inboxEvent,
 	purgeConversations,
@@ -726,6 +727,29 @@ export async function receiveSes(
 	// forwards go once with its first copy.
 	const ruled = new Map<string, Awaited<ReturnType<typeof rulesFor>>>();
 	for (const o of fresh) {
+		// An answer to a website chat's email (src/server/chat.ts): a line of the chat, when it's
+		// from the team or the visitor; anything else goes the usual way.
+		if (o.inboxId && chatTagOf(o.recipients)) {
+			const handled = await chatEmailIn({
+				brandId: o.brandId,
+				inboxId: o.inboxId,
+				recipients: o.recipients,
+				from,
+				sesId,
+				dkim: verdict(e.receipt?.dkimVerdict),
+				dmarc: verdict(e.receipt?.dmarcVerdict),
+				spf: verdict(e.receipt?.spfVerdict),
+				parsed,
+				now,
+			}).catch((error) => {
+				console.error("inbound: chat reply not taken", error);
+				return false;
+			});
+			if (handled) {
+				applied = true;
+				continue;
+			}
+		}
 		const id = crypto.randomUUID();
 		const key = `${PREFIX}${o.brandId}/${id}.eml`;
 		const incoming = {
@@ -1076,21 +1100,41 @@ export async function serveAttachment(path: string, now = Date.now()): Promise<R
 // ── Retention ──────────────────────────────────────────────────────────────
 
 /** Cron (daily): received emails past INBOUND_RETENTION_DAYS, rows and messages. */
+/**
+ * Cron (daily): what's past its retention. An inbox can keep its mail longer or shorter than the
+ * deployment's INBOUND_RETENTION_DAYS (or always: 0), its own `retention_days`.
+ */
 export async function purgeReceived(now = Date.now(), rounds = 10) {
 	const before = iso(now - inboundRetentionDays() * 86_400_000);
-	await purgeRows(before, rounds);
-	// Conversations whose last message is that old (their drafts and replies with them), and
-	// the inboxes' activity.
-	await purgeConversations(before, rounds);
+	const own = await db
+		.select({ id: schema.inboxes.id, days: schema.inboxes.retention_days })
+		.from(schema.inboxes)
+		.where(sql`${schema.inboxes.retention_days} IS NOT NULL`);
+	const others = own.length
+		? sql`(${re.inbox_id} IS NULL OR ${re.inbox_id} NOT IN (SELECT id FROM inboxes WHERE retention_days IS NOT NULL))`
+		: undefined;
+	await purgeRows(and(lt(re.created_at, before), others), rounds);
+	for (const inbox of own)
+		if (inbox.days && inbox.days > 0)
+			await purgeRows(
+				and(
+					eq(re.inbox_id, inbox.id),
+					lt(re.created_at, iso(now - inbox.days * 86_400_000)),
+				),
+				rounds,
+			);
+	// Conversations whose last message is that old (their drafts, replies and chat lines with
+	// them), and the inboxes' activity.
+	await purgeConversations(before, rounds, now);
 	await purgeInboxActivity(before);
 }
 
-async function purgeRows(before: string, rounds: number) {
+async function purgeRows(where: ReturnType<typeof and>, rounds: number) {
 	for (let i = 0; i < rounds; i++) {
 		const rows = await db
 			.select()
 			.from(re)
-			.where(lt(re.created_at, before))
+			.where(where)
 			.limit(archiveBucket() ? 100 : 500);
 		if (!rows.length) return;
 		const bucket = archiveBucket();

@@ -1,5 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Bot, Inbox, MessagesSquare, PenLine, Route as RouteIcon, Search } from "lucide-react";
+import {
+	Bot,
+	Inbox,
+	MessageCircle,
+	MessagesSquare,
+	PenLine,
+	Route as RouteIcon,
+	Search,
+} from "lucide-react";
 import { z } from "zod";
 import { ApiDrawer } from "@/components/api-drawer";
 import { BrandFilter } from "@/components/brand-filter";
@@ -106,6 +114,7 @@ function ReceivedSketch() {
 						id: `sketch-${i}`,
 						brand_id: "",
 						inbox_id: null,
+						channel: "email",
 						subject: pick(i, [
 							"Re: Your booking",
 							"Question about check-in",
@@ -390,6 +399,12 @@ function Received() {
 													>
 														<Ph>{r.subject || "(no subject)"}</Ph>
 													</span>
+													{r.channel === "chat" && (
+														<Badge variant="secondary">
+															<MessageCircle />
+															Chat
+														</Badge>
+													)}
 													{r.drafts > 0 && (
 														<Badge variant="brand">
 															<PenLine />

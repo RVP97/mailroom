@@ -119,6 +119,17 @@
 			}
 		},
 		{
+			"includes": ["src/server/chat-widget.js"],
+			"linter": {
+				"rules": {
+					"correctness": { "noInnerDeclarations": "off" },
+					"complexity": { "useOptionalChain": "off", "useArrowFunction": "off" },
+					"style": { "useTemplate": "off" },
+					"suspicious": { "noAssignInExpressions": "off" }
+				}
+			}
+		},
+		{
 			"includes": ["src/components/ui/**"],
 			"linter": {
 				"rules": {
