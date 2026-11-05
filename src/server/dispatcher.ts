@@ -151,8 +151,26 @@ const stub = () => {
 	return ns.get(ns.idFromName("dispatcher"));
 };
 
-/** Wakes the Dispatcher (after queueing emails, and from the cron). */
-export const kickDispatcher = () => stub().kick();
+/**
+ * Wakes the Dispatcher (after queueing emails, and from the cron). Never throws: the emails are
+ * already in the queue (D1) and the cron kicks every minute, so a refused call (the object
+ * "overloaded", restarting) must not fail the request that queued them, which its caller might
+ * then send again. One retry, then a warning.
+ */
+export async function kickDispatcher(): Promise<void> {
+	for (let attempt = 0; ; attempt++) {
+		try {
+			await stub().kick();
+			return;
+		} catch (error) {
+			if (attempt >= 1) {
+				console.warn("dispatcher: kick failed, the cron will pick the queue up", error);
+				return;
+			}
+			await sleep(250);
+		}
+	}
+}
 
 /** Waits for one send's turn at the rate of the account the brand sends through. */
 export async function rateGate(brandId?: string) {
