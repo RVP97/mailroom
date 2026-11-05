@@ -386,11 +386,14 @@ export function Preview({
 	theme,
 	toolbar,
 	height = 640,
+	draw,
 }: {
 	id?: string;
 	fields: Record<string, unknown>;
 	/** Draws the page from these fields (the newsletter's by default). */
 	load?: (fields: Record<string, unknown>) => Promise<string>;
+	/** Draws it right here, on every change (no wait for the server). */
+	draw?: (fields: Record<string, unknown>, dark: boolean) => string;
 	/** The theme when it isn't the look's (fields.look.theme). */
 	theme?: "auto" | "light" | "dark";
 	/** More buttons in the preview's bar (which state to show…). */
@@ -413,8 +416,21 @@ export function Preview({
 	const seq = useRef(0);
 	const loadRef = useRef(load);
 	loadRef.current = load;
+	const drawn = draw ? draw(fields, dark) : null;
+	const frame = useRef<HTMLIFrameElement>(null);
+	// Drawn here: written into the open frame, so it changes in place without reloading.
+	useEffect(() => {
+		const doc = frame.current?.contentDocument;
+		if (drawn === null || !doc) return;
+		const y = doc.scrollingElement?.scrollTop ?? 0;
+		doc.open();
+		doc.write(drawn);
+		doc.close();
+		if (doc.scrollingElement) doc.scrollingElement.scrollTop = y;
+	}, [drawn]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: key stands for fields
 	useEffect(() => {
+		if (draw) return;
 		const n = ++seq.current;
 		setBusy(true);
 		const t = setTimeout(() => {
@@ -472,7 +488,19 @@ export function Preview({
 				)}
 			</div>
 			<div className="flex justify-center bg-muted/40 p-3">
-				{shown ? (
+				{drawn !== null ? (
+					<iframe
+						ref={frame}
+						title="Public page preview"
+						// Same origin (to write into it) but no scripts: the page has none.
+						sandbox="allow-same-origin"
+						style={{ height }}
+						className={cn(
+							"max-w-full rounded-lg border border-border/70 bg-white transition-[width] duration-300 ease-out",
+							phone ? "w-[390px]" : "w-full",
+						)}
+					/>
+				) : shown ? (
 					<iframe
 						title="Public page preview"
 						sandbox=""

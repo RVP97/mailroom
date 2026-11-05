@@ -3,8 +3,8 @@ import { z } from "zod";
 import { brandIn } from "@/server/brands";
 import { can, orgMiddleware } from "@/server/middleware";
 import {
+	brandDress,
 	getSubscriberPage,
-	previewSubscriberPage,
 	resetSubscriberPage,
 	saveSubscriberPage,
 } from "@/server/subscriber-pages";
@@ -12,11 +12,16 @@ import { call } from "./call";
 
 /** A brand's unsubscribe and preferences page (src/lib/subscriber-page.ts). */
 
+/** The saved page and what it takes from the brand (the editor draws its preview with it). */
 export const subscriberPageFn = createServerFn({ method: "GET" })
 	.middleware([orgMiddleware])
 	.validator(z.object({ brand: z.string() }))
 	.handler(({ data, context }) =>
-		call(async () => getSubscriberPage(await brandIn(context.organizationId, data.brand))),
+		call(async () => {
+			const brand = await brandIn(context.organizationId, data.brand);
+			const [page, dress] = await Promise.all([getSubscriberPage(brand), brandDress(brand)]);
+			return { ...page, dress };
+		}),
 	);
 
 export const saveSubscriberPageFn = createServerFn({ method: "POST" })
@@ -40,25 +45,4 @@ export const resetSubscriberPageFn = createServerFn({ method: "POST" })
 			await resetSubscriberPage(await brandIn(context.organizationId, data.brand));
 			return { ok: true };
 		}),
-	);
-
-export const previewSubscriberPageFn = createServerFn({ method: "POST" })
-	.middleware([orgMiddleware])
-	.validator(
-		z.object({
-			brand: z.string(),
-			page: z.record(z.string(), z.unknown()),
-			state: z.enum(["ask", "done", "back"]),
-			lang: z.enum(["en", "es"]),
-		}),
-	)
-	.handler(({ data, context }) =>
-		call(async () => ({
-			html: await previewSubscriberPage(
-				await brandIn(context.organizationId, data.brand),
-				data.page,
-				data.state,
-				data.lang,
-			),
-		})),
 	);

@@ -18,19 +18,19 @@ import {
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
-import {
-	previewSubscriberPageFn,
-	resetSubscriberPageFn,
-	saveSubscriberPageFn,
-} from "@/functions/subscriber-pages";
+import { resetSubscriberPageFn, saveSubscriberPageFn } from "@/functions/subscriber-pages";
 import { errorMessage } from "@/lib/errors";
 import { PAGE_FONTS, type PageFont } from "@/lib/newsletter-look";
 import {
+	type BrandDress,
 	DEFAULT_PAGE,
+	PAGE_TEMPLATES,
 	PAGE_TEXTS,
 	pageOf,
+	previewSubscriberHtml,
 	type SubscriberPage,
 	type TextKey,
+	withTemplate,
 } from "@/lib/subscriber-page";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +38,7 @@ type State = "ask" | "done" | "back";
 
 /** Which lines show in which state of the preview, so editing one shows it. */
 const SHOWN_IN: Record<TextKey, State> = {
+	eyebrow: "ask",
 	ask: "ask",
 	who: "ask",
 	out: "ask",
@@ -59,17 +60,18 @@ export function UnsubscribePageCard({
 	brand,
 	page: saved,
 	isSaved,
-	kitAccent,
-	brandLogo,
+	dress,
 	canEdit,
 }: {
 	brand: string;
 	page: SubscriberPage;
 	isSaved: boolean;
-	kitAccent: string | null;
-	brandLogo: boolean;
+	/** The brand's name, logo and kit accent, which the page wears. */
+	dress: BrandDress;
 	canEdit: boolean;
 }) {
+	const kitAccent = dress.accent;
+	const brandLogo = !!dress.logo;
 	const router = useRouter();
 	const [page, setPage] = useState(saved);
 	const [state, setState] = useState<State>("ask");
@@ -184,7 +186,17 @@ export function UnsubscribePageCard({
 					</CardAction>
 				)}
 			</CardHeader>
-			<CardContent>
+			<CardContent className="flex flex-col gap-6">
+				{canEdit && (
+					<Templates
+						page={page}
+						dress={dress}
+						onPick={(id) => {
+							setPage((p) => withTemplate(p, id));
+							setState("ask");
+						}}
+					/>
+				)}
 				<div className="grid items-start gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
 					<div className="overflow-hidden rounded-xl border border-border/70">
 						<fieldset
@@ -304,8 +316,31 @@ export function UnsubscribePageCard({
 										value={page.layout}
 										onChange={(v) => set("layout", v)}
 										options={[
-											["card", "In a card"],
-											["plain", "On the page"],
+											["card", "Card"],
+											["plain", "Plain"],
+											["banner", "Banner"],
+											["split", "Split"],
+										]}
+									/>
+								</Row>
+								<Row label="Above">
+									<Choice
+										value={page.mark}
+										onChange={(v) => set("mark", v)}
+										options={[
+											["eyebrow", "Small title"],
+											["icon", "Icon"],
+											["none", "Nothing"],
+										]}
+									/>
+								</Row>
+								<Row label="Heading">
+									<Choice
+										value={page.heading_size}
+										onChange={(v) => set("heading_size", v)}
+										options={[
+											["md", "Regular"],
+											["lg", "Large"],
 										]}
 									/>
 								</Row>
@@ -330,7 +365,7 @@ export function UnsubscribePageCard({
 										]}
 									/>
 								</Row>
-								{page.layout === "card" && (
+								{page.layout !== "plain" && (
 									<Row label="Edges">
 										<Choice
 											value={page.borders ? "line" : "shadow"}
@@ -358,6 +393,7 @@ export function UnsubscribePageCard({
 										]}
 									/>
 								</Row>
+								{page.mark === "eyebrow" && textField("eyebrow")}
 								{textField("ask")}
 								{textField("who", true)}
 								{textField("out")}
@@ -446,19 +482,9 @@ export function UnsubscribePageCard({
 						fields={{ ...page, state, lang }}
 						theme={page.theme}
 						height={600}
-						load={(f) => {
-							const {
-								state: s,
-								lang: l,
-								...p
-							} = f as Record<string, unknown> & {
-								state: State;
-								lang: "en" | "es";
-							};
-							return previewSubscriberPageFn({
-								data: { brand, page: p, state: s, lang: l },
-							}).then((r) => r.html);
-						}}
+						draw={(_f, dark) =>
+							previewSubscriberHtml(page, { dress, state, lang, dark })
+						}
 						toolbar={
 							<>
 								<Segments
@@ -541,6 +567,94 @@ function Segments<T extends string>({
 					{label}
 				</button>
 			))}
+		</div>
+	);
+}
+
+/** The size each template is drawn at before it's shrunk into its thumbnail. */
+const THUMB = { w: 820, h: 640, scale: 0.25 };
+
+/**
+ * Ready-made pages, each drawn small with the brand's own logo, color and words, so picking one
+ * shows exactly what it gives. Picking one changes only the look, never the words or links.
+ */
+function Templates({
+	page,
+	dress,
+	onPick,
+}: {
+	page: SubscriberPage;
+	dress: BrandDress;
+	onPick: (id: string) => void;
+}) {
+	// Drawn again only when what they show of the brand changes, not on every change of look.
+	const mine = JSON.stringify([page.logo, page.accent, page.language, page.texts]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: mine stands for page
+	const thumbs = useMemo(
+		() =>
+			PAGE_TEMPLATES.map((t) => ({
+				...t,
+				html: previewSubscriberHtml(withTemplate(page, t.id), {
+					dress,
+					state: "ask",
+					lang: page.language === "es" ? "es" : "en",
+				}).replace("</head>", "<style>html,body{overflow:hidden}</style></head>"),
+			})),
+		[mine, dress],
+	);
+	return (
+		<div className="flex flex-col gap-2.5">
+			<div className="flex items-baseline justify-between gap-3">
+				<span className="text-sm font-medium">Start from a template</span>
+				<span className="text-xs text-muted-foreground">
+					Keeps your logo, color and words
+				</span>
+			</div>
+			<div className="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 pt-1 pb-2">
+				{thumbs.map((t) => {
+					const on = page.template === t.id;
+					return (
+						<button
+							key={t.id}
+							type="button"
+							aria-pressed={on}
+							onClick={() => onPick(t.id)}
+							className="group flex shrink-0 snap-start flex-col gap-2 text-left outline-none"
+						>
+							<div
+								className={cn(
+									"relative overflow-hidden rounded-lg border border-border/70 bg-muted shadow-xs transition-[box-shadow,transform] group-hover:-translate-y-0.5 group-hover:shadow-md group-focus-visible:ring-[3px] group-focus-visible:ring-ring/50",
+									on &&
+										"ring-2 ring-primary ring-offset-2 ring-offset-background",
+								)}
+								style={{
+									width: THUMB.w * THUMB.scale,
+									height: THUMB.h * THUMB.scale,
+								}}
+							>
+								<iframe
+									title={t.name}
+									srcDoc={t.html}
+									sandbox=""
+									tabIndex={-1}
+									aria-hidden
+									loading="lazy"
+									className="pointer-events-none absolute top-0 left-0 origin-top-left border-0"
+									style={{
+										width: THUMB.w,
+										height: THUMB.h,
+										transform: `scale(${THUMB.scale})`,
+									}}
+								/>
+							</div>
+							<div className="flex flex-col px-0.5">
+								<span className="text-sm font-medium">{t.name}</span>
+								<span className="text-xs text-muted-foreground">{t.hint}</span>
+							</div>
+						</button>
+					);
+				})}
+			</div>
 		</div>
 	);
 }

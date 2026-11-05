@@ -1,4 +1,4 @@
-import { createFileRoute, Link, notFound, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, notFound, useNavigate, useRouter } from "@tanstack/react-router";
 import {
 	ArrowUpRight,
 	Building2,
@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { ApiDrawer } from "@/components/api-drawer";
 import { BrandKitCard } from "@/components/brand-kit-card";
 import { brandStatus, PurposeBadge } from "@/components/brand-status";
@@ -60,6 +61,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UnsubscribePageCard } from "@/components/unsubscribe-page-card";
 import { getBrandFn, removeBrandFn, updateBrandFn } from "@/functions/brands";
 import { kitFn } from "@/functions/collab";
@@ -74,7 +76,11 @@ import { allows } from "@/lib/permissions";
 import { ago, listedRow, Ph, pick, Sketch, sample, useOpened, usePage } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 
+const TABS = ["overview", "kit", "unsubscribe", "firewall"] as const;
+type Tab = (typeof TABS)[number];
+
 export const Route = createFileRoute("/_app/brands/$id")({
+	validateSearch: z.object({ tab: z.enum(TABS).optional().catch(undefined) }),
 	loader: async ({ params }) => {
 		const [data, sending, firewall, kit, unsubscribePage] = await Promise.all([
 			getBrandFn({ data: { id: params.id } }).catch(() => null),
@@ -151,7 +157,19 @@ function BrandSketch() {
 
 /** A brand: who it sends as, whether it can, its domains and how its mail did lately. */
 function BrandPage() {
-	const data = usePage(Route).data;
+	const { data, search } = usePage(Route);
+	const navigate = useNavigate();
+	const tab: Tab = search.tab ?? "overview";
+	const setTab = (t: string) =>
+		navigate({
+			to: ".",
+			search: (s: Record<string, unknown>) => ({
+				...s,
+				tab: t === "overview" ? undefined : (t as Tab),
+			}),
+			replace: true,
+			resetScroll: false,
+		});
 	const { brand: savedBrand, stats, domains, sending, firewall } = data;
 	useOpened(
 		"brand-page",
@@ -452,148 +470,182 @@ function BrandPage() {
 				</Alert>
 			)}
 
-			<Section
-				title="Last 30 days"
-				actions={
-					<Button
-						variant="ghost"
-						size="sm"
-						asChild
-					>
-						<Link
-							to="/"
-							search={me.brands.length > 1 ? { brand: brand.id } : {}}
-						>
-							Overview
-							<ArrowUpRight />
-						</Link>
-					</Button>
-				}
+			<Tabs
+				value={tab === "firewall" && !firewall ? "overview" : tab}
+				onValueChange={setTab}
+				className="gap-6"
 			>
-				<div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-border/70 shadow-card sm:grid-cols-4">
-					<Stat
-						label="Sent"
-						value={formatNumber(stats.totals.sent)}
-					/>
-					<Stat
-						label="Delivered"
-						value={formatNumber(stats.totals.delivered)}
-					/>
-					<Stat
-						label="Bounce rate"
-						value={stats.totals.sent ? formatPercent(stats.health.bounceRate) : "—"}
-						level={stats.health.bounce}
-					/>
-					<Stat
-						label="Complaint rate"
-						value={
-							stats.totals.sent ? formatPercent(stats.health.complaintRate, 3) : "—"
-						}
-						level={stats.health.complaint}
-					/>
+				<div className="-mx-1 overflow-x-auto border-b border-border/70 px-1">
+					<TabsList variant="line">
+						<TabsTrigger value="overview">Overview</TabsTrigger>
+						<TabsTrigger value="kit">Brand kit</TabsTrigger>
+						<TabsTrigger value="unsubscribe">Unsubscribe page</TabsTrigger>
+						{firewall && <TabsTrigger value="firewall">Firewall</TabsTrigger>}
+					</TabsList>
 				</div>
-			</Section>
-
-			<Section
-				title="Domains"
-				description="It sends from these. Marketing domains use the brand's second SES tenant, so newsletters never hurt receipts and codes."
-				actions={
-					canManage && (
-						<Button
-							variant="outline"
-							size="sm"
-							asChild
-						>
-							<Link
-								to="/domains"
-								search={{ add: 1, brand: brand.id }}
+				<TabsContent
+					value="overview"
+					className="flex flex-col gap-8"
+				>
+					<Section
+						title="Last 30 days"
+						actions={
+							<Button
+								variant="ghost"
+								size="sm"
+								asChild
 							>
-								<Plus />
-								Add domain
-							</Link>
-						</Button>
-					)
-				}
-			>
-				<TableCard>
-					<Table className="table-fixed">
-						<TableHeader>
-							<TableRow>
-								<TableHead>Domain</TableHead>
-								<TableHead className="w-32">Purpose</TableHead>
-								<TableHead className="hidden w-32 sm:table-cell">Status</TableHead>
-							</TableRow>
-						</TableHeader>
-						<TableBody>
-							{domains.length === 0 && (
-								<TableRow>
-									<TableCell
-										colSpan={3}
-										className="h-20 text-center text-muted-foreground"
-									>
-										No domains yet. Add the one this brand sends from.
-									</TableCell>
-								</TableRow>
-							)}
-							{domains.map((d) => (
-								<TableRow
-									key={d.id}
-									className="relative"
+								<Link
+									to="/"
+									search={me.brands.length > 1 ? { brand: brand.id } : {}}
 								>
-									<TableCell className="h-12">
-										<Link
-											to="/domains/$id"
-											params={{ id: d.id }}
-											className="truncate font-medium outline-none after:absolute after:inset-0 focus-visible:after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
+									Overview
+									<ArrowUpRight />
+								</Link>
+							</Button>
+						}
+					>
+						<div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-border/70 shadow-card sm:grid-cols-4">
+							<Stat
+								label="Sent"
+								value={formatNumber(stats.totals.sent)}
+							/>
+							<Stat
+								label="Delivered"
+								value={formatNumber(stats.totals.delivered)}
+							/>
+							<Stat
+								label="Bounce rate"
+								value={
+									stats.totals.sent ? formatPercent(stats.health.bounceRate) : "—"
+								}
+								level={stats.health.bounce}
+							/>
+							<Stat
+								label="Complaint rate"
+								value={
+									stats.totals.sent
+										? formatPercent(stats.health.complaintRate, 3)
+										: "—"
+								}
+								level={stats.health.complaint}
+							/>
+						</div>
+					</Section>
+
+					<Section
+						title="Domains"
+						description="It sends from these. Marketing domains use the brand's second SES tenant, so newsletters never hurt receipts and codes."
+						actions={
+							canManage && (
+								<Button
+									variant="outline"
+									size="sm"
+									asChild
+								>
+									<Link
+										to="/domains"
+										search={{ add: 1, brand: brand.id }}
+									>
+										<Plus />
+										Add domain
+									</Link>
+								</Button>
+							)
+						}
+					>
+						<TableCard>
+							<Table className="table-fixed">
+								<TableHeader>
+									<TableRow>
+										<TableHead>Domain</TableHead>
+										<TableHead className="w-32">Purpose</TableHead>
+										<TableHead className="hidden w-32 sm:table-cell">
+											Status
+										</TableHead>
+									</TableRow>
+								</TableHeader>
+								<TableBody>
+									{domains.length === 0 && (
+										<TableRow>
+											<TableCell
+												colSpan={3}
+												className="h-20 text-center text-muted-foreground"
+											>
+												No domains yet. Add the one this brand sends from.
+											</TableCell>
+										</TableRow>
+									)}
+									{domains.map((d) => (
+										<TableRow
+											key={d.id}
+											className="relative"
 										>
-											<Ph>{d.name}</Ph>
-										</Link>
-									</TableCell>
-									<TableCell>
-										<PurposeBadge purpose={d.purpose} />
-									</TableCell>
-									<TableCell className="hidden sm:table-cell">
-										<StatusBadge
-											status={d.paused_at ? "paused" : d.status}
-											label={d.paused_at ? "Paused" : undefined}
-										/>
-									</TableCell>
-								</TableRow>
-							))}
-						</TableBody>
-					</Table>
-				</TableCard>
-			</Section>
+											<TableCell className="h-12">
+												<Link
+													to="/domains/$id"
+													params={{ id: d.id }}
+													className="truncate font-medium outline-none after:absolute after:inset-0 focus-visible:after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
+												>
+													<Ph>{d.name}</Ph>
+												</Link>
+											</TableCell>
+											<TableCell>
+												<PurposeBadge purpose={d.purpose} />
+											</TableCell>
+											<TableCell className="hidden sm:table-cell">
+												<StatusBadge
+													status={d.paused_at ? "paused" : d.status}
+													label={d.paused_at ? "Paused" : undefined}
+												/>
+											</TableCell>
+										</TableRow>
+									))}
+								</TableBody>
+							</Table>
+						</TableCard>
+					</Section>
+				</TabsContent>
 
-			<BrandKitCard
-				key={`kit-${brand.id}`}
-				brand={brand.id}
-				name={brand.name}
-				logo={me.active?.logo?.url ?? null}
-				kit={data.kit}
-				canEdit={allows(me.active?.access, "library:edit")}
-			/>
+				<TabsContent value="kit">
+					<BrandKitCard
+						key={`kit-${brand.id}`}
+						brand={brand.id}
+						name={brand.name}
+						logo={me.active?.logo?.url ?? null}
+						kit={data.kit}
+						canEdit={allows(me.active?.access, "library:edit")}
+					/>
+				</TabsContent>
 
-			{data.unsubscribePage && (
-				<UnsubscribePageCard
-					key={`unsub-${brand.id}`}
-					brand={brand.id}
-					page={data.unsubscribePage.page}
-					isSaved={data.unsubscribePage.saved}
-					kitAccent={data.kit?.accent ?? null}
-					brandLogo={!!me.active?.logo?.url}
-					canEdit={allows(me.active?.access, "brands:edit")}
-				/>
-			)}
+				<TabsContent value="unsubscribe">
+					{data.unsubscribePage ? (
+						<UnsubscribePageCard
+							key={`unsub-${brand.id}`}
+							brand={brand.id}
+							page={data.unsubscribePage.page}
+							isSaved={data.unsubscribePage.saved}
+							dress={data.unsubscribePage.dress}
+							canEdit={allows(me.active?.access, "brands:edit")}
+						/>
+					) : (
+						<p className="text-sm text-muted-foreground">
+							Couldn't load the page right now.
+						</p>
+					)}
+				</TabsContent>
 
-			{firewall && (
-				<FirewallCard
-					key={brand.id}
-					brand={brand.id}
-					firewall={firewall}
-					canManage={canManage}
-				/>
-			)}
+				{firewall && (
+					<TabsContent value="firewall">
+						<FirewallCard
+							key={brand.id}
+							brand={brand.id}
+							firewall={firewall}
+							canManage={canManage}
+						/>
+					</TabsContent>
+				)}
+			</Tabs>
 		</Page>
 	);
 }
