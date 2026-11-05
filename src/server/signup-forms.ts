@@ -320,6 +320,16 @@ export async function brandLooks(brands: string[]) {
 	) as Record<string, string | null>;
 }
 
+/** The color each brand shows behind its logo (Settings › Logo), "#rrggbb", or null. */
+export async function logoBackgrounds(brands: string[]) {
+	const { orgLogos } = await import("./org-logos");
+	const { backgroundColor } = await import("../lib/org-logo");
+	const logos = await orgLogos(brands);
+	return Object.fromEntries(
+		brands.map((b) => [b, backgroundColor(logos.get(b)?.background ?? null)]),
+	) as Record<string, string | null>;
+}
+
 async function brandName(brand: string) {
 	const row = await db
 		.select({ name: schema.organization.name })

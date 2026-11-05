@@ -26,7 +26,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { removeKitFn, saveKitFn } from "@/functions/collab";
 import { uploadMediaFn } from "@/functions/media";
 import { type BrandKit, DEFAULT_KIT, type KitFont, kitOf, kitTheme } from "@/lib/brand-kit";
-import { FONTS, type FontKey, onColor, starter } from "@/lib/email-doc";
+import { type EmailDoc, FONTS, type FontKey, onColor } from "@/lib/email-doc";
+import { starterDoc } from "@/lib/email-templates";
 import { errorMessage } from "@/lib/errors";
 
 /**
@@ -58,8 +59,7 @@ export function BrandKitCard({
 	const set = (p: Partial<BrandKit>) => setKit((k) => ({ ...k, ...p }));
 	const dirty = JSON.stringify(kitOf(kit)) !== JSON.stringify(saved ?? DEFAULT_KIT);
 	const preview = useMemo(() => {
-		const doc = starter("announcement", { logo, name });
-		return { ...doc, theme: { ...doc.theme, ...kitTheme(kitOf(kit)) } };
+		return starterDoc("big-news", { logo, name }, { kit: kitTheme(kitOf(kit)) }) as EmailDoc;
 	}, [kit, logo, name]);
 
 	const upload = async (f: File) => {

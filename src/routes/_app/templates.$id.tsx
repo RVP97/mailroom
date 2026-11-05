@@ -62,6 +62,7 @@ import {
 	saveTemplateFn,
 	sendTemplateTestFn,
 } from "@/functions/templates";
+import { kitTheme } from "@/lib/brand-kit";
 import { type EmailDoc, renderEmail } from "@/lib/email-doc";
 import { errorMessage } from "@/lib/errors";
 import { formatDateTime, formatRelative } from "@/lib/format";
@@ -116,7 +117,7 @@ function TemplateSketch() {
 					created_at: ago(60 * 24),
 					updated_at: ago(60),
 				} satisfies Template,
-				look: { logo: null, name: "" },
+				look: { logo: null, logoBackground: null, name: "", kit: null },
 			}}
 		>
 			<TemplatePage />
@@ -516,6 +517,8 @@ function TemplatePage() {
 						text={form.text}
 						set={(k, v) => set(k, v as never)}
 						look={data.look}
+						kit={data.look.kit ? kitTheme(data.look.kit) : null}
+						kind="template"
 						onBuild={() => setBuilding(true)}
 						footer="The plain text, left empty, is made from the email."
 					/>

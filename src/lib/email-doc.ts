@@ -6,12 +6,36 @@
 
 export type Align = "left" | "center" | "right";
 
-type Base = { id: string };
+type Base = {
+	id: string;
+	/**
+	 * A band of color behind the block, edge to edge (blocks of the email itself, not in columns);
+	 * blocks in a row with the same one make one band. Null or missing: the email's own color.
+	 */
+	bg?: string | null;
+};
+
+/** How a logo shows: as it is, on a rounded square, or in a circle. */
+export type LogoShape = "original" | "rounded" | "circle";
+/** Text sizes: body, a larger opening paragraph, or small print (labels, captions). */
+export type TextSize = "body" | "lead" | "small";
+
 export type LeafBlock = Base &
 	(
-		| { type: "logo"; src: string; alt: string; width: number; align: Align; href: string }
-		| { type: "heading"; html: string; level: 1 | 2 | 3; align: Align }
-		| { type: "text"; html: string; align: Align }
+		| {
+				type: "logo";
+				src: string;
+				alt: string;
+				width: number;
+				align: Align;
+				href: string;
+				shape: LogoShape;
+				/** A color behind the logo (a tile or a disc around it); null: none. */
+				background: string | null;
+		  }
+		/** Level 0 is display size, for one big line (a sale, a number). */
+		| { type: "heading"; html: string; level: 0 | 1 | 2 | 3; align: Align }
+		| { type: "text"; html: string; align: Align; size?: TextSize }
 		| {
 				type: "button";
 				label: string;
@@ -94,7 +118,9 @@ export const headingStack = (t: Theme) => faceStack(t.heading_face, t.heading_fo
 /** The @font-face rules of a theme's web fonts (empty without any). */
 export const fontFaceCss = (t: Theme) =>
 	[t.font_face, t.heading_face]
-		.filter((f, i, all): f is FontFace => !!f && all.findIndex((g) => g?.family === f.family) === i)
+		.filter(
+			(f, i, all): f is FontFace => !!f && all.findIndex((g) => g?.family === f.family) === i,
+		)
 		.map(
 			(f) =>
 				`@font-face{font-family:'${f.family}';src:url('${f.url}') format('${/\.woff(\?|$)/i.test(f.url) ? "woff" : "woff2"}');font-display:swap}`,
@@ -226,22 +252,27 @@ function leaf(raw: Record<string, unknown>): LeafBlock | null {
 				width: num(raw.width, 120, 24, 600),
 				align: align(raw.align, "center"),
 				href: safeUrl(raw.href),
+				shape: raw.shape === "rounded" || raw.shape === "circle" ? raw.shape : "original",
+				background: raw.background ? color(raw.background, "") || null : null,
 			};
 		case "heading":
 			return {
 				id,
 				type: "heading",
 				html: cleanRich(str(raw.html)),
-				level: raw.level === 2 ? 2 : raw.level === 3 ? 3 : 1,
+				level: raw.level === 0 ? 0 : raw.level === 2 ? 2 : raw.level === 3 ? 3 : 1,
 				align: align(raw.align),
 			};
-		case "text":
+		case "text": {
+			const size = raw.size === "lead" || raw.size === "small" ? raw.size : undefined;
 			return {
 				id,
 				type: "text",
 				html: cleanRich(str(raw.html, 100_000)),
 				align: align(raw.align),
+				...(size ? { size } : {}),
 			};
+		}
 		case "button":
 			return {
 				id,
@@ -310,6 +341,14 @@ function leaf(raw: Record<string, unknown>): LeafBlock | null {
 	}
 }
 
+/** A block of the email itself, with its band color if it has one. */
+function topBlock(raw: unknown): Block | null {
+	const b = block(raw);
+	if (!b) return null;
+	const bg = (raw as Record<string, unknown>).bg ? color((raw as { bg: unknown }).bg, "") : "";
+	return bg ? { ...b, bg } : b;
+}
+
 function block(raw: unknown): Block | null {
 	if (!raw || typeof raw !== "object") return null;
 	const r = raw as Record<string, unknown>;
@@ -336,7 +375,12 @@ function face(v: unknown): FontFace | null {
 	if (!v || typeof v !== "object") return null;
 	const f = v as Record<string, unknown>;
 	const family =
-		typeof f.family === "string" ? f.family.replace(/[^\p{L}\p{N} _-]/gu, "").trim().slice(0, 40) : "";
+		typeof f.family === "string"
+			? f.family
+					.replace(/[^\p{L}\p{N} _-]/gu, "")
+					.trim()
+					.slice(0, 40)
+			: "";
 	const url = typeof f.url === "string" && /^https?:\/\/[^\s"'()<>]+$/i.test(f.url) ? f.url : "";
 	return family && url ? { family, url } : null;
 }
@@ -367,7 +411,7 @@ export function parseDoc(raw: unknown): EmailDoc | null {
 	};
 	const blocks = (Array.isArray(r.blocks) ? r.blocks : [])
 		.slice(0, 200)
-		.map(block)
+		.map(topBlock)
 		.filter((x): x is Block => !!x);
 	return { version: 1, theme, blocks };
 }
@@ -401,28 +445,75 @@ function richHtml(html: string, t: Theme, o: { color: string; size: number; line
 	return `<div style="font-family:${font};font-size:${o.size}px;line-height:${o.line};color:${o.color};">${s || "&nbsp;"}</div>`;
 }
 
-const HEADING_SIZE = { 1: 30, 2: 24, 3: 19 } as const;
+export const HEADING_SIZE = { 0: 42, 1: 30, 2: 24, 3: 19 } as const;
+
+/** A text block's color, size and line height for its size. */
+export function textLook(size: TextSize | undefined, t: Theme) {
+	if (size === "lead") return { color: t.text, size: t.size + 3, line: 1.55 };
+	if (size === "small") return { color: mix(t.text, t.surface, 0.3), size: 13, line: 1.55 };
+	return { color: t.text, size: t.size, line: 1.65 };
+}
+
+/**
+ * A logo as inboxes show it well. "original": the image as it is. "rounded" and "circle" with a
+ * background: a square tile (or disc) of that color with the logo fitted inside, with room enough
+ * that nothing is ever cut off (a circle's inner square is ~71% of it). Without a background, the
+ * image itself gets the corners (made for square logos; the editor says so for others).
+ */
+export function logoHtml(b: Extract<LeafBlock, { type: "logo" }>, t: Theme, inner = t.width) {
+	if (!b.src) return "";
+	const w = Math.min(b.width, inner);
+	const wrap = (html: string) => {
+		const linked = b.href
+			? `<a href="${attr(b.href)}" style="text-decoration:none;">${html}</a>`
+			: html;
+		return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="${b.align}" style="text-align:${b.align};line-height:0;font-size:0;">${linked}</td></tr></table>`;
+	};
+	const alt = attr(b.alt);
+	if (b.shape === "original" && !b.background)
+		return wrap(
+			`<img src="${attr(b.src)}" alt="${alt}" width="${w}" style="display:inline-block;width:${w}px;max-width:100%;height:auto;border:0;">`,
+		);
+	if (!b.background) {
+		const r = b.shape === "circle" ? Math.ceil(w / 2) : Math.round(w * 0.22);
+		return wrap(
+			`<img src="${attr(b.src)}" alt="${alt}" width="${w}" height="${w}" style="display:inline-block;width:${w}px;height:${w}px;border:0;border-radius:${r}px;object-fit:cover;">`,
+		);
+	}
+	// On a tile: square for "original" and "rounded", a disc for "circle".
+	const pad = Math.round(w * (b.shape === "circle" ? 0.17 : 0.13));
+	const img = w - pad * 2;
+	const r =
+		b.shape === "circle"
+			? Math.ceil(w / 2)
+			: b.shape === "rounded"
+				? Math.round(w * 0.24)
+				: Math.round(w * 0.08);
+	return wrap(
+		`<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="display:inline-table;border-collapse:separate;"><tr><td width="${w}" height="${w}" align="center" valign="middle" bgcolor="${b.background}" style="width:${w}px;height:${w}px;padding:0;background:${b.background};border-radius:${r}px;text-align:center;vertical-align:middle;line-height:0;"><img src="${attr(b.src)}" alt="${alt}" width="${img}" style="display:inline-block;width:${img}px;max-width:${img}px;height:auto;max-height:${img}px;border:0;object-fit:contain;"></td></tr></table>`,
+	);
+}
 
 /** One block's inner HTML, without the room around it (shared by the editor's canvas). */
 export function blockInner(b: Block, t: Theme, inner = t.width - t.padding * 2): string {
 	const font = bodyStack(t);
 	const r = t.radius;
 	switch (b.type) {
-		case "logo": {
-			if (!b.src) return "";
-			const img = `<img src="${attr(b.src)}" alt="${attr(b.alt)}" width="${Math.min(b.width, inner)}" style="display:inline-block;width:${Math.min(b.width, inner)}px;max-width:100%;height:auto;border:0;">`;
-			return `<div style="text-align:${b.align};line-height:0;">${b.href ? `<a href="${attr(b.href)}">${img}</a>` : img}</div>`;
-		}
+		case "logo":
+			return logoHtml(b, t, inner);
 		case "heading": {
 			const size = HEADING_SIZE[b.level];
-			return `<h${b.level} style="margin:0;font-family:${headingStack(t)};font-size:${size}px;line-height:1.25;font-weight:${b.level === 3 ? 600 : 700};letter-spacing:${b.level === 1 ? "-0.02em" : "-0.01em"};color:${t.heading};text-align:${b.align};">${
+			const tag = `h${Math.max(1, b.level)}`;
+			return `<${tag} style="margin:0;font-family:${headingStack(t)};font-size:${size}px;line-height:${b.level === 0 ? 1.1 : 1.25};font-weight:${b.level === 3 ? 600 : 700};letter-spacing:${b.level <= 1 ? "-0.02em" : "-0.01em"};color:${t.heading};text-align:${b.align};">${
 				cleanRich(b.html)
 					.replace(/<\/?p>/g, (m) => (m === "</p>" ? "<br>" : ""))
 					.replace(/(<br>)+$/, "") || "&nbsp;"
-			}</h${b.level}>`;
+			}</${tag}>`;
 		}
-		case "text":
-			return `<div style="text-align:${b.align};">${richHtml(b.html, t, { color: t.text, size: t.size, line: 1.65 })}</div>`;
+		case "text": {
+			const o = textLook(b.size, t);
+			return `<div style="text-align:${b.align};">${richHtml(b.html, t, o)}</div>`;
+		}
 		case "quote":
 			return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-left:3px solid ${t.accent};padding:4px 0 4px 18px;">${richHtml(b.html, t, { color: t.heading, size: t.size + 2, line: 1.55 }).replace("font-family:", "font-style:italic;font-family:")}</td></tr></table>`;
 		case "button": {
@@ -499,7 +590,7 @@ export function blockInner(b: Block, t: Theme, inner = t.width - t.padding * 2):
 export function gapAbove(b: Block) {
 	switch (b.type) {
 		case "heading":
-			return b.level === 1 ? 28 : 24;
+			return b.level <= 1 ? 28 : 24;
 		case "spacer":
 			return 0;
 		case "divider":
@@ -530,6 +621,57 @@ export function mix(a: string, b: string, k: number) {
 		.join("")}`;
 }
 
+/** Contrast ratio of two colors (1 to 21). */
+export function contrast(a: string, b: string) {
+	const lum = (hex: string) => {
+		const n = Number.parseInt(hex.slice(1), 16);
+		const [r, g, bl] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => {
+			const s = c / 255;
+			return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+		}) as [number, number, number];
+		return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+	};
+	const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p) as [number, number];
+	return (x + 0.05) / (y + 0.05);
+}
+
+/**
+ * The theme blocks on a band of color use: its color as the surface, and on a dark band light
+ * text, with buttons and links that still stand out against it.
+ */
+export function bandTheme(t: Theme, bg: string | null | undefined): Theme {
+	if (!bg || bg === t.surface) return t;
+	const dark = onColor(bg) === "#ffffff";
+	const surfaceDark = onColor(t.surface) === "#ffffff";
+	const out: Theme = { ...t, surface: bg };
+	if (dark !== surfaceDark) {
+		out.heading = dark ? "#ffffff" : "#18181b";
+		out.text = dark ? mix("#ffffff", bg, 0.22) : "#3f3f46";
+	}
+	if (contrast(t.accent, bg) < 2.2) {
+		out.accent = dark ? "#ffffff" : "#18181b";
+		out.button_text = dark ? (contrast(bg, "#ffffff") > 3 ? bg : "#18181b") : "#ffffff";
+	}
+	return out;
+}
+
+/** Where each of the email's own blocks sits: room above and below it, and its band. */
+export function layoutOf(blocks: Block[], t: Theme) {
+	const band = Math.max(32, Math.round(t.padding * 0.9));
+	const bgOf = (b: Block | undefined) => (b?.bg && b.bg !== t.surface ? b.bg : null);
+	return blocks.map((b, i) => {
+		const bg = bgOf(b);
+		const prev = i > 0 ? bgOf(blocks[i - 1]) : undefined;
+		const next = i < blocks.length - 1 ? bgOf(blocks[i + 1]) : undefined;
+		const first = i === 0;
+		const last = i === blocks.length - 1;
+		// Where the color changes, each side gets room of its own.
+		const top = first ? t.padding : prev !== bg ? (bg ? band : 32) : gapAbove(b);
+		const bottom = last ? t.padding : next !== bg ? (bg ? band : 32) : 0;
+		return { top, bottom, bg, first, last };
+	});
+}
+
 /** The whole email. */
 export function renderEmail(doc: EmailDoc, o: { title?: string } = {}) {
 	const t = doc.theme;
@@ -537,14 +679,17 @@ export function renderEmail(doc: EmailDoc, o: { title?: string } = {}) {
 		.map((k) => (FONTS[k] as { google?: string }).google)
 		.filter(Boolean);
 	const faces = fontFaceCss(t);
+	const layout = layoutOf(doc.blocks, t);
 	const rows = doc.blocks
 		.map((b, i) => {
-			const first = i === 0;
-			const last = i === doc.blocks.length - 1;
-			const top = first ? t.padding : gapAbove(b);
-			const bottom = last ? t.padding : 0;
-			const footer = b.type === "footer";
-			return `<tr><td class="mr-pad" style="padding:${top}px ${t.padding}px ${bottom}px;${footer ? "" : ""}">${blockInner(b, t)}</td></tr>`;
+			const l = layout[i] as (typeof layout)[number];
+			const r = t.radius;
+			const corners = l.bg
+				? `border-radius:${l.first ? r : 0}px ${l.first ? r : 0}px ${l.last ? r : 0}px ${l.last ? r : 0}px;`
+				: "";
+			const band = l.bg ? ` bgcolor="${l.bg}"` : "";
+			const bandCss = l.bg ? `background:${l.bg};${corners}` : "";
+			return `<tr><td class="mr-pad${l.bg ? " mr-band" : ""}"${band} style="padding:${l.top}px ${t.padding}px ${l.bottom}px;${bandCss}">${blockInner(b, bandTheme(t, l.bg))}</td></tr>`;
 		})
 		.join("\n");
 	return `<!doctype html>
@@ -567,6 +712,7 @@ h1,h2,h3{margin:0}
 @media (max-width:${t.width + 20}px){
 .mr-outer{padding:0!important}
 .mr-box{border-radius:0!important}
+.mr-band{border-radius:0!important}
 .mr-pad{padding-left:24px!important;padding-right:24px!important}
 .mr-col{display:block!important;width:100%!important}
 .mr-col+.mr-gap{display:block!important;width:100%!important;height:20px!important}
@@ -585,163 +731,6 @@ ${rows}
 </html>`;
 }
 
-/** Emails to start from. */
-export function starter(
-	kind: "newsletter" | "announcement" | "letter" | "blank",
-	o: { logo?: string | null; name?: string } = {},
-): EmailDoc {
-	const id = rid;
-	const logo: LeafBlock[] = o.logo
-		? [
-				{
-					id: id(),
-					type: "logo",
-					src: o.logo,
-					alt: o.name ?? "",
-					width: 120,
-					align: "center",
-					href: "",
-				},
-			]
-		: [];
-	const footer: LeafBlock = {
-		id: id(),
-		type: "footer",
-		html: `<p>You're getting this because you subscribed to ${esc(o.name ?? "our")} news.</p>`,
-		unsubscribe: "Unsubscribe",
-	};
-	const theme = { ...DEFAULT_THEME };
-	if (kind === "blank")
-		return {
-			version: 1,
-			theme,
-			blocks: [{ id: id(), type: "text", html: "", align: "left" }, footer],
-		};
-	if (kind === "letter")
-		return {
-			version: 1,
-			theme: {
-				...theme,
-				background: "#ffffff",
-				radius: 0,
-				font: "georgia",
-				heading_font: "georgia",
-				text: "#27272a",
-				size: 17,
-			},
-			blocks: [
-				...logo.map((l) => ({ ...l, align: "left" as const, width: 96 })),
-				{
-					id: id(),
-					type: "text",
-					html: "<p>Hi {{{FIRST_NAME|there}}},</p><p>Write to your readers the way you'd write to a friend. Short paragraphs read best on a phone.</p><p>Thanks for reading,<br>The team</p>",
-					align: "left",
-				},
-				{ ...footer, html: "" },
-			],
-		};
-	if (kind === "announcement")
-		return {
-			version: 1,
-			theme: { ...theme, background: "#eef2ff", accent: "#4f46e5", heading: "#1e1b4b" },
-			blocks: [
-				...logo,
-				{
-					id: id(),
-					type: "image",
-					src: "",
-					alt: "",
-					href: "",
-					width: 100,
-					align: "center",
-				},
-				{
-					id: id(),
-					type: "heading",
-					html: "Introducing something new",
-					level: 1,
-					align: "center",
-				},
-				{
-					id: id(),
-					type: "text",
-					html: "<p>One or two sentences on what it is and why your readers will care. Keep it short; the button does the rest.</p>",
-					align: "center",
-				},
-				{
-					id: id(),
-					type: "button",
-					label: "Take a look",
-					url: "",
-					align: "center",
-					full: false,
-					color: null,
-				},
-				{ id: id(), type: "divider" },
-				footer,
-			],
-		};
-	return {
-		version: 1,
-		theme,
-		blocks: [
-			...logo,
-			{ id: id(), type: "heading", html: "This month's news", level: 1, align: "left" },
-			{
-				id: id(),
-				type: "text",
-				html: "<p>Hi {{{FIRST_NAME|there}}}, here's what happened this month.</p>",
-				align: "left",
-			},
-			{ id: id(), type: "image", src: "", alt: "", href: "", width: 100, align: "center" },
-			{ id: id(), type: "heading", html: "The main story", level: 2, align: "left" },
-			{
-				id: id(),
-				type: "text",
-				html: "<p>Tell the story in a few short paragraphs, and link to the rest.</p>",
-				align: "left",
-			},
-			{
-				id: id(),
-				type: "button",
-				label: "Read more",
-				url: "",
-				align: "left",
-				full: false,
-				color: null,
-			},
-			{ id: id(), type: "divider" },
-			{
-				id: id(),
-				type: "columns",
-				ratio: "1-1",
-				columns: [
-					[
-						{ id: id(), type: "heading", html: "Also new", level: 3, align: "left" },
-						{
-							id: id(),
-							type: "text",
-							html: "<p>A shorter item, with a link.</p>",
-							align: "left",
-						},
-					],
-					[
-						{ id: id(), type: "heading", html: "Coming up", level: 3, align: "left" },
-						{
-							id: id(),
-							type: "text",
-							html: "<p>What's next, and when.</p>",
-							align: "left",
-						},
-					],
-				],
-			},
-			{ id: id(), type: "divider" },
-			footer,
-		],
-	};
-}
-
 /** A new block of a kind, as the editor adds it. */
 export function newBlock(type: BlockType, o: { logo?: string | null; name?: string } = {}): Block {
 	const id = rid();
@@ -752,9 +741,11 @@ export function newBlock(type: BlockType, o: { logo?: string | null; name?: stri
 				type,
 				src: o.logo ?? "",
 				alt: o.name ?? "",
-				width: 120,
+				width: 56,
 				align: "center",
 				href: "",
+				shape: "original",
+				background: null,
 			};
 		case "heading":
 			return { id, type, html: "A heading", level: 2, align: "left" };

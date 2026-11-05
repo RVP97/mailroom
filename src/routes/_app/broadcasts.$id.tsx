@@ -37,13 +37,13 @@ import {
 	useComments,
 } from "@/components/collab";
 import { Confirm } from "@/components/confirm";
-import { DateTimePicker } from "@/components/date-picker";
-import { ClientSelect, InboxNotes } from "@/components/inbox-notes";
 import { ContentChecks } from "@/components/content-checks";
 import { useCopy } from "@/components/copy";
+import { DateTimePicker } from "@/components/date-picker";
 import { Choice, Labeled, SwitchRow } from "@/components/design-controls";
 import { EmailBuilder } from "@/components/email-builder";
 import { EmailContent } from "@/components/email-content";
+import { ClientSelect, InboxNotes } from "@/components/inbox-notes";
 import { ListSelect } from "@/components/list-dialogs";
 import { Page } from "@/components/page";
 import { Fact, Facts, IdChip, RecordHeader } from "@/components/record";
@@ -89,15 +89,15 @@ import {
 	sendBroadcastFn,
 	sendBroadcastTestFn,
 } from "@/functions/broadcasts";
+import { kitTheme } from "@/lib/brand-kit";
 import { checkContent } from "@/lib/content-check";
 import { type EmailDoc, renderEmail } from "@/lib/email-doc";
 import { errorMessage } from "@/lib/errors";
 import { formatDateTime, formatRelative } from "@/lib/format";
+import { CLIENTS, type InboxClient, simulate } from "@/lib/inbox-preview";
 import { useMe } from "@/lib/me";
 import { contactGroups, SAMPLE_VALUES, sampleFill, type VariableGroup } from "@/lib/merge-tags";
 import { emailThemeOf } from "@/lib/newsletter-look";
-import { kitTheme } from "@/lib/brand-kit";
-import { CLIENTS, type InboxClient, simulate } from "@/lib/inbox-preview";
 import { allows } from "@/lib/permissions";
 import { ago, listedRow, Ph, Sketch, usePage } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
@@ -170,7 +170,7 @@ function BroadcastSketch() {
 					updated_by: null,
 					kit: null,
 					brand: null,
-					look: { logo: null, name: "" },
+					look: { logo: null, logoBackground: null, name: "" },
 					variants: [],
 					newsletters: [],
 					campaigns: [],
@@ -1011,12 +1011,9 @@ function Editor({
 	);
 	// An issue starts in its newsletter's color, fonts and logo.
 	const nl = data.newsletters.find((x) => x.id === form.newsletter_id) ?? null;
-	// Otherwise in the brand kit's.
-	const issueTheme = nl
-		? emailThemeOf(nl.look, nl.accent)
-		: data.kit
-			? kitTheme(data.kit)
-			: undefined;
+	// The brand kit's look is offered over each design's own ("Brand colors").
+	const issueTheme = nl ? emailThemeOf(nl.look, nl.accent) : undefined;
+	const kitLook = data.kit ? kitTheme(data.kit) : null;
 	const issueLook =
 		nl && nl.look.logo !== "brand"
 			? {
@@ -1218,6 +1215,8 @@ function Editor({
 				set={(k, v) => set(k, v as never)}
 				look={issueLook ?? data.look}
 				theme={issueTheme}
+				kit={kitLook}
+				kind={nl ? "newsletter" : "broadcast"}
 				onBuild={onBuild}
 				extra={
 					data.templates.length > 0 && (

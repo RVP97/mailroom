@@ -432,4 +432,23 @@ describe("MCP coverage", () => {
 		);
 		expect((await call("delete_saved_reply", { id: saved.id })).deleted).toBe(true);
 	});
+
+	it("starts broadcasts and templates from a ready-made design", async () => {
+		fakeOutside();
+		const org = await seedOrg();
+		const owner = await seedUser(org.id, "owner");
+		const { call } = await connect(owner.userId, owner.email);
+		const { designs } = await call("list_starter_designs");
+		expect(designs.length).toBeGreaterThan(20);
+		expect(designs.map((d: { id: string }) => d.id)).toContain("receipt");
+		const b = await call("save_broadcast", { name: "Weekend", starter: "sale" });
+		expect(b.failed).toBeUndefined();
+		expect(b.html).toMatch(/30% off everything/);
+		expect(b.html).toMatch(/\/templates\/product-bottle\.jpg/);
+		const t = await call("save_template", { name: "Receipt", starter: "receipt" });
+		expect(t.failed).toBeUndefined();
+		expect(
+			(await call("save_broadcast", { name: "x", starter: "nothing-like-it" })).failed,
+		).toMatch(/list_starter_designs/);
+	});
 });

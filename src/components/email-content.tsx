@@ -1,7 +1,8 @@
 import { Code2, MoreHorizontal, Paintbrush } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Confirm } from "@/components/confirm";
-import { StarterPicker, Thumb } from "@/components/email-builder";
+import { Thumb } from "@/components/email-builder";
+import { type GalleryFor, TemplatePicker } from "@/components/template-gallery";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -31,11 +32,17 @@ export function EmailContent({
 	extra,
 	footer,
 	theme,
+	kit,
+	kind,
 }: Fields & {
 	set: <K extends keyof Fields>(k: K, v: Fields[K]) => void;
-	look: { logo: string | null; name: string };
+	look: { logo: string | null; name: string; logoBackground?: string | null };
 	/** Colors and fonts the starting points take (a newsletter's). */
 	theme?: Partial<Theme>;
+	/** The brand kit's look, which the designs can take. */
+	kit?: Partial<Theme> | null;
+	/** What the email is: which designs show first. */
+	kind?: GalleryFor;
 	onBuild: () => void;
 	/** Beside the tabs (a template picker). */
 	extra?: ReactNode;
@@ -55,14 +62,16 @@ export function EmailContent({
 					<div>
 						<h2 className="font-semibold">Design the email</h2>
 						<p className="mt-1 text-sm text-muted-foreground">
-							Pick a starting point, then drag in blocks and write in place.
+							Pick a design, then make it yours: drag in blocks and write in place.
 						</p>
 					</div>
 					{extra}
 				</div>
-				<StarterPicker
+				<TemplatePicker
 					brand={look}
 					theme={theme}
+					kit={kit}
+					for={kind}
 					onPick={(d) => {
 						set("design", d);
 						onBuild();

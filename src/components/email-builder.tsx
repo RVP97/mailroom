@@ -83,26 +83,31 @@ import {
 	type Align,
 	type Block,
 	type BlockType,
+	bandTheme,
 	blockInner,
+	bodyStack,
 	type ColumnsBlock,
 	cloneBlock,
-	bodyStack,
 	type EmailDoc,
 	FONTS,
 	type FontKey,
 	fontFaceCss,
 	gapAbove,
+	HEADING_SIZE,
 	headingStack,
 	type LeafBlock,
+	type LogoShape,
+	layoutOf,
 	MERGE_TAGS,
 	mix,
 	newBlock,
 	onColor,
 	renderEmail,
-	starter,
 	type Theme,
+	textLook,
 } from "@/lib/email-doc";
 import { errorMessage } from "@/lib/errors";
+import { useMe } from "@/lib/me";
 import {
 	CHIP,
 	chipsHtml,
@@ -113,7 +118,6 @@ import {
 	type Variable,
 	type VariableGroup,
 } from "@/lib/merge-tags";
-import { useMe } from "@/lib/me";
 import { allows } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
@@ -650,6 +654,7 @@ function Canvas({ subject, previewText }: { subject?: string; previewText?: stri
 	const { doc, phone, drop, setDrop, onDrop, brand, variables } = useB();
 	const t = doc.theme;
 	const pad = phone ? 24 : t.padding;
+	const layout = layoutOf(doc.blocks, { ...t, padding: pad });
 	const googleFonts = [...new Set([t.font, t.heading_font])]
 		.map((k) => (FONTS[k] as { google?: string }).google)
 		.filter(Boolean);
@@ -727,17 +732,32 @@ function Canvas({ subject, previewText }: { subject?: string; previewText?: stri
 					boxShadow: "0 1px 2px rgba(0,0,0,.04), 0 12px 32px -12px rgba(0,0,0,.12)",
 				}}
 			>
-				<div style={{ height: pad }} />
-				{doc.blocks.map((b, i) => (
-					<BlockShell
-						key={b.id}
-						block={b}
-						spot={{ parent: null, index: i }}
-						gap={i === 0 ? 0 : gapAbove(b)}
-						pad={pad}
-						inner={(phone ? 390 : t.width) - pad * 2}
-					/>
-				))}
+				{doc.blocks.length === 0 && <div style={{ height: pad }} />}
+				{doc.blocks.map((b, i) => {
+					const l = layout[i] as (typeof layout)[number];
+					const r = phone ? 0 : t.radius;
+					return (
+						<BlockShell
+							key={b.id}
+							block={b}
+							spot={{ parent: null, index: i }}
+							gap={l.first ? pad : l.top}
+							// The end of the email has its own room below (a place to drop).
+							bottom={l.last && !l.bg ? 0 : l.bottom}
+							pad={pad}
+							inner={(phone ? 390 : t.width) - pad * 2}
+							theme={l.bg ? bandTheme(t, l.bg) : undefined}
+							band={
+								l.bg
+									? {
+											bg: l.bg,
+											radius: `${l.first ? r : 0}px ${l.first ? r : 0}px ${l.last ? r : 0}px ${l.last ? r : 0}px`,
+										}
+									: null
+							}
+						/>
+					);
+				})}
 				{/* The end of the email, a place to drop. */}
 				<div
 					onDragOver={(e) => {
@@ -745,7 +765,10 @@ function Canvas({ subject, previewText }: { subject?: string; previewText?: stri
 						setDrop({ parent: null, index: doc.blocks.length });
 					}}
 					onDrop={(e) => onDrop(e, { parent: null, index: doc.blocks.length })}
-					style={{ padding: `0 ${pad}px`, minHeight: doc.blocks.length ? pad : 160 }}
+					style={{
+						padding: `0 ${pad}px`,
+						minHeight: doc.blocks.length ? (layout.at(-1)?.bg ? 12 : pad) : 160,
+					}}
 					className="relative flex items-center justify-center"
 				>
 					{drop?.parent === null && drop.index === doc.blocks.length && <DropLine />}
@@ -826,6 +849,9 @@ function BlockShell({
 	pad,
 	inner,
 	nested,
+	theme,
+	bottom = 0,
+	band,
 }: {
 	block: Block;
 	spot: Spot;
@@ -833,6 +859,12 @@ function BlockShell({
 	pad: number;
 	inner: number;
 	nested?: boolean;
+	/** The theme its band makes (light text on a dark band). */
+	theme?: Theme;
+	/** Room below it (where a band ends). */
+	bottom?: number;
+	/** Its band's color and corners. */
+	band?: { bg: string; radius: string } | null;
 }) {
 	const { selected, select, drop, setDrop, onDrop, setBlocks, onComment, saveSection } = useB();
 	const on = selected === block.id;
@@ -852,7 +884,11 @@ function BlockShell({
 		});
 	return (
 		<div
-			style={{ paddingTop: gap }}
+			style={{
+				paddingTop: gap,
+				paddingBottom: bottom,
+				...(band ? { background: band.bg, borderRadius: band.radius } : {}),
+			}}
 			data-block={block.id}
 			className={cn("relative", dragging && "opacity-40")}
 			onDragOver={(e) => {
@@ -988,6 +1024,7 @@ function BlockShell({
 				<BlockBody
 					block={block}
 					inner={inner}
+					theme={theme}
 				/>
 			</div>
 			{before && <DropLine top />}
@@ -1082,13 +1119,13 @@ function HtmlBlockPreview({ html, theme: t }: { html: string; theme: Theme }) {
 	);
 }
 
-function BlockBody({ block: b, inner }: { block: Block; inner: number }) {
+function BlockBody({ block: b, inner, theme }: { block: Block; inner: number; theme?: Theme }) {
 	const { doc, patch, phone } = useB();
-	const t = doc.theme;
+	const t = theme ?? doc.theme;
 	if (b.type === "text" || b.type === "quote" || b.type === "footer" || b.type === "heading") {
 		const muted = mix(t.text, t.surface, 0.62);
 		if (b.type === "heading") {
-			const size = { 1: 30, 2: 24, 3: 19 }[b.level];
+			const size = HEADING_SIZE[b.level];
 			return (
 				<Rich
 					id={b.id}
@@ -1099,9 +1136,9 @@ function BlockBody({ block: b, inner }: { block: Block; inner: number }) {
 					style={{
 						fontFamily: headingStack(t),
 						fontSize: size,
-						lineHeight: 1.25,
+						lineHeight: b.level === 0 ? 1.1 : 1.25,
 						fontWeight: b.level === 3 ? 600 : 700,
-						letterSpacing: b.level === 1 ? "-0.02em" : "-0.01em",
+						letterSpacing: b.level <= 1 ? "-0.02em" : "-0.01em",
 						color: t.heading,
 						textAlign: b.align,
 					}}
@@ -1156,13 +1193,16 @@ function BlockBody({ block: b, inner }: { block: Block; inner: number }) {
 				html={b.html}
 				placeholder="Write something…"
 				onChange={(html) => patch(b.id, { html })}
-				style={{
-					fontFamily: bodyStack(t),
-					fontSize: t.size,
-					lineHeight: 1.65,
-					color: t.text,
-					textAlign: b.align,
-				}}
+				style={(() => {
+					const o = textLook(b.size, t);
+					return {
+						fontFamily: bodyStack(t),
+						fontSize: o.size,
+						lineHeight: o.line,
+						color: o.color,
+						textAlign: b.align,
+					};
+				})()}
 			/>
 		);
 	}
@@ -1172,6 +1212,7 @@ function BlockBody({ block: b, inner }: { block: Block; inner: number }) {
 				block={b}
 				inner={inner}
 				phone={phone}
+				theme={t}
 			/>
 		);
 	if (b.type === "logo" && !b.src)
@@ -1203,10 +1244,12 @@ function ColumnsBody({
 	block,
 	inner,
 	phone,
+	theme,
 }: {
 	block: ColumnsBlock;
 	inner: number;
 	phone: boolean;
+	theme: Theme;
 }) {
 	const { drop, setDrop, onDrop, doc } = useB();
 	const [a] = block.ratio === "1-2" ? [33] : block.ratio === "2-1" ? [67] : [50];
@@ -1255,6 +1298,7 @@ function ColumnsBody({
 								pad={0}
 								inner={widths[col] as number}
 								nested
+								theme={theme}
 							/>
 						))}
 					</div>
@@ -1622,18 +1666,21 @@ export function ImagePick({
 	value,
 	onChange,
 	aspect = "aspect-[16/9]",
+	trim,
 }: {
 	value: string;
 	onChange: (url: string) => void;
 	/** The drop zone's shape. */
 	aspect?: string;
+	/** Cut away empty margins first (logos), so the logo itself fills the size it's given. */
+	trim?: boolean;
 }) {
 	const [busy, setBusy] = useState(false);
 	const file = useRef<HTMLInputElement>(null);
 	const upload = async (f: File) => {
 		setBusy(true);
 		try {
-			const data = await shrink(f);
+			const data = (trim && (await trimmed(f))) || (await shrink(f));
 			const { url } = await uploadMediaFn({ data: { data } });
 			onChange(url);
 		} catch (error) {
@@ -1713,6 +1760,59 @@ export function ImagePick({
 	);
 }
 
+/**
+ * A logo with its empty margins cut away (transparent, or the color of its corners), at most
+ * 800 px on its long side, as a PNG data: URL; null when there's nothing to cut (or it's a GIF).
+ */
+async function trimmed(f: File): Promise<string | null> {
+	if (f.type === "image/gif") return null;
+	const bitmap = await createImageBitmap(f);
+	const { width: w, height: h } = bitmap;
+	const c = document.createElement("canvas");
+	c.width = w;
+	c.height = h;
+	const ctx = c.getContext("2d");
+	if (!ctx) return null;
+	ctx.drawImage(bitmap, 0, 0);
+	const px = ctx.getImageData(0, 0, w, h).data;
+	const at = (x: number, y: number) => (y * w + x) * 4;
+	const corner = at(0, 0);
+	const [r0, g0, b0, a0] = [0, 1, 2, 3].map((k) => px[corner + k] ?? 0) as [
+		number,
+		number,
+		number,
+		number,
+	];
+	const empty = (i: number) =>
+		(px[i + 3] as number) < 12 ||
+		(a0 > 240 &&
+			Math.abs((px[i] as number) - r0) < 10 &&
+			Math.abs((px[i + 1] as number) - g0) < 10 &&
+			Math.abs((px[i + 2] as number) - b0) < 10);
+	let [x0, y0, x1, y1] = [w, h, -1, -1];
+	for (let y = 0; y < h; y++)
+		for (let x = 0; x < w; x++)
+			if (!empty(at(x, y))) {
+				if (x < x0) x0 = x;
+				if (x > x1) x1 = x;
+				if (y < y0) y0 = y;
+				if (y > y1) y1 = y;
+			}
+	if (x1 < 0) return null;
+	const [cw, ch] = [x1 - x0 + 1, y1 - y0 + 1];
+	// Nothing worth cutting: keep the file as it is.
+	if (cw > w * 0.96 && ch > h * 0.96) return null;
+	const scale = Math.min(1, 800 / Math.max(cw, ch));
+	const out = document.createElement("canvas");
+	out.width = Math.max(1, Math.round(cw * scale));
+	out.height = Math.max(1, Math.round(ch * scale));
+	const o = out.getContext("2d");
+	if (!o) return null;
+	o.imageSmoothingQuality = "high";
+	o.drawImage(c, x0, y0, cw, ch, 0, 0, out.width, out.height);
+	return out.toDataURL("image/png");
+}
+
 /** An image, at most 1200 px wide (twice the email's width) unless it's a GIF, as a data: URL. */
 async function shrink(f: File): Promise<string> {
 	const read = (b: Blob) =>
@@ -1735,7 +1835,7 @@ async function shrink(f: File): Promise<string> {
 }
 
 function BlockPanel({ block: b }: { block: Block }) {
-	const { patch, select, kit } = useB();
+	const { patch, select, kit, doc } = useB();
 	const set = (p: Record<string, unknown>) => patch(b.id, p as Partial<Block>);
 	const head = (
 		<PanelHead
@@ -1761,9 +1861,10 @@ function BlockPanel({ block: b }: { block: Block }) {
 				<Group title="Settings">
 					<Labeled label="Size">
 						<Choice
-							value={String(b.level) as "1" | "2" | "3"}
+							value={String(b.level) as "0" | "1" | "2" | "3"}
 							onChange={(v) => set({ level: Number(v) })}
 							options={[
+								["0", "Huge"],
 								["1", "Large"],
 								["2", "Medium"],
 								["3", "Small"],
@@ -1780,6 +1881,17 @@ function BlockPanel({ block: b }: { block: Block }) {
 		case "text":
 			body = (
 				<Group title="Settings">
+					<Labeled label="Size">
+						<Choice
+							value={b.size ?? "body"}
+							onChange={(v) => set({ size: v === "body" ? undefined : v })}
+							options={[
+								["lead", "Large"],
+								["body", "Normal"],
+								["small", "Small"],
+							]}
+						/>
+					</Labeled>
 					<AlignPick
 						value={b.align}
 						onChange={(align) => set({ align })}
@@ -1838,7 +1950,14 @@ function BlockPanel({ block: b }: { block: Block }) {
 					<ImagePick
 						value={b.src}
 						onChange={(src) => set({ src })}
+						trim={b.type === "logo"}
 					/>
+					{b.type === "logo" && (
+						<LogoLook
+							block={b}
+							set={set}
+						/>
+					)}
 					<Field2 label="Description (for screen readers and blocked images)">
 						<Input
 							value={b.alt}
@@ -1865,10 +1984,10 @@ function BlockPanel({ block: b }: { block: Block }) {
 						/>
 					) : (
 						<Slider
-							label="Width"
+							label="Size"
 							value={b.width}
-							min={40}
-							max={320}
+							min={24}
+							max={240}
 							step={4}
 							onChange={(width) => set({ width })}
 						/>
@@ -2079,11 +2198,119 @@ function BlockPanel({ block: b }: { block: Block }) {
 		default:
 			body = null;
 	}
+	const top = doc.blocks.some((x) => x.id === b.id);
 	return (
 		<>
 			{head}
 			{body}
+			{top && (
+				<Group title="Band">
+					<SwitchRow
+						label="Color behind it"
+						hint="Edge to edge. Blocks next to each other with the same color make one band."
+						checked={!!b.bg}
+						onChange={(on) =>
+							set({ bg: on ? mix(doc.theme.accent, "#ffffff", 0.9) : null })
+						}
+					/>
+					{b.bg && (
+						<ColorField
+							label="Color"
+							value={b.bg}
+							onChange={(bg) => set({ bg })}
+							swatches={kit ? kitSwatches(kit) : undefined}
+							locked={!!kit?.locked}
+						/>
+					)}
+				</Group>
+			)}
 			{back}
+		</>
+	);
+}
+
+/** How a logo shows: its shape, a color behind it, and a warning when a shape would crop it. */
+function LogoLook({
+	block: b,
+	set,
+}: {
+	block: Extract<LeafBlock, { type: "logo" }>;
+	set: (p: Record<string, unknown>) => void;
+}) {
+	const { kit } = useB();
+	const [ratio, setRatio] = useState<number | null>(null);
+	useEffect(() => {
+		setRatio(null);
+		if (!b.src) return;
+		const img = new Image();
+		img.onload = () => img.naturalHeight && setRatio(img.naturalWidth / img.naturalHeight);
+		img.src = b.src;
+	}, [b.src]);
+	const behind = !b.background ? "none" : b.background === "#ffffff" ? "white" : "color";
+	const wide = ratio !== null && (ratio > 1.15 || ratio < 0.87);
+	return (
+		<>
+			<Labeled label="Shape">
+				<Choice<LogoShape>
+					value={b.shape}
+					// A wide logo cut to a shape loses its ends: it goes on white instead.
+					onChange={(shape) =>
+						set(
+							wide && shape !== "original" && !b.background
+								? { shape, background: "#ffffff" }
+								: { shape },
+						)
+					}
+					options={[
+						["original", "As is"],
+						["rounded", "Rounded"],
+						["circle", "Circle"],
+					]}
+				/>
+			</Labeled>
+			<Labeled label="Behind it">
+				<Choice
+					value={behind}
+					onChange={(v) =>
+						set({
+							background:
+								v === "none"
+									? null
+									: v === "white"
+										? "#ffffff"
+										: (kit?.accent ?? "#18181b"),
+						})
+					}
+					options={[
+						["none", "Nothing"],
+						["white", "White"],
+						["color", "Color"],
+					]}
+				/>
+			</Labeled>
+			{behind === "color" && b.background && (
+				<ColorField
+					label="Color behind the logo"
+					value={b.background}
+					onChange={(background) => set({ background })}
+					swatches={kit ? kitSwatches(kit) : undefined}
+				/>
+			)}
+			{wide && b.shape !== "original" && !b.background && (
+				<div className="flex flex-col gap-2 rounded-lg bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-900 dark:text-amber-200">
+					This logo isn't square, so a{" "}
+					{b.shape === "circle" ? "circle" : "rounded square"} would cut it off. Put a
+					color behind it and it fits inside instead.
+					<Button
+						variant="outline"
+						size="sm"
+						className="self-start"
+						onClick={() => set({ background: "#ffffff" })}
+					>
+						Fit it on white
+					</Button>
+				</div>
+			)}
 		</>
 	);
 }
@@ -2525,58 +2752,6 @@ function SaveSectionDialog({
 				</form>
 			</DialogContent>
 		</Dialog>
-	);
-}
-
-// ── Starting points ─────────────────────────────────────────────────────────
-
-const STARTERS = [
-	{ kind: "newsletter", name: "Newsletter", hint: "Stories, an image and two columns" },
-	{ kind: "announcement", name: "Announcement", hint: "One big message and a button" },
-	{ kind: "letter", name: "Plain letter", hint: "Reads like a personal email" },
-	{ kind: "blank", name: "Blank", hint: "Start from nothing" },
-] as const;
-
-/** Picks how a new design starts, each shown as a small live email. */
-export function StarterPicker({
-	brand,
-	theme,
-	onPick,
-}: {
-	brand: Brand;
-	/** Colors and fonts over each starting point's own (a newsletter's). */
-	theme?: Partial<Theme>;
-	onPick: (d: EmailDoc) => void;
-}) {
-	const key = JSON.stringify(theme ?? {});
-	// biome-ignore lint/correctness/useExhaustiveDependencies: key stands for theme
-	const docs = useMemo(
-		() =>
-			STARTERS.map((s) => {
-				const doc = starter(s.kind, brand);
-				return { ...s, doc: theme ? { ...doc, theme: { ...doc.theme, ...theme } } : doc };
-			}),
-		[brand, key],
-	);
-	return (
-		<div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-			{docs.map((s) => (
-				<button
-					key={s.kind}
-					type="button"
-					onClick={() => onPick(s.doc)}
-					className="group flex flex-col gap-2.5 text-left"
-				>
-					<span className="relative block aspect-[3/4] w-full overflow-hidden rounded-xl bg-muted shadow-[0_0_0_1px_var(--border)] transition-all group-hover:-translate-y-0.5 group-hover:shadow-[0_0_0_1px_var(--border),0_12px_24px_-12px_var(--shadow-color-strong)]">
-						<Thumb doc={s.doc} />
-					</span>
-					<span>
-						<span className="block text-sm font-medium">{s.name}</span>
-						<span className="block text-xs text-muted-foreground">{s.hint}</span>
-					</span>
-				</button>
-			))}
-		</div>
 	);
 }
 

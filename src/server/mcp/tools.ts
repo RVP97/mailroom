@@ -2,6 +2,7 @@ import { desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { checkContent } from "../../lib/content-check";
 import { EMAIL_FILTERS } from "../../lib/email-status";
+import type { LogoChoice } from "../../lib/email-templates";
 import type { Access, Permission } from "../../lib/permissions";
 import { maskDigits } from "../../lib/roles";
 import { accessColumns, accessFromRow, roleJoin } from "../access";
@@ -102,6 +103,7 @@ import {
 } from "../queries";
 import { approvalRequired, contentHash } from "../reviews";
 import { brandForSend, createEmails, parseSend, storedContent } from "../send";
+import { starterFor, starterList } from "../starter-designs";
 import { addSuppression, removeSuppression } from "../suppressions";
 import {
 	applyTemplate,
@@ -243,6 +245,24 @@ function orgFor(ctx: McpContext, ref: unknown, need: "member" | "manage" | "supp
 }
 
 const events = z.array(z.enum(WEBHOOK_EVENTS)).optional();
+
+/** Starting an email's design from one of Mailroom's ready-made designs. */
+const STARTER_INPUT = {
+	starter: z
+		.string()
+		.optional()
+		.describe(
+			"A ready-made design's id (list_starter_designs), made for the brand: its logo, name and brand kit. Replaces `design`; change its words with a later save.",
+		),
+	starter_logo: z
+		.enum(["off", "original", "rounded", "circle"])
+		.optional()
+		.describe("How the starter shows the brand's logo (default original: as it is)."),
+	brand_colors: z
+		.boolean()
+		.optional()
+		.describe("false: keep the starter's own colors instead of the brand kit's."),
+};
 
 export const TOOLS: Tool[] = [
 	{
@@ -1352,6 +1372,15 @@ export const TOOLS: Tool[] = [
 		},
 	},
 	{
+		name: "list_starter_designs",
+		title: "List ready-made designs",
+		description:
+			"Mailroom's ready-made email designs (newsletters, announcements, promotions, events, welcome, feedback, transactional, plain), the same the dashboard offers. Start a broadcast or template from one with `starter` on save_broadcast or save_template.",
+		input: {},
+		readOnly: true,
+		run: async () => ({ designs: starterList() }),
+	},
+	{
 		name: "list_templates",
 		title: "List templates",
 		description:
@@ -1394,6 +1423,7 @@ export const TOOLS: Tool[] = [
 			html: z.string().optional(),
 			text: z.string().optional(),
 			design: z.record(z.string(), z.unknown()).nullable().optional().describe(DESIGN_HELP),
+			...STARTER_INPUT,
 			variables: z
 				.array(
 					z.object({
@@ -1407,10 +1437,25 @@ export const TOOLS: Tool[] = [
 		},
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization, "manage");
-			const { organization: _o, template, publish, ...fields } = a;
+			const {
+				organization: _o,
+				template,
+				publish,
+				starter,
+				starter_logo,
+				brand_colors,
+				...fields
+			} = a;
 			const defined = Object.fromEntries(
 				Object.entries(fields).filter(([, v]) => v !== undefined),
 			);
+			if (starter)
+				defined.design = await starterFor(org.id, starter as string, {
+					logo: starter_logo as LogoChoice | undefined,
+					brandColors: brand_colors as boolean | undefined,
+				});
+			// A design makes the HTML, so a new template from one needs none of its own.
+			if (!template && defined.design && defined.html === undefined) defined.html = "";
 			let t = template
 				? await updateTemplate(org.id, template as string, defined)
 				: await createTemplate(org.id, defined);
@@ -1666,6 +1711,7 @@ export const TOOLS: Tool[] = [
 			html: z.string().optional(),
 			text: z.string().nullable().optional(),
 			design: z.record(z.string(), z.unknown()).nullable().optional().describe(DESIGN_HELP),
+			...STARTER_INPUT,
 			template: z
 				.object({ id: z.string(), variables: z.record(z.string(), z.unknown()).optional() })
 				.optional(),
@@ -1676,8 +1722,25 @@ export const TOOLS: Tool[] = [
 		},
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization, "manage");
-			const { organization: _o, brand: b, broadcast: id, ...fields } = a;
+			const {
+				organization: _o,
+				brand: b,
+				broadcast: id,
+				starter,
+				starter_logo,
+				brand_colors,
+				...fields
+			} = a;
 			let row: Awaited<ReturnType<typeof getBroadcast>>;
+			if (starter) {
+				const brand = id
+					? (await getBroadcast(await brandIds(org.id), id as string)).organization_id
+					: await brandOf(org.id, b);
+				fields.design = await starterFor(brand, starter as string, {
+					logo: starter_logo as LogoChoice | undefined,
+					brandColors: brand_colors as boolean | undefined,
+				});
+			}
 			if (id) {
 				const x = await getBroadcast(await brandIds(org.id), id as string);
 				row = await updateBroadcast(

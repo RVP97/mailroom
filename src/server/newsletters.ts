@@ -918,9 +918,11 @@ export function digestDesign(
 			type: "logo",
 			src: logo,
 			alt: n.name,
-			width: 120,
-			align: "center",
+			width: 56,
+			align: "left",
 			href: "",
+			shape: "original",
+			background: null,
 		});
 	if (items.length > 1 || style !== "full")
 		blocks.push({ id: newId(), type: "heading", html: esc(n.name), level: 1, align: "left" });

@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { cleanRich, newBlock, parseDoc, renderEmail, starter } from "@/lib/email-doc";
+import {
+	cleanRich,
+	type EmailDoc,
+	layoutOf,
+	newBlock,
+	parseDoc,
+	renderEmail,
+} from "@/lib/email-doc";
+import { buildStarter, STARTERS, starterDoc } from "@/lib/email-templates";
 import { createBroadcast, updateBroadcast } from "@/server/broadcasts";
 import { serveMedia, uploadMedia } from "@/server/media";
 import { createTemplate, publishTemplate } from "@/server/templates";
@@ -38,8 +46,13 @@ describe("email designs", () => {
 	});
 
 	it("renders an email inboxes show alike, with the unsubscribe link", () => {
-		const doc = starter("newsletter", { name: "Harbor Inn", logo: "https://x.test/l.png" });
+		const doc = starterDoc(
+			"magazine",
+			{ name: "Harbor Inn", logo: "https://x.test/l.png" },
+			{ origin: "https://app.test" },
+		) as EmailDoc;
 		const html = renderEmail(doc);
+		expect(html).toContain('src="https://app.test/templates/hero-night.jpg"');
 		expect(html).toMatch(/^<!doctype html>/);
 		expect(html).toContain('src="https://x.test/l.png"');
 		expect(html).toContain("{{{UNSUBSCRIBE_URL}}}");
@@ -60,16 +73,81 @@ describe("email designs", () => {
 		] as const)
 			expect(renderEmail({ ...doc, blocks: [newBlock(t)] })).toContain("<table");
 	});
+
+	it("shows logos as they are, rounded or in a circle, never cut off on a tile", () => {
+		const logo = (o: Record<string, unknown>) =>
+			parseDoc({
+				blocks: [{ type: "logo", src: "https://x.test/l.png", width: 60, ...o }],
+			}) as EmailDoc;
+		expect(logo({}).blocks[0]).toMatchObject({ shape: "original", background: null });
+		expect(logo({ shape: "oval", background: "red" }).blocks[0]).toMatchObject({
+			shape: "original",
+			background: null,
+		});
+		const plain = renderEmail(logo({}));
+		expect(plain).not.toContain("border-radius:30px");
+		// Without a tile: the image itself is the circle.
+		expect(renderEmail(logo({ shape: "circle" }))).toContain(
+			'height="60" style="display:inline-block;width:60px;height:60px;border:0;border-radius:30px',
+		);
+		// On a tile: a disc of the color, the logo fitted inside with room to spare.
+		const tile = renderEmail(logo({ shape: "circle", background: "#0D2B29" }));
+		expect(tile).toContain('bgcolor="#0d2b29"');
+		expect(tile).toContain('width="40"');
+	});
+
+	it("joins neighbors with the same band color into one band, light text on dark", () => {
+		const doc = parseDoc({
+			theme: { padding: 40 },
+			blocks: [
+				{ type: "heading", html: "Big", bg: "#111827" },
+				{ type: "text", html: "<p>Under it</p>", bg: "#111827" },
+				{ type: "text", html: "<p>After</p>" },
+				{ type: "columns", columns: [[{ type: "text", html: "x", bg: "#ff0000" }], []] },
+			],
+		}) as EmailDoc;
+		expect(doc.blocks[3]?.type === "columns" && doc.blocks[3].columns[0][0]?.bg).toBeFalsy();
+		const l = layoutOf(doc.blocks, doc.theme);
+		expect(l.map((x) => [x.top, x.bottom, x.bg])).toEqual([
+			[40, 0, "#111827"],
+			[16, 36, "#111827"],
+			[32, 0, null],
+			[24, 40, null],
+		]);
+		const html = renderEmail(doc);
+		expect(html).toContain('bgcolor="#111827"');
+		expect(html).toMatch(/color:#ffffff;text-align:left;">Big/);
+	});
+
+	it("builds every ready-made design, with the logo picked or the brand's name", () => {
+		for (const s of STARTERS)
+			for (const logo of ["off", "original", "rounded", "circle"] as const) {
+				const brand = { name: "Harbor Inn", logo: "https://x.test/l.png" };
+				const doc = buildStarter(s, brand, { logo, origin: "https://app.test" });
+				// What's saved is what was built: nothing dropped on the way.
+				expect(parseDoc(JSON.parse(JSON.stringify(doc)))?.blocks.length).toBe(
+					doc.blocks.length,
+				);
+				const logos = doc.blocks.filter((b) => b.type === "logo" && b.src === brand.logo);
+				expect(logos.length).toBe(logo === "off" ? 0 : 1);
+				expect(renderEmail(doc)).toContain("</html>");
+			}
+		const noLogo = starterDoc("weekly", { name: "Harbor Inn", logo: null });
+		expect(noLogo?.blocks[0]).toMatchObject({ type: "heading", html: "Harbor Inn", level: 3 });
+		const kit = starterDoc("sale", { name: "x", logo: null }, { kit: { accent: "#0d9488" } });
+		expect(kit?.theme.accent).toBe("#0d9488");
+		expect(kit?.blocks[0]?.bg).toBe("#0d9488");
+	});
 });
 
 describe("designs on broadcasts and templates", () => {
 	it("makes the HTML from the design, and HTML alone leaves the design", async () => {
 		fakeOutside();
 		const org = await seedOrg();
-		const design = starter("announcement", { name: "Hotel" });
+		const design = starterDoc("big-news", { name: "Hotel", logo: null }) as EmailDoc;
 		const b = await createBroadcast(org.id, org.id, { name: "Nov", design });
 		expect(b.design?.blocks).toHaveLength(design.blocks.length);
-		expect(b.html).toContain("Introducing something new");
+		expect(b.html).toContain("We have some big news");
 		const edited = await updateBroadcast(org.id, org.id, b.id, { html: "<p>by hand</p>" });
 		expect(edited.design).toBeNull();
 		expect(edited.html).toBe("<p>by hand</p>");

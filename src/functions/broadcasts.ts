@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { fill, htmlToText } from "@/lib/template-fill";
+import { logActivity } from "@/server/activity";
 import { brandIn, viewScope } from "@/server/brands";
 import { broadcastReport } from "@/server/broadcast-report";
 import {
@@ -29,17 +30,16 @@ import {
 } from "@/server/contacts";
 import { kickDispatcher, rateGate } from "@/server/dispatcher";
 import { baseUrl } from "@/server/env";
+import { getKit } from "@/server/library";
 import { can, orgMiddleware } from "@/server/middleware";
 import { listNewsletters, newsletterView, webUrl } from "@/server/newsletters";
 import { orgContext } from "@/server/org";
-import { pollResults, votersToSegment } from "@/server/polls";
-import { brandForSend, createEmails, parseSend } from "@/server/send";
-import { brandLooks } from "@/server/signup-forms";
-import { listTemplates, templateView } from "@/server/templates";
-import { logActivity } from "@/server/activity";
-import { getKit } from "@/server/library";
 import { peopleNames } from "@/server/people";
+import { pollResults, votersToSegment } from "@/server/polls";
 import { approvalRequired, assertApproved, contentHash } from "@/server/reviews";
+import { brandForSend, createEmails, parseSend } from "@/server/send";
+import { brandLooks, logoBackgrounds } from "@/server/signup-forms";
+import { listTemplates, templateView } from "@/server/templates";
 import { recordVersion, snapshotOf } from "@/server/versions";
 import { call } from "./call";
 
@@ -114,10 +114,11 @@ export const getBroadcastFn = createServerFn({ method: "GET" })
 				],
 			);
 			const newsletter = newsletters.find((n) => n.id === x.newsletter_id) ?? null;
-			const [needsApproval, kit, people] = await Promise.all([
+			const [needsApproval, kit, people, logoBg] = await Promise.all([
 				approvalRequired(context.organizationId),
 				getKit(brand),
 				peopleNames([x.review_requested_by, x.reviewed_by, x.created_by, x.updated_by]),
+				logoBackgrounds([brand]),
 			]);
 			return {
 				broadcast: broadcastView(x),
@@ -133,6 +134,7 @@ export const getBroadcastFn = createServerFn({ method: "GET" })
 				/** For the email editor's logo block. */
 				look: {
 					logo: emailLogo(logos[brand] ?? null),
+					logoBackground: logoBg[brand] ?? null,
 					name: brands.find((b) => b.id === brand)?.name ?? "",
 				},
 				/** Contact property keys (variables in the email). */
@@ -189,7 +191,9 @@ export const createBroadcastFn = createServerFn({ method: "POST" })
 					name: n ? `${n.name} issue` : "Untitled broadcast",
 					html: "",
 					segment_id: n?.segment_id ?? (segments.length === 1 ? segments[0]?.id : null),
-					...(n ? { newsletter_id: n.id, topic_id: n.topic_id, from: n.from || null } : {}),
+					...(n
+						? { newsletter_id: n.id, topic_id: n.topic_id, from: n.from || null }
+						: {}),
 					...(data.campaign ? { campaign_id: data.campaign } : {}),
 				},
 				Date.now(),
