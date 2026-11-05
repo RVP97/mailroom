@@ -136,7 +136,7 @@ export interface StoredContent {
 }
 
 export interface SendOptions {
-	source?: "api" | "dashboard" | "system" | "mcp" | "automation";
+	source?: "api" | "dashboard" | "system" | "mcp" | "automation" | "agent";
 	apiKeyId?: string | null;
 	/** A sending key held to one domain. */
 	onlyDomainId?: string | null;

@@ -77,6 +77,7 @@ import {
 	setUpReceiving,
 } from "../inbound";
 import { createRule, deleteRule, getRule, listRules, ruleView, updateRule } from "../inbound-rules";
+import { createInbox, inboxView, logInbox } from "../inboxes";
 import { statsByStream, statsByTag, statsByTemplate, timeToInbox } from "../insights";
 import { lookupRecipient } from "../lookup";
 import { orgLogos, setOrgLogo, setOrgLogoBackground, svgDataUrl } from "../org-logos";
@@ -117,7 +118,8 @@ import { testReport } from "../test-report";
 import { addTrackingHost, removeTrackingHost, TRACKING_PREFIX } from "../tracking";
 import { listUnsubscribes, resubscribe } from "../unsubscribes";
 import { createWebhook, deleteWebhook, updateWebhook } from "../webhook-admin";
-import { replayFailed, sendTestEvent, WEBHOOK_EVENTS } from "../webhooks";
+import { INBOX_EVENTS, replayFailed, sendTestEvent, WEBHOOK_EVENTS } from "../webhooks";
+import { INBOX_TOOLS, personActor } from "./inbox-tools";
 
 /** Who is calling: the person behind the connection, read again on every call. */
 export interface McpContext {
@@ -204,6 +206,7 @@ const TOOL_NEEDS: Record<string, Permission> = {
 	send_event: "automations:edit",
 	save_inbound_rule: "inbox:rules",
 	delete_inbound_rule: "inbox:rules",
+	create_inbox: "inbox:agents",
 };
 
 interface Tool {
@@ -1028,13 +1031,21 @@ export const TOOLS: Tool[] = [
 		name: "create_webhook",
 		title: "Create a webhook",
 		description:
-			"Adds an endpoint for the organization's email events (all of them unless `events` says otherwise). Its signing secret isn't returned: an app gets it through scripts/connect-app.sh, or a person copies it from the dashboard.",
-		input: { organization, url: z.string(), events },
+			"Adds an endpoint for the organization's email events (all of them unless `events` says otherwise). With inbox_id, only that agent inbox's conversation events (inbox.*). Its signing secret isn't returned: an app gets it through scripts/connect-app.sh, or a person copies it from the dashboard.",
+		input: {
+			organization,
+			url: z.string(),
+			events,
+			inbox_id: z.string().optional().describe("An agent inbox's id (list_inboxes)."),
+		},
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization, "manage");
 			const { secret: _secret, ...hook } = await createWebhook(org.id, {
 				url: a.url,
-				events: (a.events as string[] | undefined) ?? [...WEBHOOK_EVENTS],
+				events:
+					(a.events as string[] | undefined) ??
+					(a.inbox_id ? [...INBOX_EVENTS] : [...WEBHOOK_EVENTS]),
+				inbox_id: a.inbox_id ?? null,
 			});
 			return hook;
 		},
@@ -1741,4 +1752,53 @@ export const TOOLS: Tool[] = [
 			return out;
 		},
 	},
+	{
+		name: "create_inbox",
+		title: "Create an agent inbox",
+		description:
+			"Adds an agent inbox to a brand: local_part@<one of its receiving domains> (domain), or, without a domain, <brand slug>+local_part at the deployment's Mailroom address domain. Its credentials (for the agent's own connection) are made on the inbox's page in the dashboard or with the API; they're never shown here.",
+		input: {
+			organization,
+			brand: oneBrand,
+			name: z.string().min(1).max(100),
+			local_part: z.string().describe("Before the @: support, invoices…"),
+			domain: z
+				.string()
+				.optional()
+				.describe("A receiving domain of the brand (list_domains)."),
+			reply_from: z
+				.string()
+				.optional()
+				.describe("What replies are sent from, when not the inbox's own address."),
+		},
+		run: async (a, ctx) => {
+			const org = orgFor(ctx, a.organization, "manage");
+			const brandId = await brandOf(org.id, a.brand);
+			const inbox = await createInbox(brandId, a, { userId: ctx.userId });
+			await logInbox(
+				{ organizationId: org.id, type: "person", id: ctx.userId, name: ctx.email },
+				{
+					brandId,
+					inboxId: inbox.id,
+					action: "inbox.created",
+					detail: { address: inbox.address },
+				},
+			);
+			return inboxView(inbox);
+		},
+	},
+	// The inbox tools (inbox-tools.ts), for people: in one of their organizations, as their role
+	// allows (replying needs "Reply to received email").
+	...INBOX_TOOLS.map(
+		(t): Tool => ({
+			name: t.name,
+			title: t.title,
+			description: t.description,
+			input: { organization, ...t.input },
+			readOnly: t.readOnly,
+			destructive: t.destructive,
+			openWorld: t.openWorld,
+			run: async (a, ctx) => t.run(a, await personActor(orgFor(ctx, a.organization), ctx)),
+		}),
+	),
 ];

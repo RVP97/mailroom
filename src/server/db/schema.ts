@@ -388,6 +388,13 @@ export const receivedEmails = sqliteTable(
 		answers_email_id: text("answers_email_id"),
 		/** What the brand's inbound rules did with it ("Forwarded to …"). */
 		actions: text("actions", { mode: "json" }).$type<string[]>(),
+		/** The agent inbox it came to (src/server/inboxes.ts); null: the brand's other addresses. A
+		 * message to two inboxes is a row for each, so neither inbox sees the other's copy. */
+		inbox_id: text("inbox_id"),
+		/** Its conversation (src/server/conversations.ts), threaded by Message-ID headers. */
+		conversation_id: text("conversation_id"),
+		/** Its References header's ids, for threading (space separated, without <>). */
+		references: text("references"),
 		created_at: text("created_at").notNull(),
 	},
 	(t) => [
@@ -395,8 +402,219 @@ export const receivedEmails = sqliteTable(
 			.on(t.answers_email_id)
 			.where(sql`answers_email_id IS NOT NULL`),
 		index("received_emails_org_created_idx").on(t.organization_id, t.created_at),
-		uniqueIndex("received_emails_message_uidx").on(t.organization_id, t.ses_message_id),
+		uniqueIndex("received_emails_message_inbox_uidx").on(
+			t.organization_id,
+			t.ses_message_id,
+			sql`coalesce(${t.inbox_id}, '')`,
+		),
 		index("received_emails_created_idx").on(t.created_at),
+		index("received_emails_conversation_idx").on(t.conversation_id, t.created_at),
+		index("received_emails_inbox_created_idx").on(t.inbox_id, t.created_at),
+	],
+);
+
+/**
+ * Agent inboxes (src/server/inboxes.ts): one address of a brand's that an app or an AI agent
+ * reads and answers with its own credentials, through the brand's receiving (no AWS of its own).
+ */
+export const inboxes = sqliteTable(
+	"inboxes",
+	{
+		id: text("id").primaryKey(),
+		/** The brand's id. */
+		organization_id: orgId(),
+		name: text("name").notNull(),
+		/** Lowercase: local@<a receiving host of the brand's>, or <slug>+local@INBOUND_DOMAIN. */
+		address: text("address").notNull(),
+		/** The domain it's on; null: the brand's Mailroom address. */
+		domain_id: text("domain_id"),
+		/** What replies are sent from (an address on one of the brand's sending domains); null:
+		 * the inbox's own address. Replies always carry Reply-To: the inbox. */
+		reply_from: text("reply_from"),
+		/** Who its replies and emails may go to (addresses or whole domains, AgentMail-style):
+		 * with an entry in `send_allow`, nobody else; nobody in `send_block`. Checked on every
+		 * send, a person approving an agent's draft included. */
+		send_allow: text("send_allow", { mode: "json" }).$type<string[]>(),
+		send_block: text("send_block", { mode: "json" }).$type<string[]>(),
+		description: text("description"),
+		created_by: text("created_by"),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [
+		uniqueIndex("inboxes_address_uidx").on(t.address),
+		index("inboxes_org_idx").on(t.organization_id),
+	],
+);
+
+/** What an inbox credential may do: read is always on; the rest are granted one by one. */
+export type InboxPermission = "read" | "attachments" | "triage" | "draft" | "send";
+
+/**
+ * An inbox's credentials (mri_…): shown once, kept as a SHA-256, held to the one inbox. Revoked
+ * ones stay for the audit log; rotating gives a new secret to the same credential.
+ */
+export const inboxCredentials = sqliteTable(
+	"inbox_credentials",
+	{
+		id: text("id").primaryKey(),
+		inbox_id: text("inbox_id")
+			.notNull()
+			.references(() => inboxes.id, { onDelete: "cascade" }),
+		/** The brand's id. */
+		organization_id: orgId(),
+		name: text("name").notNull(),
+		/** The first characters, to recognize it. */
+		start: text("start").notNull(),
+		hash: text("hash").notNull(),
+		permissions: text("permissions", { mode: "json" }).$type<InboxPermission[]>().notNull(),
+		/** With `send`: "replies" (only people already in the conversation) | "anyone". */
+		send_scope: text("send_scope").notNull().default("replies"),
+		created_by: text("created_by"),
+		created_at: text("created_at").notNull(),
+		last_used_at: text("last_used_at"),
+		rotated_at: text("rotated_at"),
+		revoked_at: text("revoked_at"),
+	},
+	(t) => [
+		uniqueIndex("inbox_credentials_hash_uidx").on(t.hash),
+		index("inbox_credentials_inbox_idx").on(t.inbox_id),
+	],
+);
+
+/**
+ * A conversation: received emails and the replies to them, threaded by Message-ID, In-Reply-To
+ * and References (never by subject alone), within one brand and one inbox.
+ */
+export const conversations = sqliteTable(
+	"conversations",
+	{
+		id: text("id").primaryKey(),
+		/** The brand's id. */
+		organization_id: orgId(),
+		/** Its inbox; null: the brand's other addresses. */
+		inbox_id: text("inbox_id"),
+		subject: text("subject").notNull(),
+		/** Who wrote in (the first message's From). */
+		contact: text("contact").notNull(),
+		/** "open" | "resolved". */
+		status: text("status").notNull().default("open"),
+		messages: integer("messages").notNull().default(0),
+		/** The last message's first words. */
+		snippet: text("snippet"),
+		last_message_at: text("last_message_at").notNull(),
+		last_inbound_at: text("last_inbound_at"),
+		last_reply_at: text("last_reply_at"),
+		/** Who sent the last reply: "agent" | "person" | "api". */
+		replied_by: text("replied_by"),
+		resolved_at: text("resolved_at"),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [
+		index("conversations_org_last_idx").on(t.organization_id, t.last_message_at),
+		index("conversations_inbox_last_idx").on(t.inbox_id, t.last_message_at),
+		index("conversations_last_idx").on(t.last_message_at),
+	],
+);
+
+/**
+ * The Message-IDs a conversation is known by: its messages', the ones they reference (so a
+ * message that arrives after its answer still joins), and "email:<id>" for our replies.
+ */
+export const conversationRefs = sqliteTable(
+	"conversation_refs",
+	{
+		organization_id: text("organization_id").notNull(),
+		/** The inbox's id, or "" for the brand's other addresses. */
+		scope: text("scope").notNull(),
+		ref: text("ref").notNull(),
+		conversation_id: text("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+	},
+	(t) => [
+		primaryKey({ columns: [t.organization_id, t.scope, t.ref] }),
+		index("conversation_refs_conversation_idx").on(t.conversation_id),
+	],
+);
+
+/**
+ * Read state, per reader: a person ("user:<id>") or an agent credential ("cred:<id>"). A
+ * conversation is unread for them when something arrived after `read_at` (or they never read it);
+ * one reader's marks never change another's. Open or resolved is the conversation's, shared.
+ */
+export const conversationReads = sqliteTable(
+	"conversation_reads",
+	{
+		conversation_id: text("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		reader: text("reader").notNull(),
+		read_at: text("read_at").notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.conversation_id, t.reader] }),
+		index("conversation_reads_reader_idx").on(t.reader),
+	],
+);
+
+/** A reply in a conversation: a draft (an agent's waits for a person when it can't send),
+ * then sent (an email in `emails`), or discarded. */
+export const conversationReplies = sqliteTable(
+	"conversation_replies",
+	{
+		id: text("id").primaryKey(),
+		organization_id: orgId(),
+		conversation_id: text("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		inbox_id: text("inbox_id"),
+		/** The received email it answers. */
+		in_reply_to: text("in_reply_to"),
+		/** "draft" | "sent". */
+		status: text("status").notNull().default("draft"),
+		from: text("from"),
+		to: text("to", { mode: "json" }).$type<string[]>().notNull(),
+		cc: text("cc", { mode: "json" }).$type<string[]>(),
+		subject: text("subject").notNull(),
+		text: text("text").notNull(),
+		html: text("html"),
+		/** Who wrote it: "agent" | "person" | "api", with their id and name. */
+		author_type: text("author_type").notNull(),
+		author_id: text("author_id"),
+		author_name: text("author_name").notNull(),
+		/** Who sent it, when someone else did (a person approving an agent's draft). */
+		sent_by: text("sent_by"),
+		email_id: text("email_id"),
+		sent_at: text("sent_at"),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [index("conversation_replies_conversation_idx").on(t.conversation_id, t.created_at)],
+);
+
+/** What happened in an inbox, by whom: an agent reading, drafting, sending; people managing it. */
+export const inboxActivity = sqliteTable(
+	"inbox_activity",
+	{
+		id: text("id").primaryKey(),
+		organization_id: text("organization_id").notNull(),
+		inbox_id: text("inbox_id"),
+		conversation_id: text("conversation_id"),
+		/** "agent" | "person" | "api" | "system". */
+		actor_type: text("actor_type").notNull(),
+		actor_id: text("actor_id"),
+		actor_name: text("actor_name").notNull(),
+		/** conversation.read, draft.saved, reply.sent, credential.created… */
+		action: text("action").notNull(),
+		detail: text("detail", { mode: "json" }).$type<ActivityDetail>(),
+		created_at: text("created_at").notNull(),
+	},
+	(t) => [
+		index("inbox_activity_inbox_idx").on(t.inbox_id, t.created_at),
+		index("inbox_activity_conversation_idx").on(t.conversation_id, t.created_at),
+		index("inbox_activity_created_idx").on(t.created_at),
 	],
 );
 
@@ -512,6 +730,8 @@ export const webhooks = sqliteTable(
 		failures: integer("failures").notNull().default(0),
 		/** Down: new events wait (pending) and one is tried at a time until it answers again. */
 		down_since: text("down_since"),
+		/** Only this agent inbox's events (inbox.*); null: the whole organization's. */
+		inbox_id: text("inbox_id").references(() => inboxes.id, { onDelete: "cascade" }),
 	},
 	(t) => [index("webhooks_org_idx").on(t.organization_id)],
 );

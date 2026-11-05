@@ -86,6 +86,12 @@ export function oauthApi(): OAuthHelpers {
 /** /mcp and its metadata, the token, registration and metadata endpoints. */
 export async function handleOAuth(request: Request, e: Env, ctx: ExecutionContext) {
 	const url = new URL(request.url);
+	// An agent inbox's credential is its own grant: no OAuth for it.
+	if (
+		(url.pathname === MCP_PATH || url.pathname.startsWith(`${MCP_PATH}/`)) &&
+		/^Bearer\s+mri_/.test(request.headers.get("authorization") ?? "")
+	)
+		return (await import("./server")).agentMcpFetch(request);
 	const { as, resource } = oauthServers();
 	if (url.pathname === WELL_KNOWN_RESOURCE) {
 		// Clients that ask at the root get the one resource's document.

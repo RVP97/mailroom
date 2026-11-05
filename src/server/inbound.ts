@@ -16,6 +16,13 @@ import {
 } from "./aws/receiving";
 import { type AwsConfig, createIdentity, getIdentity, SesError } from "./aws/ses";
 import { setTopicPolicy, topicPolicy } from "./aws/sns";
+import {
+	inboxEvent,
+	purgeConversations,
+	referenceIds,
+	snippetOf,
+	threadReceived,
+} from "./conversations";
 import { batch, db, schema } from "./db";
 import type { ReceivedAttachment } from "./db/schema";
 import {
@@ -29,6 +36,7 @@ import {
 } from "./env";
 import { ApiError, notFound, validation } from "./errors";
 import { answers, forward, rulesFor } from "./inbound-rules";
+import { brandInboxes, inboxOf, purgeInboxActivity } from "./inboxes";
 import { forgetOrg } from "./org";
 import {
 	brandsOfOrganization,
@@ -662,11 +670,30 @@ export async function receiveSes(
 		await deleteObject(a, action.bucketName, action.objectKey).catch(() => {});
 		return "ignored";
 	}
+	// Each agent inbox it came to gets its own copy; the brand's other addresses share one.
+	const targets: (Owner & { inboxId: string | null })[] = [];
+	for (const o of owners) {
+		const list = await brandInboxes(o.brandId);
+		const groups = new Map<string | null, string[]>();
+		for (const to of o.recipients) {
+			const inbox = inboxOf(list, to)?.id ?? null;
+			groups.set(inbox, [...(groups.get(inbox) ?? []), to]);
+		}
+		for (const [inboxId, recipients] of groups) targets.push({ ...o, recipients, inboxId });
+	}
 	const known = await db
-		.select({ organization_id: schema.receivedEmails.organization_id })
+		.select({
+			organization_id: schema.receivedEmails.organization_id,
+			inbox_id: schema.receivedEmails.inbox_id,
+		})
 		.from(schema.receivedEmails)
 		.where(eq(schema.receivedEmails.ses_message_id, sesId));
-	const fresh = owners.filter((o) => !known.some((k) => k.organization_id === o.brandId));
+	const fresh = targets.filter(
+		(o) =>
+			!known.some(
+				(k) => k.organization_id === o.brandId && (k.inbox_id ?? null) === o.inboxId,
+			),
+	);
 	if (!fresh.length) {
 		await deleteObject(a, action.bucketName, action.objectKey).catch(() => {});
 		return "duplicate";
@@ -693,22 +720,32 @@ export async function receiveSes(
 	const from = formatAddress(parsed?.from)[0] ?? h.from?.[0] ?? e.mail?.source ?? "";
 	const subject = (parsed?.subject ?? h.subject ?? "").slice(0, 998);
 	const replyTo = parsed?.replyTo?.length ? formatAddresses(parsed.replyTo) : null;
+	const references = parsed?.references ? referenceIds(parsed.references).join(" ") : null;
+	const snippet = snippetOf(parsed?.text);
+	// The brand's inbound rules, once per brand (whichever of its copies): a drop keeps nothing;
+	// forwards go once with its first copy.
+	const ruled = new Map<string, Awaited<ReturnType<typeof rulesFor>>>();
 	for (const o of fresh) {
 		const id = crypto.randomUUID();
 		const key = `${PREFIX}${o.brandId}/${id}.eml`;
-		// The brand's inbound rules: a drop keeps nothing; forwards go once it's recorded.
 		const incoming = {
 			brandId: o.brandId,
-			recipients: o.recipients,
+			recipients:
+				owners.find((x) => x.brandId === o.brandId && x.domainId === o.domainId)
+					?.recipients ?? o.recipients,
 			from,
 			subject,
 			replyTo,
 			parsed,
 		};
-		const rules = await rulesFor(incoming).catch((error) => {
-			console.error("inbound: rules not read", error);
-			return [];
-		});
+		const first = !ruled.has(o.brandId);
+		const rules =
+			ruled.get(o.brandId) ??
+			(await rulesFor(incoming).catch((error) => {
+				console.error("inbound: rules not read", error);
+				return [];
+			}));
+		ruled.set(o.brandId, rules);
 		if (rules.some((x) => x.rule.action === "drop")) {
 			applied = true;
 			continue;
@@ -742,6 +779,9 @@ export async function receiveSes(
 			object_key: key,
 			answers_email_id: await answers(o.brandId, parsed).catch(() => null),
 			actions: null as string[] | null,
+			inbox_id: o.inboxId,
+			conversation_id: null as string | null,
+			references,
 			created_at: at,
 		};
 		const inserted = await db
@@ -754,8 +794,14 @@ export async function receiveSes(
 			continue;
 		}
 		applied = true;
+		// Its conversation: a failure here leaves it unthreaded, never lost.
+		const thread = await threadReceived(row, snippet, now).catch((error) => {
+			console.error("inbound: not threaded", error);
+			return null;
+		});
+		row.conversation_id = thread?.conversationId ?? null;
 		const actions: string[] = [];
-		for (const x of rules)
+		for (const x of first ? rules : [])
 			if (x.rule.action === "forward")
 				actions.push(
 					await forward(incoming, x.rule, x.to, id).catch((error) => {
@@ -778,6 +824,25 @@ export async function receiveSes(
 			created_at: row.created_at,
 			tags: null,
 		});
+		if (thread) {
+			const about = {
+				id: thread.conversationId,
+				organization_id: o.brandId,
+				inbox_id: o.inboxId,
+				subject: row.subject,
+			};
+			const summary = {
+				message_id: id,
+				from: row.from,
+				to: row.to,
+				received_at: row.created_at,
+				snippet,
+				attachments: attachments.length,
+				spam: row.spam === "FAIL",
+			};
+			if (thread.created) await inboxEvent(about, "inbox.conversation.created", summary, now);
+			await inboxEvent(about, "inbox.message.received", summary, now);
+		}
 	}
 	await deleteObject(a, action.bucketName, action.objectKey).catch((error) =>
 		console.error("inbound: S3 copy not deleted (its lifecycle rule will)", error),
@@ -1013,6 +1078,14 @@ export async function serveAttachment(path: string, now = Date.now()): Promise<R
 /** Cron (daily): received emails past INBOUND_RETENTION_DAYS, rows and messages. */
 export async function purgeReceived(now = Date.now(), rounds = 10) {
 	const before = iso(now - inboundRetentionDays() * 86_400_000);
+	await purgeRows(before, rounds);
+	// Conversations whose last message is that old (their drafts and replies with them), and
+	// the inboxes' activity.
+	await purgeConversations(before, rounds);
+	await purgeInboxActivity(before);
+}
+
+async function purgeRows(before: string, rounds: number) {
 	for (let i = 0; i < rounds; i++) {
 		const rows = await db
 			.select()

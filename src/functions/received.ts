@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { maskDigits } from "@/lib/roles";
 import { brandIn, viewScope } from "@/server/brands";
+import { sendReply } from "@/server/conversations";
 import { db, schema } from "@/server/db";
 import { kickDispatcher, rateGate } from "@/server/dispatcher";
 import { ApiError } from "@/server/errors";
@@ -25,6 +26,8 @@ import {
 	ruleView,
 	updateRule,
 } from "@/server/inbound-rules";
+import { sender } from "@/server/inbox-api";
+import { personOf } from "@/server/inboxes";
 import { adminMiddleware, can, orgMiddleware } from "@/server/middleware";
 import { brandForSend, createEmails, parseSend } from "@/server/send";
 import { testReport } from "@/server/test-report";
@@ -114,6 +117,7 @@ export const getReceivedFn = createServerFn({ method: "GET" })
 			attachments,
 			answers: answers ?? null,
 			brand: brands.find((b) => b.id === row.organization_id) ?? null,
+			conversationId: row.conversation_id,
 		};
 	});
 
@@ -135,6 +139,22 @@ export const replyReceivedFn = createServerFn({ method: "POST" })
 			const { scope } = await viewScope(context.organizationId);
 			const row = await getReceived(scope, data.id);
 			if (!row) throw new Response("Email not found", { status: 404 });
+			// In its conversation: recorded there, threaded, and their answer joins it.
+			if (row.conversation_id) {
+				const r = await sendReply(
+					await personOf(context),
+					row.conversation_id,
+					{
+						from: data.from,
+						to: data.to,
+						cc: data.cc,
+						subject: data.subject,
+						text: data.text,
+					},
+					sender({ source: "dashboard" }),
+				);
+				return { id: r.email_id };
+			}
 			const list = (v?: string) =>
 				(v ?? "")
 					.split(/[,;]+/)

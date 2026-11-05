@@ -24,8 +24,17 @@ export const WEBHOOK_EVENTS = [
 	"email.scheduled",
 	"email.unsubscribed",
 	"email.received",
+	"inbox.message.received",
+	"inbox.conversation.created",
+	"inbox.draft.created",
+	"inbox.reply.sent",
+	"inbox.conversation.resolved",
 ] as const;
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
+
+/** Conversation events (src/server/conversations.ts): the only ones an inbox's own webhook gets. */
+export const INBOX_EVENTS = WEBHOOK_EVENTS.filter((e) => e.startsWith("inbox.")) as InboxEvent[];
+export type InboxEvent = Extract<WebhookEvent, `inbox.${string}`>;
 
 /** Seconds after the first try (Svix's schedule): then the delivery is given up. */
 const RETRY_AFTER_S = [5, 5 * 60, 30 * 60, 2 * 3600, 5 * 3600, 10 * 3600, 10 * 3600];
@@ -141,9 +150,10 @@ export async function emitEvent(
 	now = Date.now(),
 	email?: EmailSummary | null,
 ) {
-	// A brand's events go to its organization's webhooks.
+	// A brand's events go to its organization's webhooks (not to an inbox's own: those get only
+	// their inbox's conversation events, emitInboxEvent).
 	const org = await orgOf(organizationId);
-	const hooks = (await hooksOf(org)).filter((h) => h.events.includes(type));
+	const hooks = (await hooksOf(org)).filter((h) => h.events.includes(type) && !h.inbox_id);
 	if (!hooks.length) return;
 	const summary =
 		email ??
@@ -174,6 +184,46 @@ export async function emitEvent(
 			now,
 		),
 	);
+	await queue(hooks, emailId, type, payload, now);
+}
+
+/**
+ * A conversation event (src/server/conversations.ts) for the organization's webhooks that take
+ * it and, when it's about an inbox, that inbox's own: never another inbox's.
+ */
+export async function emitInboxEvent(
+	brandId: string,
+	type: InboxEvent,
+	inboxId: string | null,
+	data: Record<string, unknown>,
+	now = Date.now(),
+) {
+	const org = await orgOf(brandId);
+	const hooks = (await hooksOf(org)).filter(
+		(h) => h.events.includes(type) && (!h.inbox_id || h.inbox_id === inboxId),
+	);
+	if (!hooks.length) return;
+	const payload = JSON.stringify({
+		type,
+		created_at: iso(now),
+		data: { ...data, brand_id: brandId },
+	});
+	const about = (data.message_id ?? data.reply_id ?? data.draft_id ?? data.conversation_id) as
+		| string
+		| undefined;
+	await queue(hooks, about ?? null, type, payload, now);
+}
+
+type Hook = typeof schema.webhooks.$inferSelect;
+
+/** Records a delivery for each endpoint and tries it right away (in the background). */
+async function queue(
+	hooks: Hook[],
+	emailId: string | null,
+	type: string,
+	payload: string,
+	now: number,
+) {
 	const rows = hooks.map((h) => ({
 		id: `msg_${crypto.randomUUID().replace(/-/g, "")}`,
 		webhook_id: h.id,

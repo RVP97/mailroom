@@ -19,7 +19,7 @@ export const STATEMENTS = {
 	contacts: ["edit", "import", "delete"],
 	forms: ["edit"],
 	automations: ["edit", "activate"],
-	inbox: ["reply", "rules"],
+	inbox: ["reply", "rules", "agents"],
 	emails: ["unmasked"],
 	recipients: ["unblock", "block"],
 	brands: ["edit"],
@@ -50,6 +50,7 @@ export const REQUIRES: Partial<Record<Permission, Permission[]>> = {
 	"contacts:delete": ["contacts:edit"],
 	"automations:activate": ["automations:edit"],
 	"inbox:rules": ["inbox:reply"],
+	"inbox:agents": ["inbox:reply"],
 	"team:manage": ["team:invite"],
 	"team:roles": ["team:manage"],
 };
@@ -61,6 +62,7 @@ export const SENSITIVE: ReadonlySet<Permission> = new Set<Permission>([
 	"team:roles",
 	"developers:keys",
 	"domains:manage",
+	"inbox:agents",
 ]);
 
 // ── The catalog as people read it (Settings › Roles, a member's access) ─────────────────
@@ -96,7 +98,11 @@ export const CATALOG: CatalogGroup[] = [
 				label: "Approve what others ask to send",
 				hint: "Never their own",
 			},
-			{ id: "newsletters:edit", label: "Set up newsletters", hint: "Public page, RSS, referrals" },
+			{
+				id: "newsletters:edit",
+				label: "Set up newsletters",
+				hint: "Public page, RSS, referrals",
+			},
 			{ id: "templates:edit", label: "Edit templates" },
 			{
 				id: "library:edit",
@@ -127,6 +133,11 @@ export const CATALOG: CatalogGroup[] = [
 			{ id: "inbox:reply", label: "Reply to received email" },
 			{ id: "inbox:rules", label: "Edit inbound rules" },
 			{
+				id: "inbox:agents",
+				label: "Set up agent inboxes",
+				hint: "Inboxes, their credentials and webhooks",
+			},
+			{
 				id: "emails:unmasked",
 				label: "See codes and card numbers in emails",
 				hint: "Without it, runs of 4+ digits show as dots",
@@ -136,7 +147,11 @@ export const CATALOG: CatalogGroup[] = [
 				label: "Let a recipient get email again",
 				hint: "Remove a suppression or an unsubscribe",
 			},
-			{ id: "recipients:block", label: "Block recipients", hint: "Suppressions and firewall" },
+			{
+				id: "recipients:block",
+				label: "Block recipients",
+				hint: "Suppressions and firewall",
+			},
 		],
 	},
 	{
@@ -353,10 +368,8 @@ export function parsePermissions(json: string | null | undefined): Permission[] 
 }
 
 /** In the browser: whether the signed-in member may do `p` in the organization in use. */
-export const allows = (
-	access: AccessSummary | null | undefined,
-	p: Permission,
-): boolean => !!access && (access.owner || access.permissions.includes(p));
+export const allows = (access: AccessSummary | null | undefined, p: Permission): boolean =>
+	!!access && (access.owner || access.permissions.includes(p));
 
 export const NO_PERMISSION_MESSAGE = "You don't have permission for this in this organization";
 

@@ -3,6 +3,9 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { ApiError } from "../errors";
+import { authenticateInbox, type InboxActor, listInboxes } from "../inboxes";
+import { limitKey } from "../rate-limit";
+import { AGENT_INSTRUCTIONS, INBOX_TOOLS } from "./inbox-tools";
 import type { McpGrantProps } from "./oauth";
 import { type McpContext, memberships, TOOLS } from "./tools";
 
@@ -68,6 +71,76 @@ export function buildServer(ctx: McpContext) {
 		);
 	}
 	return server;
+}
+
+/** The MCP server an agent gets with its inbox's credential: the inbox tools its credential
+ * allows, on its inbox only (every call is checked again server-side). */
+export function buildAgentServer(actor: InboxActor, address: string | null) {
+	const server = new McpServer(
+		{ name: "Mailroom inbox", version: "1.0.0" },
+		{ instructions: AGENT_INSTRUCTIONS(address) },
+	);
+	for (const tool of INBOX_TOOLS) {
+		if (!actor.permissions.has(tool.needs)) continue;
+		server.registerTool(
+			tool.name,
+			{
+				title: tool.title,
+				description: tool.description,
+				inputSchema: tool.input,
+				annotations: {
+					title: tool.title,
+					readOnlyHint: tool.readOnly ?? false,
+					destructiveHint: tool.destructive ?? false,
+					openWorldHint: tool.openWorld ?? false,
+				},
+			},
+			async (args: Record<string, unknown>) => {
+				try {
+					return text(await tool.run(args, actor));
+				} catch (error) {
+					if (error instanceof ApiError) return failure(error.message);
+					if (error instanceof z.ZodError)
+						return failure(
+							`${error.issues[0]?.path.join(".") || "input"}: ${error.issues[0]?.message}`,
+						);
+					console.error("mcp: inbox tool failed", tool.name, error);
+					return failure(
+						"Something went wrong on Mailroom's side. Try again in a moment.",
+					);
+				}
+			},
+		);
+	}
+	return server;
+}
+
+/** /mcp with Authorization: Bearer mri_… (no OAuth: the credential is the grant). */
+export async function agentMcpFetch(request: Request): Promise<Response> {
+	const actor = await authenticateInbox(request.headers.get("authorization"));
+	if (!actor)
+		return Response.json(
+			{
+				error: "invalid_token",
+				error_description: "Missing, revoked or invalid inbox credential",
+			},
+			{ status: 401 },
+		);
+	try {
+		await limitKey(actor.id as string);
+	} catch (error) {
+		if (error instanceof ApiError) return error.toResponse();
+		throw error;
+	}
+	const inbox = (await listInboxes(actor))[0] ?? null;
+	const server = buildAgentServer(actor, inbox?.address ?? null);
+	const transport = new WebStandardStreamableHTTPServerTransport({
+		sessionIdGenerator: undefined,
+		enableJsonResponse: true,
+	});
+	transport.onerror = (error) => console.warn("mcp transport", error.message);
+	await server.connect(transport);
+	return transport.handleRequest(request);
 }
 
 export async function mcpFetch(request: Request, props: McpGrantProps): Promise<Response> {

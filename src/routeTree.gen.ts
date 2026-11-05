@@ -59,6 +59,9 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as AppContactsFormsIndexRouteImport } from './routes/_app/contacts.forms.index'
 import { Route as AppContactsFormsIdRouteImport } from './routes/_app/contacts.forms.$id'
 import { Route as AppInsightsKindKeyRouteImport } from './routes/_app/insights.$kind.$key'
+import { Route as AppReceivedInboxesIndexRouteImport } from './routes/_app/received.inboxes.index'
+import { Route as AppReceivedInboxesIdRouteImport } from './routes/_app/received.inboxes.$id'
+import { Route as AppReceivedMIdRouteImport } from './routes/_app/received.m.$id'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -309,6 +312,21 @@ const AppInsightsKindKeyRoute = AppInsightsKindKeyRouteImport.update({
   path: '/insights/$kind/$key',
   getParentRoute: () => AppRoute,
 } as any)
+const AppReceivedInboxesIndexRoute = AppReceivedInboxesIndexRouteImport.update({
+  id: '/received/inboxes/',
+  path: '/received/inboxes/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppReceivedInboxesIdRoute = AppReceivedInboxesIdRouteImport.update({
+  id: '/received/inboxes/$id',
+  path: '/received/inboxes/$id',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppReceivedMIdRoute = AppReceivedMIdRouteImport.update({
+  id: '/received/m/$id',
+  path: '/received/m/$id',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -359,7 +377,10 @@ export interface FileRoutesByFullPath {
   '/webhooks/': typeof AppWebhooksIndexRoute
   '/contacts/forms/$id': typeof AppContactsFormsIdRoute
   '/insights/$kind/$key': typeof AppInsightsKindKeyRoute
+  '/received/inboxes/$id': typeof AppReceivedInboxesIdRoute
+  '/received/m/$id': typeof AppReceivedMIdRoute
   '/contacts/forms/': typeof AppContactsFormsIndexRoute
+  '/received/inboxes/': typeof AppReceivedInboxesIndexRoute
 }
 export interface FileRoutesByTo {
   '/about': typeof AboutRoute
@@ -410,7 +431,10 @@ export interface FileRoutesByTo {
   '/webhooks': typeof AppWebhooksIndexRoute
   '/contacts/forms/$id': typeof AppContactsFormsIdRoute
   '/insights/$kind/$key': typeof AppInsightsKindKeyRoute
+  '/received/inboxes/$id': typeof AppReceivedInboxesIdRoute
+  '/received/m/$id': typeof AppReceivedMIdRoute
   '/contacts/forms': typeof AppContactsFormsIndexRoute
+  '/received/inboxes': typeof AppReceivedInboxesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -463,7 +487,10 @@ export interface FileRoutesById {
   '/_app/webhooks/': typeof AppWebhooksIndexRoute
   '/_app/contacts/forms/$id': typeof AppContactsFormsIdRoute
   '/_app/insights/$kind/$key': typeof AppInsightsKindKeyRoute
+  '/_app/received/inboxes/$id': typeof AppReceivedInboxesIdRoute
+  '/_app/received/m/$id': typeof AppReceivedMIdRoute
   '/_app/contacts/forms/': typeof AppContactsFormsIndexRoute
+  '/_app/received/inboxes/': typeof AppReceivedInboxesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -516,7 +543,10 @@ export interface FileRouteTypes {
     | '/webhooks/'
     | '/contacts/forms/$id'
     | '/insights/$kind/$key'
+    | '/received/inboxes/$id'
+    | '/received/m/$id'
     | '/contacts/forms/'
+    | '/received/inboxes/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/about'
@@ -567,7 +597,10 @@ export interface FileRouteTypes {
     | '/webhooks'
     | '/contacts/forms/$id'
     | '/insights/$kind/$key'
+    | '/received/inboxes/$id'
+    | '/received/m/$id'
     | '/contacts/forms'
+    | '/received/inboxes'
   id:
     | '__root__'
     | '/_app'
@@ -619,7 +652,10 @@ export interface FileRouteTypes {
     | '/_app/webhooks/'
     | '/_app/contacts/forms/$id'
     | '/_app/insights/$kind/$key'
+    | '/_app/received/inboxes/$id'
+    | '/_app/received/m/$id'
     | '/_app/contacts/forms/'
+    | '/_app/received/inboxes/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -986,6 +1022,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInsightsKindKeyRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/received/inboxes/': {
+      id: '/_app/received/inboxes/'
+      path: '/received/inboxes'
+      fullPath: '/received/inboxes/'
+      preLoaderRoute: typeof AppReceivedInboxesIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/received/inboxes/$id': {
+      id: '/_app/received/inboxes/$id'
+      path: '/received/inboxes/$id'
+      fullPath: '/received/inboxes/$id'
+      preLoaderRoute: typeof AppReceivedInboxesIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/received/m/$id': {
+      id: '/_app/received/m/$id'
+      path: '/received/m/$id'
+      fullPath: '/received/m/$id'
+      preLoaderRoute: typeof AppReceivedMIdRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -1030,7 +1087,10 @@ interface AppRouteChildren {
   AppWebhooksIndexRoute: typeof AppWebhooksIndexRoute
   AppContactsFormsIdRoute: typeof AppContactsFormsIdRoute
   AppInsightsKindKeyRoute: typeof AppInsightsKindKeyRoute
+  AppReceivedInboxesIdRoute: typeof AppReceivedInboxesIdRoute
+  AppReceivedMIdRoute: typeof AppReceivedMIdRoute
   AppContactsFormsIndexRoute: typeof AppContactsFormsIndexRoute
+  AppReceivedInboxesIndexRoute: typeof AppReceivedInboxesIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -1074,7 +1134,10 @@ const AppRouteChildren: AppRouteChildren = {
   AppWebhooksIndexRoute: AppWebhooksIndexRoute,
   AppContactsFormsIdRoute: AppContactsFormsIdRoute,
   AppInsightsKindKeyRoute: AppInsightsKindKeyRoute,
+  AppReceivedInboxesIdRoute: AppReceivedInboxesIdRoute,
+  AppReceivedMIdRoute: AppReceivedMIdRoute,
   AppContactsFormsIndexRoute: AppContactsFormsIndexRoute,
+  AppReceivedInboxesIndexRoute: AppReceivedInboxesIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

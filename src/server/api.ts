@@ -93,6 +93,8 @@ import {
 	setDomainReceiving,
 } from "./inbound";
 import { createRule, deleteRule, getRule, listRules, ruleView, updateRule } from "./inbound-rules";
+import { adminRoutes, agentRoutes, forbiddenForAgents, keyActor } from "./inbox-api";
+import { authenticateInbox } from "./inboxes";
 import { lookupRecipient } from "./lookup";
 import {
 	addDomain,
@@ -1895,7 +1897,38 @@ async function route(
 	identified: (auth: KeyAuth) => void,
 ): Promise<Response> {
 	try {
-		const key = await authenticate(req.headers.get("authorization"));
+		const header = req.headers.get("authorization");
+		// An agent inbox's credential: its inbox's paths only, nothing else of the API.
+		if (/^Bearer\s+mri_/.test(header ?? "")) {
+			const agent = await authenticateInbox(header);
+			if (!agent) {
+				await limitIp(req);
+				throw new ApiError(
+					401,
+					"invalid_credential",
+					"Missing, revoked or invalid inbox credential",
+				);
+			}
+			await limitKey(agent.id as string);
+			if (acting)
+				throw new ApiError(
+					403,
+					"invalid_access",
+					"An inbox credential acts on its inbox only",
+				);
+			for (const [method, pattern, handler] of agentRoutes) {
+				const m = pattern.exec(path);
+				if (m && method === req.method)
+					return await handler(
+						req,
+						agent,
+						(m.groups ?? {}) as Record<string, string>,
+						url,
+					);
+			}
+			throw forbiddenForAgents();
+		}
+		const key = await authenticate(header);
 		if (!key) await limitIp(req);
 		else await limitKey(key.id);
 		if (!key)
@@ -1911,7 +1944,29 @@ async function route(
 			if (m && method === req.method)
 				return await handler(req, auth, (m.groups ?? {}) as Record<string, string>, url);
 		}
-		const known = routes.some(([, pattern]) => pattern.test(path));
+		// Agent inboxes with a full key: every inbox of its brands, and making them.
+		for (const [method, pattern, handler] of adminRoutes) {
+			const m = pattern.exec(path);
+			if (m && method === req.method) {
+				full(auth);
+				return await handler(req, auth, (m.groups ?? {}) as Record<string, string>, url);
+			}
+		}
+		for (const [method, pattern, handler] of agentRoutes) {
+			const m = pattern.exec(path);
+			if (m && method === req.method) {
+				full(auth);
+				return await handler(
+					req,
+					await keyActor(auth),
+					(m.groups ?? {}) as Record<string, string>,
+					url,
+				);
+			}
+		}
+		const known = [...routes, ...adminRoutes, ...agentRoutes].some(([, pattern]) =>
+			pattern.test(path),
+		);
 		throw known
 			? new ApiError(405, "method_not_allowed", "Method not allowed")
 			: notFound("Route");

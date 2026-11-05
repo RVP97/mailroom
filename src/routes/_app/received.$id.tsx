@@ -1,212 +1,174 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import {
-	CircleAlert,
+	ArrowUpRight,
+	Bot,
 	CircleCheck,
-	CircleX,
-	Download,
-	Forward,
-	ImageOff,
-	Inbox,
-	Info,
+	Mail,
+	MailOpen,
+	MessagesSquare,
 	Paperclip,
-	Reply,
+	PenLine,
+	RotateCcw,
 	Send,
+	ShieldAlert,
+	Trash2,
+	User,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ApiDrawer, type Call } from "@/components/api-drawer";
+import { ApiDrawer } from "@/components/api-drawer";
+import { Confirm } from "@/components/confirm";
 import { CopyValue } from "@/components/copy";
 import { Page } from "@/components/page";
 import { Fact, Facts, IdChip, RecordHeader } from "@/components/record";
 import { StatusBadge } from "@/components/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import {
-	Dialog,
-	DialogBody,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/ui/dialog";
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { getReceivedFn, receivedReportFn, replyReceivedFn } from "@/functions/received";
+import {
+	deleteConversationDraftFn,
+	getConversationFn,
+	saveConversationDraftFn,
+	sendConversationReplyFn,
+	updateConversationFn,
+} from "@/functions/inboxes";
 import { errorMessage } from "@/lib/errors";
-import { formatDateTime } from "@/lib/format";
+import { formatAgo, formatDateTime } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { allows } from "@/lib/permissions";
 import { ago, listedRow, Ph, Sketch, useOpened, usePage } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 
+/** One conversation: everything in it in order (what came in, our replies, open drafts), and the
+ * reply box. A received message whole (preview, headers, report) is received.m.$id.tsx. */
 export const Route = createFileRoute("/_app/received/$id")({
-	loader: ({ params }) => getReceivedFn({ data: { id: params.id } }),
+	loader: ({ params }) => getConversationFn({ data: { id: params.id } }),
 	head: ({ loaderData }) => ({
-		meta: [{ title: `${loaderData?.email.subject || "Received email"} · Mailroom` }],
+		meta: [{ title: `${loaderData?.conversation.subject || "Conversation"} · Mailroom` }],
 	}),
-	component: ReceivedPage,
-	pendingComponent: ReceivedSketch,
+	component: ConversationPage,
+	pendingComponent: ConversationSketch,
 });
 
-type Data = Awaited<ReturnType<typeof getReceivedFn>>;
+type Data = Awaited<ReturnType<typeof getConversationFn>>;
+type Item = Data["conversation"]["timeline"][number];
 
-/** Drawn from the row the Received list showed, when it did. */
-function ReceivedSketch() {
+function ConversationSketch() {
 	const { params } = usePage(Route);
-	const opened = listedRow<Data & { id: string }>("received-page", params.id);
+	const opened = listedRow<Data & { id: string }>("conversation-page", params.id);
 	if (opened)
 		return (
 			<Sketch data={opened}>
-				<ReceivedPage />
+				<ConversationPage />
 			</Sketch>
 		);
-	const listed = listedRow<{ from: string; to: string[]; subject: string; created_at: string }>(
+	const listed = listedRow<{ subject: string; contact: string; last_message_at: string }>(
 		"received",
 		params.id,
 	);
+	const at = listed?.last_message_at ?? ago(30);
 	const data: Data = {
-		email: {
-			object: "email",
+		conversation: {
+			object: "conversation",
 			id: params.id ?? "",
 			brand_id: "",
-			created_at: listed?.created_at ?? ago(30),
-			from: listed?.from ?? "guest@example.com",
-			to: listed?.to ?? ["reservas@example.com"],
-			cc: [],
-			bcc: [],
-			message_id: null,
-			spam: false,
-			attachments: [],
-			reply_to: [],
+			inbox_id: null,
 			subject: listed?.subject ?? "Question about my booking",
-			in_reply_to: null,
-			in_reply_to_email_id: null,
-			actions: [],
-			recipients: [],
-			size: 20_000,
-			verdicts: { spam: "PASS", virus: "PASS", spf: "PASS", dkim: "PASS", dmarc: "PASS" },
-			html: "<p></p>",
-			text: " ",
-			headers: null,
+			contact: listed?.contact ?? "guest@example.com",
+			status: "open",
+			unread: false,
+			messages: 1,
+			drafts: 0,
+			snippet: null,
+			last_message_at: at,
+			last_inbound_at: at,
+			last_reply_at: null,
+			replied_by: null,
+			resolved_at: null,
+			created_at: at,
+			timeline: [
+				{
+					type: "inbound",
+					id: "sketch",
+					at,
+					from: listed?.contact ?? "guest@example.com",
+					to: ["support@example.com"],
+					cc: [],
+					reply_to: [],
+					subject: listed?.subject ?? "Question",
+					message_id: null,
+					text: "Hello, I wanted to ask about my booking for next week.",
+					attachments: [],
+					spam: false,
+					verdicts: {
+						spam: "PASS",
+						virus: "PASS",
+						spf: "PASS",
+						dkim: "PASS",
+						dmarc: "PASS",
+					},
+				},
+			],
 		},
-		attachments: [],
-		answers: null,
+		compose: { from: null, to: [], subject: "", fixed_from: false },
+		inbox: null,
 		brand: null,
+		activity: [],
 	};
 	return (
 		<Sketch data={data}>
-			<ReceivedPage />
+			<ConversationPage />
 		</Sketch>
 	);
 }
 
-/** Nothing in the preview reaches out: no scripts (the frame's sandbox), no remote images or
- * fonts (a sender would learn it was read) until the reader asks for images. */
-const csp = (images: boolean) =>
-	`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: cid:${images ? " https: http:" : ""}; font-src data:">`;
-const BASE = '<base target="_blank">';
-// First thing in the document, always: a sender's "<head>" inside a comment or a string can't
-// push it past their own content (the parser puts a leading <meta> in the head either way).
-const preview = (html: string, images: boolean) => `${csp(images)}${BASE}${html}`;
-const hasRemoteImages = (html: string) => /<img[^>]+src\s*=\s*["']?https?:/i.test(html);
+const ACTIONS: Record<string, string> = {
+	"conversation.read": "read the conversation",
+	"conversation.resolved": "resolved it",
+	"conversation.reopened": "reopened it",
+	"draft.created": "wrote a draft",
+	"draft.updated": "edited a draft",
+	"draft.deleted": "discarded a draft",
+	"reply.sent": "sent a reply",
+	"attachment.downloaded": "downloaded an attachment",
+	"message.read": "read a message",
+};
 
-const VERDICTS = [
-	["spam", "Spam"],
-	["virus", "Virus"],
-	["spf", "SPF"],
-	["dkim", "DKIM"],
-	["dmarc", "DMARC"],
-] as const;
-
-/** A verdict as a badge: a pass is good news, except for spam and viruses, where it's clean. */
-function Verdict({ name, value }: { name: string; value: string | null }) {
-	const status =
-		value === "PASS"
-			? "verified"
-			: value === "FAIL"
-				? "failed"
-				: value
-					? "pending"
-					: "canceled";
-	const label =
-		value === "PASS"
-			? name === "Spam" || name === "Virus"
-				? `${name}: clean`
-				: `${name}: pass`
-			: value === "FAIL"
-				? name === "Spam" || name === "Virus"
-					? `${name}: found`
-					: `${name}: fail`
-				: `${name}: ${value?.toLowerCase().replace(/_/g, " ") ?? "not checked"}`;
-	return (
-		<StatusBadge
-			status={status}
-			label={label}
-		/>
-	);
-}
-
-const size = (bytes: number) =>
-	bytes >= 1024 * 1024
-		? `${(bytes / 1024 / 1024).toFixed(1)} MB`
-		: `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
-
-function ReceivedPage() {
+function ConversationPage() {
 	const data = usePage(Route).data;
+	const router = useRouter();
 	const me = useMe();
-	const canManage = allows(me.active?.access, "inbox:reply");
-	const [replying, setReplying] = useState(false);
-	// Reloaded, its skeleton draws from this (bodies left out: they're drawn as placeholders).
+	const canReply = allows(me.active?.access, "inbox:reply");
+	const { conversation: c, inbox, brand, activity, compose } = data;
 	useOpened(
-		"received-page",
-		useMemo(
-			() => ({
-				...data,
-				id: data.email.id,
-				email: {
-					...data.email,
-					html: data.email.html ? "<p></p>" : null,
-					text: data.email.text ? " " : null,
-				},
-			}),
-			[data],
-		),
+		"conversation-page",
+		useMemo(() => ({ ...data, id: c.id, activity: [] }), [data, c.id]),
 	);
-	const { email, attachments, brand } = data;
-	const [tab, setTab] = useState(email.html ? "preview" : "text");
-	const [images, setImages] = useState(false);
-	const srcDoc = useMemo(
-		() => (email.html ? preview(email.html, images) : ""),
-		[email.html, images],
-	);
-	const remote = email.html ? hasRemoteImages(email.html) : false;
-	const replyTo = email.reply_to[0] ?? email.from;
-	const calls: Call[] = [
-		{ title: "Retrieve this email", method: "GET", path: `/emails/receiving/${email.id}` },
-		{
-			title: "Its attachments, with download links",
-			method: "GET",
-			path: `/emails/receiving/${email.id}/attachments`,
-		},
-		{
-			title: "Reply in the same thread",
-			method: "POST",
-			path: "/emails",
-			body: {
-				from: email.to[0] ?? "you@example.com",
-				to: [replyTo],
-				subject: /^re:/i.test(email.subject) ? email.subject : `Re: ${email.subject}`,
-				text: "…",
-				...(email.message_id
-					? { headers: { "In-Reply-To": email.message_id, References: email.message_id } }
-					: {}),
-			},
-		},
-	];
+	const [busy, setBusy] = useState<string | null>(null);
+	const reload = () => router.invalidate();
+	const update = async (patch: { status?: "open" | "resolved"; read?: boolean }, key: string) => {
+		setBusy(key);
+		try {
+			await updateConversationFn({ data: { id: c.id, ...patch } });
+			if (patch.read === false) {
+				toast.success("Marked unread");
+				await router.navigate({ to: "/received" });
+				return;
+			}
+			toast.success(patch.status === "resolved" ? "Resolved" : "Reopened");
+			await reload();
+		} catch (error) {
+			toast.error(await errorMessage(error));
+		} finally {
+			setBusy(null);
+		}
+	};
+	const drafts = c.timeline.filter((t) => t.type === "draft");
+	const [editing, setEditing] = useState<string | null>(null);
 	return (
 		<Page className="gap-8">
 			<div className="flex flex-col gap-5">
@@ -220,35 +182,81 @@ function ReceivedPage() {
 					>
 						Received
 					</Link>
-					{brand && (
+					{inbox && (
 						<>
 							<span aria-hidden="true"> / </span>
 							<Link
 								to="/received"
-								search={{ brand: brand.id }}
+								search={{ inbox: inbox.id }}
 								className="rounded-sm transition-colors hover:text-foreground"
 							>
-								{brand.name}
+								{inbox.name}
 							</Link>
 						</>
 					)}
 				</nav>
 				<RecordHeader
-					icon={Inbox}
-					tone={email.spam ? "amber" : "blue"}
-					kind="Received email"
-					title={email.subject || "(no subject)"}
+					icon={MessagesSquare}
+					tone={c.status === "resolved" ? "gray" : "blue"}
+					kind={c.status === "resolved" ? "Resolved conversation" : "Open conversation"}
+					title={c.subject || "(no subject)"}
 					actions={
 						<>
-							{canManage && (
-								<Button onClick={() => setReplying(true)}>
-									<Reply />
-									Reply
+							<Button
+								variant="outline"
+								aria-label="Mark unread"
+								disabled={busy !== null}
+								onClick={() => update({ read: false }, "unread")}
+							>
+								{busy === "unread" ? <Spinner /> : <Mail />}
+								<span className="hidden sm:inline">Mark unread</span>
+							</Button>
+							{c.status === "open" ? (
+								<Button
+									disabled={busy !== null}
+									onClick={() => update({ status: "resolved" }, "status")}
+								>
+									{busy === "status" ? <Spinner /> : <CircleCheck />}
+									Resolve
+								</Button>
+							) : (
+								<Button
+									variant="outline"
+									disabled={busy !== null}
+									onClick={() => update({ status: "open" }, "status")}
+								>
+									{busy === "status" ? <Spinner /> : <RotateCcw />}
+									Reopen
 								</Button>
 							)}
 							<ApiDrawer
-								title="This email in the API"
-								calls={calls}
+								title="This conversation in the API"
+								description="With a full-access key, or the inbox's own credential (mri_…)."
+								calls={[
+									{
+										title: "Read it whole",
+										method: "GET",
+										path: `/conversations/${c.id}?mark_read=true`,
+									},
+									{
+										title: "Write a draft for review",
+										method: "POST",
+										path: `/conversations/${c.id}/drafts`,
+										body: { text: "Thanks for writing…" },
+									},
+									{
+										title: "Reply in the same thread",
+										method: "POST",
+										path: `/conversations/${c.id}/reply`,
+										body: { text: "Thanks for writing…" },
+									},
+									{
+										title: "Resolve it",
+										method: "PATCH",
+										path: `/conversations/${c.id}`,
+										body: { status: "resolved" },
+									},
+								]}
 							/>
 						</>
 					}
@@ -256,366 +264,481 @@ function ReceivedPage() {
 			</div>
 
 			<Facts>
-				<Fact label="From">
-					<CopyValue value={email.from} />
+				<Fact label="With">
+					<CopyValue value={c.contact} />
 				</Fact>
-				<Fact label="To">
-					<CopyValue value={email.to.join(", ") || email.recipients.join(", ")} />
-				</Fact>
-				{email.cc.length > 0 && (
-					<Fact label="Cc">
-						<CopyValue value={email.cc.join(", ")} />
-					</Fact>
-				)}
-				{email.reply_to.length > 0 && (
-					<Fact label="Reply to">
-						<CopyValue value={email.reply_to.join(", ")} />
-					</Fact>
-				)}
-				<Fact label="Received">{formatDateTime(email.created_at)}</Fact>
-				{data.answers && (
-					<Fact label="Answers">
+				<Fact label="Inbox">
+					{inbox ? (
 						<Link
-							to="/emails/$id"
-							params={{ id: data.answers.id }}
+							to="/received/inboxes/$id"
+							params={{ id: inbox.id }}
 							className="truncate underline-offset-2 hover:underline"
 						>
-							{data.answers.subject || "(no subject)"}
+							{inbox.address}
 						</Link>
+					) : (
+						<span className="text-muted-foreground">None (a domain address)</span>
+					)}
+				</Fact>
+				{brand && <Fact label="Brand">{brand.name}</Fact>}
+				<Fact label="Messages">
+					<Ph>{c.messages}</Ph>
+				</Fact>
+				<Fact label="Started">{formatDateTime(c.created_at)}</Fact>
+				{c.replied_by && (
+					<Fact label="Replied last">
+						{c.replied_by === "agent" ? "An agent" : "A person"}
 					</Fact>
 				)}
-				<Fact label="Size">{size(email.size)}</Fact>
 				<Fact label="Id">
-					<IdChip value={email.id} />
+					<IdChip value={c.id} />
 				</Fact>
 			</Facts>
 
-			<ReplyDialog
-				open={replying}
-				onOpenChange={setReplying}
-				email={email}
-			/>
-			{email.actions.length > 0 && (
-				<ul className="flex flex-col gap-1 rounded-lg bg-muted/60 px-4 py-3 text-sm">
-					{email.actions.map((a) => (
-						<li
-							key={a}
-							className="flex items-center gap-2"
-						>
-							<Forward className="size-4 text-muted-foreground" />
-							{a}
-						</li>
-					))}
-				</ul>
+			<ol className="flex flex-col gap-4">
+				{c.timeline.map((t) => (
+					<li key={`${t.type}-${t.id}`}>
+						{t.type === "draft" && editing === t.id ? (
+							<Composer
+								conversation={c.id}
+								compose={compose}
+								draft={t}
+								onDone={() => setEditing(null)}
+							/>
+						) : (
+							<TimelineItem
+								conversation={c.id}
+								item={t}
+								canReply={canReply}
+								onEdit={() => setEditing(t.id)}
+							/>
+						)}
+					</li>
+				))}
+			</ol>
+
+			{canReply && !editing && (
+				<Composer
+					conversation={c.id}
+					compose={compose}
+					key={`${c.id}-${drafts.length}-${c.messages}`}
+				/>
 			)}
 
-			<div className="flex flex-wrap gap-2">
-				{VERDICTS.map(([key, name]) => (
-					<Verdict
-						key={key}
-						name={name}
-						value={email.verdicts[key]}
-					/>
-				))}
-			</div>
-
-			<Card className="min-w-0 gap-0 overflow-hidden p-0">
-				<Tabs
-					value={tab}
-					onValueChange={setTab}
-					className="gap-0"
-				>
-					<div className="flex items-center gap-2 border-b border-border/70 pr-3 pl-5">
-						<TabsList
-							variant="line"
-							className="min-w-0 flex-1 justify-start overflow-x-auto [scrollbar-width:none] *:after:bottom-0"
-						>
-							{email.html && <TabsTrigger value="preview">Preview</TabsTrigger>}
-							<TabsTrigger value="text">Plain text</TabsTrigger>
-							{email.headers && <TabsTrigger value="headers">Headers</TabsTrigger>}
-							{email.headers && (
-								<TabsTrigger value="report">Deliverability</TabsTrigger>
-							)}
-						</TabsList>
-						{tab === "preview" && remote && (
-							<Button
-								size="sm"
-								variant="ghost"
-								onClick={() => setImages((v) => !v)}
-							>
-								<ImageOff />
-								{images ? "Hide images" : "Show images"}
-							</Button>
-						)}
-					</div>
-					{email.html && (
-						<TabsContent value="preview">
-							<div className="bg-muted/60">
-								<iframe
-									title="Preview"
-									sandbox="allow-popups allow-popups-to-escape-sandbox"
-									srcDoc={srcDoc}
-									className="mx-auto block h-[480px] w-full bg-white sm:h-[640px]"
-								/>
-							</div>
-						</TabsContent>
-					)}
-					<TabsContent value="text">
-						<pre
-							className={cn(
-								"max-h-[640px] overflow-auto p-5 font-mono text-xs leading-relaxed whitespace-pre-wrap",
-								!email.text && "font-sans text-sm text-muted-foreground",
-							)}
-						>
-							<Ph>
-								{email.text ??
-									(email.html
-										? "No plain-text part: see the preview."
-										: "The message is no longer kept (past its retention).")}
-							</Ph>
-						</pre>
-					</TabsContent>
-					{email.headers && tab === "report" && (
-						<TabsContent value="report">
-							<Report id={email.id} />
-						</TabsContent>
-					)}
-					{email.headers && (
-						<TabsContent value="headers">
-							<pre className="max-h-[640px] overflow-auto p-5 font-mono text-xs leading-relaxed whitespace-pre-wrap">
-								{Object.entries(email.headers)
-									.map(([k, v]) => `${k}: ${v}`)
-									.join("\n")}
-							</pre>
-						</TabsContent>
-					)}
-				</Tabs>
-				{attachments.length > 0 && (
-					<div className="flex flex-wrap gap-2 border-t border-border/70 px-5 py-3">
-						{attachments.map((a) => (
-							<a
+			{activity.length > 0 && (
+				<section className="flex flex-col gap-3">
+					<h2 className="eyebrow">Activity</h2>
+					<ul className="flex flex-col gap-2 text-sm">
+						{activity.map((a) => (
+							<li
 								key={a.id}
-								href={a.download_url}
-								className="inline-flex h-7 items-center gap-1.5 rounded-md bg-muted px-2 text-xs hover:text-foreground"
+								className="flex items-center gap-2"
 							>
-								<Paperclip className="size-3 text-muted-foreground" />
-								{a.filename ?? a.id}
-								<span className="text-muted-foreground tabular-nums">
-									{size(a.size)}
+								{a.actor.type === "agent" ? (
+									<Bot className="size-4 shrink-0 text-muted-foreground" />
+								) : (
+									<User className="size-4 shrink-0 text-muted-foreground" />
+								)}
+								<span className="min-w-0 truncate">
+									<span className="font-medium">{a.actor.name ?? "Someone"}</span>{" "}
+									{ACTIONS[a.action] ?? a.action}
 								</span>
-								<Download className="size-3 text-muted-foreground" />
-							</a>
+								<span
+									className="ml-auto shrink-0 text-muted-foreground tabular-nums"
+									title={formatDateTime(a.created_at)}
+								>
+									{formatAgo(a.created_at)}
+								</span>
+							</li>
 						))}
-					</div>
-				)}
-			</Card>
+					</ul>
+				</section>
+			)}
 		</Page>
 	);
 }
 
-function ReplyDialog({
-	open,
-	onOpenChange,
-	email,
+/** «Ana López <ana@…>» as «Ana López», or the bare address. */
+const nameOf = (from: string) => /^(.+?)\s*<[^>]+>$/.exec(from)?.[1]?.replace(/^"|"$/g, "") ?? from;
+
+function Author({ author }: { author: { type: string; name: string | null } }) {
+	return author.type === "agent" ? (
+		<Badge variant="secondary">
+			<Bot />
+			{author.name ?? "Agent"}
+		</Badge>
+	) : (
+		<Badge variant="outline">
+			<User />
+			{author.name ?? "Person"}
+		</Badge>
+	);
+}
+
+function TimelineItem({
+	conversation,
+	item: t,
+	canReply,
+	onEdit,
 }: {
-	open: boolean;
-	onOpenChange: (v: boolean) => void;
-	email: Data["email"];
+	conversation: string;
+	item: Item;
+	canReply: boolean;
+	onEdit: () => void;
 }) {
 	const router = useRouter();
-	const [from, setFrom] = useState(email.recipients[0] ?? email.to[0] ?? "");
-	const [to, setTo] = useState(
-		(email.reply_to.length ? email.reply_to : [email.from]).join(", "),
+	if (t.type === "origin")
+		return (
+			<Card className="gap-1 border-dashed px-5 py-4 text-sm">
+				<span className="flex items-center gap-2">
+					<Send className="size-4 text-muted-foreground" />
+					<span className="min-w-0 truncate">
+						We sent{" "}
+						<Link
+							to="/emails/$id"
+							params={{ id: t.email_id }}
+							className="font-medium underline-offset-2 hover:underline"
+						>
+							{t.subject || "(no subject)"}
+						</Link>{" "}
+						to {t.to.join(", ")}
+					</span>
+					<span className="ml-auto shrink-0 text-muted-foreground">
+						{formatDateTime(t.at)}
+					</span>
+				</span>
+			</Card>
+		);
+	if (t.type === "inbound")
+		return (
+			<Card className="gap-3 px-5 py-4">
+				<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+					<span className="flex min-w-0 items-center gap-2">
+						<MailOpen className="size-4 shrink-0 text-muted-foreground" />
+						<span
+							className="truncate font-medium"
+							title={t.from}
+						>
+							<Ph>{nameOf(t.from)}</Ph>
+						</span>
+					</span>
+					<span className="truncate text-sm text-muted-foreground">
+						to {t.to.join(", ")}
+					</span>
+					{t.spam && (
+						<Badge variant="destructive">
+							<ShieldAlert />
+							Spam
+						</Badge>
+					)}
+					<span className="ml-auto flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
+						<span title={formatDateTime(t.at)}>{formatAgo(t.at)}</span>
+						<Button
+							size="sm"
+							variant="ghost"
+							asChild
+						>
+							<Link
+								to="/received/m/$id"
+								params={{ id: t.id }}
+								aria-label="The whole message"
+							>
+								<ArrowUpRight />
+								<span className="hidden sm:inline">Message</span>
+							</Link>
+						</Button>
+					</span>
+				</div>
+				<p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+					<Ph>
+						{t.text?.trim() ||
+							(t.html
+								? "No plain-text part: open the message to see it."
+								: "No longer kept (past its retention).")}
+					</Ph>
+				</p>
+				{t.attachments.length > 0 && (
+					<div className="flex flex-wrap gap-2">
+						{t.attachments.map((a) => (
+							<span
+								key={a.id}
+								className="inline-flex h-7 items-center gap-1.5 rounded-md bg-muted px-2 text-xs"
+							>
+								<Paperclip className="size-3 text-muted-foreground" />
+								{a.filename ?? a.id}
+							</span>
+						))}
+					</div>
+				)}
+			</Card>
+		);
+	const draft = t.type === "draft";
+	return (
+		<Card
+			className={cn("gap-3 px-5 py-4", draft ? "border-brand/50 bg-brand/5" : "bg-muted/40")}
+		>
+			<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+				<span className="flex items-center gap-2 font-medium">
+					{draft ? (
+						<PenLine className="size-4 text-muted-foreground" />
+					) : (
+						<Send className="size-4 text-muted-foreground" />
+					)}
+					{draft ? "Draft reply" : "Reply"}
+				</span>
+				<Author author={t.author} />
+				{draft && <Badge variant="brand">Needs review</Badge>}
+				{!draft && t.sent_by && (
+					<span className="text-sm text-muted-foreground">approved by {t.sent_by}</span>
+				)}
+				<span className="ml-auto flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
+					{!draft && t.delivery && <StatusBadge status={t.delivery} />}
+					<span title={formatDateTime(t.at)}>{formatAgo(t.at)}</span>
+					{!draft && t.email_id && (
+						<Button
+							size="sm"
+							variant="ghost"
+							asChild
+						>
+							<Link
+								to="/emails/$id"
+								params={{ id: t.email_id }}
+								aria-label="The sent email"
+							>
+								<ArrowUpRight />
+								<span className="hidden sm:inline">Email</span>
+							</Link>
+						</Button>
+					)}
+				</span>
+			</div>
+			<p className="truncate text-sm text-muted-foreground">
+				{t.from ? `From ${t.from} · ` : ""}to {t.to.join(", ")}
+				{t.cc.length ? `, cc ${t.cc.join(", ")}` : ""}
+			</p>
+			<p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+				<Ph>{t.text}</Ph>
+			</p>
+			{draft && canReply && (
+				<div className="flex flex-wrap gap-2">
+					<SendDraft
+						conversation={conversation}
+						draft={t.id}
+						onSent={() => router.invalidate()}
+					/>
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={onEdit}
+					>
+						<PenLine />
+						Edit
+					</Button>
+					<Confirm
+						trigger={
+							<Button
+								variant="ghost"
+								size="sm"
+							>
+								<Trash2 />
+								Discard
+							</Button>
+						}
+						title="Discard this draft?"
+						description="Nobody can send it afterwards."
+						action="Discard"
+						onConfirm={async () => {
+							try {
+								await deleteConversationDraftFn({ data: { id: t.id } });
+								toast.success("Draft discarded");
+								await router.invalidate();
+							} catch (error) {
+								toast.error(await errorMessage(error));
+							}
+						}}
+					/>
+				</div>
+			)}
+		</Card>
 	);
-	const [subject, setSubject] = useState(
-		/^re:/i.test(email.subject) ? email.subject : `Re: ${email.subject}`,
-	);
-	const [text, setText] = useState("");
+}
+
+/** Sends a draft as it is: the person approving it is recorded as who sent it. */
+function SendDraft({
+	conversation,
+	draft,
+	onSent,
+}: {
+	conversation: string;
+	draft: string;
+	onSent: () => void;
+}) {
 	const [busy, setBusy] = useState(false);
 	return (
-		<Dialog
-			open={open}
-			onOpenChange={onOpenChange}
+		<Button
+			size="sm"
+			disabled={busy}
+			onClick={async () => {
+				setBusy(true);
+				try {
+					await sendConversationReplyFn({
+						data: { conversation, draft },
+					});
+					toast.success("Reply sent");
+					onSent();
+				} catch (error) {
+					toast.error(await errorMessage(error));
+				} finally {
+					setBusy(false);
+				}
+			}}
 		>
-			<DialogContent className="sm:max-w-lg">
-				<form
-					className="contents"
-					onSubmit={async (e) => {
-						e.preventDefault();
-						setBusy(true);
-						try {
-							const r = await replyReceivedFn({
-								data: { id: email.id, from, to, subject, text },
-							});
-							toast.success("Reply sent");
-							onOpenChange(false);
-							setText("");
-							if (r.id)
-								await router.navigate({ to: "/emails/$id", params: { id: r.id } });
-						} catch (error) {
-							toast.error(await errorMessage(error));
-						} finally {
-							setBusy(false);
-						}
-					}}
-				>
-					<DialogHeader>
-						<DialogTitle>Reply</DialogTitle>
-						<DialogDescription>
-							It goes in the same thread in their inbox, and their answer comes back
-							here.
-						</DialogDescription>
-					</DialogHeader>
-					<DialogBody className="gap-4">
+			{busy ? <Spinner /> : <Send />}
+			Approve and send
+		</Button>
+	);
+}
+
+/** A reply or draft (one shape, told apart by `type`). */
+type Draft = Extract<Item, { author: unknown }>;
+
+function Composer({
+	conversation,
+	compose,
+	draft,
+	onDone,
+}: {
+	conversation: string;
+	compose: Data["compose"];
+	draft?: Draft;
+	onDone?: () => void;
+}) {
+	const router = useRouter();
+	const [from, setFrom] = useState(draft?.from ?? compose.from ?? "");
+	const [to, setTo] = useState((draft?.to ?? compose.to).join(", "));
+	const [cc, setCc] = useState((draft?.cc ?? []).join(", "));
+	const [subject, setSubject] = useState(draft?.subject ?? compose.subject);
+	const [text, setText] = useState(draft?.text ?? "");
+	const [more, setMore] = useState(Boolean(draft) || !compose.from);
+	const [busy, setBusy] = useState<"send" | "draft" | null>(null);
+	const fields = {
+		conversation,
+		draft: draft?.id,
+		from: from || undefined,
+		to,
+		cc,
+		subject,
+		text,
+	};
+	const run = async (kind: "send" | "draft") => {
+		setBusy(kind);
+		try {
+			if (kind === "send") await sendConversationReplyFn({ data: fields });
+			else await saveConversationDraftFn({ data: fields });
+			toast.success(kind === "send" ? "Reply sent" : "Draft saved");
+			if (!draft) setText("");
+			onDone?.();
+			await router.invalidate();
+		} catch (error) {
+			toast.error(await errorMessage(error));
+		} finally {
+			setBusy(null);
+		}
+	};
+	return (
+		<Card className="gap-4 px-5 py-4">
+			<form
+				className="contents"
+				onSubmit={(e) => {
+					e.preventDefault();
+					void run("send");
+				}}
+			>
+				<div className="flex items-center justify-between gap-2">
+					<h2 className="font-medium">{draft ? "Edit the draft" : "Reply"}</h2>
+					{!more && (
+						<button
+							type="button"
+							className="truncate text-sm text-muted-foreground hover:text-foreground"
+							onClick={() => setMore(true)}
+						>
+							From {from} to {to}
+						</button>
+					)}
+				</div>
+				{more && (
+					<div className="grid gap-3 sm:grid-cols-2">
 						<Field>
-							<FieldLabel htmlFor="reply-from">From</FieldLabel>
+							<FieldLabel htmlFor="c-from">From</FieldLabel>
 							<Input
-								id="reply-from"
-								required
+								id="c-from"
 								value={from}
+								placeholder="you@your-domain.com"
 								onChange={(e) => setFrom(e.target.value)}
 							/>
-							<FieldDescription>
-								An address on one of your verified domains.
-							</FieldDescription>
 						</Field>
 						<Field>
-							<FieldLabel htmlFor="reply-to">To</FieldLabel>
+							<FieldLabel htmlFor="c-to">To</FieldLabel>
 							<Input
-								id="reply-to"
+								id="c-to"
 								required
 								value={to}
 								onChange={(e) => setTo(e.target.value)}
 							/>
 						</Field>
 						<Field>
-							<FieldLabel htmlFor="reply-subject">Subject</FieldLabel>
+							<FieldLabel htmlFor="c-cc">Cc</FieldLabel>
 							<Input
-								id="reply-subject"
-								required
+								id="c-cc"
+								value={cc}
+								onChange={(e) => setCc(e.target.value)}
+							/>
+						</Field>
+						<Field>
+							<FieldLabel htmlFor="c-subject">Subject</FieldLabel>
+							<Input
+								id="c-subject"
 								value={subject}
 								onChange={(e) => setSubject(e.target.value)}
 							/>
 						</Field>
-						<Field>
-							<FieldLabel htmlFor="reply-text">Message</FieldLabel>
-							<Textarea
-								id="reply-text"
-								required
-								rows={8}
-								value={text}
-								onChange={(e) => setText(e.target.value)}
-							/>
-						</Field>
-					</DialogBody>
-					<DialogFooter>
+					</div>
+				)}
+				<Textarea
+					aria-label="Message"
+					rows={6}
+					value={text}
+					placeholder="Write a reply. It goes in the same thread in their mailbox."
+					onChange={(e) => setText(e.target.value)}
+				/>
+				<div className="flex flex-wrap gap-2">
+					<Button
+						type="submit"
+						disabled={busy !== null || !text.trim()}
+					>
+						{busy === "send" ? <Spinner /> : <Send />}
+						Send
+					</Button>
+					<Button
+						type="button"
+						variant="outline"
+						disabled={busy !== null || !text.trim()}
+						onClick={() => run("draft")}
+					>
+						{busy === "draft" ? <Spinner /> : <PenLine />}
+						{draft ? "Save draft" : "Save as draft"}
+					</Button>
+					{onDone && (
 						<Button
 							type="button"
 							variant="ghost"
-							onClick={() => onOpenChange(false)}
+							onClick={onDone}
 						>
 							Cancel
 						</Button>
-						<Button
-							type="submit"
-							disabled={busy || !text.trim()}
-						>
-							{busy ? <Spinner /> : <Send />}
-							Send reply
-						</Button>
-					</DialogFooter>
-				</form>
-			</DialogContent>
-		</Dialog>
-	);
-}
-
-type ReportData = Awaited<ReturnType<typeof receivedReportFn>>;
-
-const REPORT_ICON = {
-	pass: [CircleCheck, "text-success"],
-	warn: [CircleAlert, "text-warning"],
-	fail: [CircleX, "text-destructive"],
-	info: [Info, "text-muted-foreground"],
-} as const;
-
-const GROUPS = [
-	["authentication", "Authentication"],
-	["headers", "Headers and filters"],
-	["content", "Content"],
-] as const;
-
-/**
- * How a mailbox provider sees this email (mail-tester style): send your own email to a Mailroom
- * address to test it before it goes to customers.
- */
-function Report({ id }: { id: string }) {
-	const [report, setReport] = useState<ReportData | null>(null);
-	const [error, setError] = useState<string | null>(null);
-	useEffect(() => {
-		receivedReportFn({ data: { id } })
-			.then(setReport)
-			.catch(async (e) => setError(await errorMessage(e)));
-	}, [id]);
-	if (error) return <p className="p-5 text-sm text-destructive">{error}</p>;
-	if (!report)
-		return (
-			<div className="flex items-center gap-2 p-5 text-sm text-muted-foreground">
-				<Spinner /> Checking…
-			</div>
-		);
-	return (
-		<div className="flex flex-col gap-5 p-5">
-			<div className="flex items-baseline gap-3">
-				<span
-					className={cn(
-						"text-3xl font-semibold tabular-nums",
-						report.score >= 9
-							? "text-success"
-							: report.score >= 7
-								? "text-warning"
-								: "text-destructive",
 					)}
-				>
-					{report.score}
-				</span>
-				<span className="text-sm text-muted-foreground">
-					out of 10. Two off for each failure and half a point for each warning.
-				</span>
-			</div>
-			{GROUPS.map(([group, label]) => {
-				const checks = report.checks.filter((c) => c.group === group);
-				if (!checks.length) return null;
-				return (
-					<section
-						key={group}
-						className="flex flex-col gap-2"
-					>
-						<h3 className="eyebrow">{label}</h3>
-						<ul className="flex flex-col gap-2.5">
-							{checks.map((c) => {
-								const [Icon, color] = REPORT_ICON[c.status];
-								return (
-									<li
-										key={c.id}
-										className="flex gap-2.5 text-sm"
-									>
-										<Icon className={cn("mt-0.5 size-4 shrink-0", color)} />
-										<span className="min-w-0">
-											<span className="font-medium">{c.title}</span>
-											{c.detail && (
-												<span className="block text-muted-foreground break-words">
-													{c.detail}
-												</span>
-											)}
-										</span>
-									</li>
-								);
-							})}
-						</ul>
-					</section>
-				);
-			})}
-		</div>
+				</div>
+			</form>
+		</Card>
 	);
 }

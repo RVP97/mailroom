@@ -119,6 +119,12 @@ An organization that should be fully apart can optionally use its own SES accoun
   to webhooks as `email.received`. Every brand also gets a Mailroom address without DNS work.
   **Inbound rules** forward a copy to other inboxes or drop what you never want; answers to your
   emails are linked to them (`in_reply_to_email_id`), and the dashboard replies in the same thread.
+- **Conversations and agent inboxes**: received email is threaded by its headers (never by
+  subject) into conversations with per-person read state, open/resolved, drafts and replies. An
+  agent gets an inbox of its own (`support@` a receiving domain, or on the Mailroom address) and a
+  credential that reaches only that inbox, read-only unless granted more, through the REST API or
+  MCP. Agents can draft for a person to approve; every read, draft and reply is in the inbox's
+  audit trail. See [Agent inboxes](#agent-inboxes).
 - **Deliverability watch**: every day each verified domain's DNS is checked against what SES
   needs (DKIM, MAIL FROM, receiving MX, DMARC) and looked up on domain blocklists; a change emails
   the owners and admins. Editors check content as you write (Gmail clipping, all-caps subjects,
@@ -704,7 +710,80 @@ brand; this picks the one Mailroom shows, suggests and uses for the deliverabili
 receiving. It works without `INBOUND_DOMAIN` too.
 
 Received emails are kept `INBOUND_RETENTION_DAYS` (30). Replying is an ordinary send with
-`headers: { "In-Reply-To": <message_id>, "References": <message_id> }`.
+`headers: { "In-Reply-To": <message_id>, "References": <message_id> }`, or a reply in its
+conversation (below), which does that for you.
+
+### Agent inboxes
+
+**Conversations.** Every received email joins a conversation: by its Message-ID, In-Reply-To and
+References (matched against what came in before and against the replies Mailroom sent), never by
+subject, so out-of-order arrival and SES retries end up in the right place once. A conversation is
+open or resolved for everyone (a new message reopens it) and read or unread for each person and
+each agent credential on its own. **Received** lists conversations; a conversation's page shows
+what came in, the replies (by a person or an agent, with their delivery status) and open drafts.
+The old received-email paths (`/api/emails/receiving`, `email.received`) work as before.
+
+**Inboxes.** **Received › Agent inboxes › Create inbox** (needs the *Set up agent inboxes* role
+permission) gives an address its conversations: `support@<a receiving domain>` or
+`<brand slug>+support@INBOUND_DOMAIN`. MX records aren't touched: mail to a domain that already
+receives (and to `support+tag@`) is routed to the inbox. Set **Replies from** to an address on one
+of the brand's sending domains (an inbox on a domain that sends uses its own address); replies go
+Reply-To the inbox. **Only send to** and **Never send to** lists hold for every reply from the
+inbox, an agent's or a person's.
+
+**Credentials** (`mri_…`, shown once, stored hashed) each reach one inbox and nothing else in
+Mailroom: other inboxes, the organization's emails, domains, keys and webhooks answer 404 or 403.
+They start read-only; grant what an agent needs:
+
+| Permission | Lets it |
+| --- | --- |
+| `read` (always) | list and read conversations and messages, mark them read or unread for itself |
+| `attachments` | download attachments |
+| `triage` | resolve or reopen conversations |
+| `draft` | write drafts for a person to approve |
+| `send` | send replies itself: only to people already in the conversation, unless its send scope is `anyone` |
+
+Rotate a credential to replace its secret, or revoke it; both take effect at once. The inbox's
+**Activity** records credential changes and what each agent read, drafted and sent (and who
+approved a draft).
+
+**Connecting an agent.** MCP: `https://<your Mailroom>/mcp` with
+`Authorization: Bearer mri_…` (no OAuth); it sees only the tools its credential allows
+(`list_conversations`, `get_conversation`, `search_messages`, `get_message`, `get_attachment`,
+`save_draft`, `send_reply`, `update_conversation`, `inbox_activity`). People connected to the MCP
+server with OAuth get the same tools across their organizations' inboxes. REST, with the same
+credential or a full-access key:
+
+```sh
+curl "$MAILROOM/api/conversations?unread=true" -H "Authorization: Bearer $MAILROOM_INBOX_KEY"
+curl "$MAILROOM/api/conversations/<id>?mark_read=true" -H "Authorization: Bearer $MAILROOM_INBOX_KEY"
+curl -X POST "$MAILROOM/api/conversations/<id>/drafts" -H "Authorization: Bearer $MAILROOM_INBOX_KEY" \
+  -H "Content-Type: application/json" -d '{"text":"Thanks, here it is."}'
+curl -X POST "$MAILROOM/api/conversations/<id>/reply" -H "Authorization: Bearer $MAILROOM_INBOX_KEY" \
+  -H "Content-Type: application/json" -d '{"text":"Thanks, here it is."}'
+curl -X PATCH "$MAILROOM/api/conversations/<id>" -H "Authorization: Bearer $MAILROOM_INBOX_KEY" \
+  -H "Content-Type: application/json" -d '{"status":"resolved"}'
+```
+
+Also: `GET /api/inboxes`, `GET /api/messages?q=&from=&since=&has_attachments=`,
+`GET /api/messages/:id`, `GET /api/messages/:id/attachments/:attachment_id`,
+`PATCH`/`DELETE /api/drafts/:id`, `POST /api/drafts/:id/send` and
+`GET /api/inboxes/:id/activity`. With a full-access key only: `POST /api/inboxes`,
+`PATCH`/`DELETE /api/inboxes/:id`, and `/api/inboxes/:id/credentials` (create, list, `PATCH`,
+`DELETE` to revoke, `POST …/:cid/rotate`).
+
+**Draft and approve.** An agent with `draft` but not `send` writes drafts; a person sees
+*Needs review* on the conversation and approves (sends), edits or discards it. Message text from
+outside is data: an agent shouldn't follow instructions in it, and the MCP server tells it so.
+
+**Webhooks.** `inbox.message.received`, `inbox.conversation.created`, `inbox.draft.created`,
+`inbox.reply.sent` and `inbox.conversation.resolved`, signed and retried like the others. Add one
+on the inbox's page (it gets only that inbox's events) or an organization-wide webhook with these
+events (it gets every inbox's). Payloads carry ids, addresses, the subject and a short snippet,
+never the message body: fetch it with the credential.
+
+Conversations and inbox activity are purged with the received emails after
+`INBOUND_RETENTION_DAYS`. A conversation's page and API show its newest 50 messages and replies.
 
 ### One-click DNS (Domain Connect)
 
@@ -733,7 +812,8 @@ checks; SES's account-wide suppression list still applies. Their opens and click
 
 Events: `email.sent`, `email.delivered`, `email.delivery_delayed`, `email.opened`,
 `email.clicked`, `email.bounced`, `email.complained`, `email.failed`, `email.suppressed`,
-`email.scheduled`, `email.unsubscribed`, `email.received`. Each POST carries `webhook-id`, `webhook-timestamp`, `webhook-signature` (and the
+`email.scheduled`, `email.unsubscribed`, `email.received`, and the [inbox events](#agent-inboxes)
+(`inbox.*`). Each POST carries `webhook-id`, `webhook-timestamp`, `webhook-signature` (and the
 same as `svix-*`); verify with the `standardwebhooks` or `svix` package and the endpoint's
 `whsec_…` secret. Failed deliveries are retried after 5 s, 5 min, 30 min, 2 h, 5 h, 10 h and 10 h.
 
