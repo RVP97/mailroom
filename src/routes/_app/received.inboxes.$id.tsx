@@ -95,6 +95,7 @@ function InboxSketch() {
 		activity: [],
 		events: [],
 		base: "https://mailroom.example.com",
+		inboxes: [],
 	};
 	return (
 		<Sketch data={data}>
@@ -219,11 +220,12 @@ function InboxPage() {
 
 			<Section
 				title="Credentials"
-				description="Each one reaches only this inbox, through the API or MCP. Revoke one and it stops at once."
+				description="Each reaches this inbox (and, if you choose, other inboxes of the brand), and nothing else in Mailroom, through the API or MCP. Revoke one and it stops at once."
 				actions={
 					canManage && (
 						<CreateCredential
 							inboxId={inbox.id}
+							inboxes={data.inboxes}
 							onCreated={setToken}
 						/>
 					)
@@ -239,6 +241,7 @@ function InboxPage() {
 							<CredentialRow
 								key={c.id}
 								inboxId={inbox.id}
+								inboxes={data.inboxes}
 								credential={c}
 								canManage={canManage}
 								onRotated={setToken}
@@ -525,11 +528,80 @@ function PermissionPicker({
 	);
 }
 
+type Reach = { scope: "inbox" | "inboxes" | "brand"; ids: string[] };
+type Sibling = Data["inboxes"][number];
+
+/** Which inboxes a credential reaches: this one, some of the brand's, or all of them. */
+function ReachPicker({
+	inboxId,
+	inboxes,
+	value,
+	onChange,
+}: {
+	inboxId: string;
+	inboxes: Sibling[];
+	value: Reach;
+	onChange: (v: Reach) => void;
+}) {
+	const uid = useId();
+	if (inboxes.length < 2 && value.scope === "inbox") return null;
+	return (
+		<div className="flex flex-col gap-2.5">
+			<span className="text-sm font-medium">It reaches</span>
+			<ChoiceCards
+				name={`${uid}-reach`}
+				value={value.scope}
+				onChange={(scope) => onChange({ ...value, scope })}
+				className="sm:grid-cols-3"
+				options={[
+					{ value: "inbox", title: "This inbox", description: "Only this one." },
+					{ value: "inboxes", title: "Some inboxes", description: "The ones you pick." },
+					{
+						value: "brand",
+						title: "Every inbox",
+						description: "All of the brand's, new ones too.",
+					},
+				]}
+			/>
+			{value.scope === "inboxes" && (
+				<fieldset className="flex flex-col gap-2">
+					{inboxes.map((i) => (
+						<label
+							key={i.id}
+							htmlFor={`${uid}-${i.id}`}
+							className="flex items-center gap-2.5 text-sm"
+						>
+							<Checkbox
+								id={`${uid}-${i.id}`}
+								checked={i.id === inboxId || value.ids.includes(i.id)}
+								disabled={i.id === inboxId}
+								onCheckedChange={(v) =>
+									onChange({
+										...value,
+										ids: v
+											? [...value.ids, i.id]
+											: value.ids.filter((x) => x !== i.id),
+									})
+								}
+							/>
+							<span className="min-w-0 truncate">
+								{i.name} <span className="text-muted-foreground">{i.address}</span>
+							</span>
+						</label>
+					))}
+				</fieldset>
+			)}
+		</div>
+	);
+}
+
 function CreateCredential({
 	inboxId,
+	inboxes,
 	onCreated,
 }: {
 	inboxId: string;
+	inboxes: Sibling[];
 	onCreated: (t: { token: string; name: string }) => void;
 }) {
 	const router = useRouter();
@@ -537,6 +609,7 @@ function CreateCredential({
 	const [name, setName] = useState("");
 	const [perms, setPerms] = useState<Permission[]>(["read"]);
 	const [scope, setScope] = useState<"replies" | "anyone">("replies");
+	const [reach, setReach] = useState<Reach>({ scope: "inbox", ids: [] });
 	const [busy, setBusy] = useState(false);
 	return (
 		<>
@@ -564,11 +637,15 @@ function CreateCredential({
 										name: name.trim(),
 										permissions: perms,
 										send_scope: scope,
+										scope: reach.scope,
+										inbox_ids:
+											reach.scope === "inboxes" ? reach.ids : undefined,
 									},
 								});
 								setOpen(false);
 								setName("");
 								setPerms(["read"]);
+								setReach({ scope: "inbox", ids: [] });
 								onCreated({ token: r.token, name: r.credential.name });
 								await router.invalidate();
 							} catch (error) {
@@ -604,6 +681,12 @@ function CreateCredential({
 								scope={scope}
 								onScope={setScope}
 							/>
+							<ReachPicker
+								inboxId={inboxId}
+								inboxes={inboxes}
+								value={reach}
+								onChange={setReach}
+							/>
 						</DialogBody>
 						<DialogFooter>
 							<Button
@@ -630,11 +713,13 @@ function CreateCredential({
 
 function CredentialRow({
 	inboxId,
+	inboxes,
 	credential: c,
 	canManage,
 	onRotated,
 }: {
 	inboxId: string;
+	inboxes: Sibling[];
 	credential: Credential;
 	canManage: boolean;
 	onRotated: (t: { token: string; name: string }) => void;
@@ -643,6 +728,8 @@ function CredentialRow({
 	const [editing, setEditing] = useState(false);
 	const [perms, setPerms] = useState<Permission[]>(c.permissions as Permission[]);
 	const [scope, setScope] = useState(c.send_scope as "replies" | "anyone");
+	const [reach, setReach] = useState<Reach>({ scope: c.scope, ids: c.inbox_ids });
+	const home = inboxes.find((i) => i.id === c.inbox_id);
 	const [busy, setBusy] = useState(false);
 	const revoked = c.status === "revoked";
 	return (
@@ -669,10 +756,28 @@ function CredentialRow({
 							))}
 						</span>
 					)}
+					{c.scope !== "inbox" && (
+						<Badge variant="outline">
+							{c.scope === "brand" ? "Every inbox" : `${c.inbox_ids.length} inboxes`}
+						</Badge>
+					)}
 					<span className="ml-auto text-sm text-muted-foreground">
 						{c.last_used_at ? `Used ${formatAgo(c.last_used_at)}` : "Never used"}
 					</span>
 				</div>
+				{c.inbox_id !== inboxId && home && (
+					<p className="text-sm text-muted-foreground">
+						Made on{" "}
+						<Link
+							to="/received/inboxes/$id"
+							params={{ id: home.id }}
+							className="underline-offset-2 hover:underline"
+						>
+							{home.name}
+						</Link>
+						; it reaches this inbox too.
+					</p>
+				)}
 				{canManage && !revoked && !editing && (
 					<div className="flex flex-wrap gap-2">
 						<Button
@@ -742,6 +847,12 @@ function CredentialRow({
 							scope={scope}
 							onScope={setScope}
 						/>
+						<ReachPicker
+							inboxId={c.inbox_id}
+							inboxes={inboxes}
+							value={reach}
+							onChange={setReach}
+						/>
 						<div className="flex gap-2">
 							<Button
 								size="sm"
@@ -755,6 +866,11 @@ function CredentialRow({
 												credential: c.id,
 												permissions: perms,
 												send_scope: scope,
+												scope: reach.scope,
+												inbox_ids:
+													reach.scope === "inboxes"
+														? reach.ids
+														: undefined,
 											},
 										});
 										toast.success("Access changed");

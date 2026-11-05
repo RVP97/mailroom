@@ -165,7 +165,7 @@ async function person(organizationId: string): Promise<InboxActor> {
 	return {
 		organizationId,
 		brands: [organizationId],
-		inboxId: null,
+		inboxIds: null,
 		permissions: new Set(["read", "attachments", "triage", "draft", "send"]),
 		sendScope: "anyone",
 		type: "person",
@@ -628,5 +628,211 @@ describe("MCP for agents", () => {
 			{} as ExecutionContext,
 		);
 		expect(bad.status).toBe(401);
+	});
+});
+
+describe("credentials for several inboxes", () => {
+	it("reach the inboxes they name, or every inbox of the brand (new ones too), and no other brand's", async () => {
+		const { org, support, invoices } = await setUp();
+		const sales = await createInbox(org.id, {
+			name: "Sales",
+			local_part: "sales",
+			domain: org.domain,
+		});
+		const fake = fakeAws();
+		for (const inbox of [support, invoices, sales])
+			await arrive(fake, mail({ to: [inbox.address], id: `m-${uid()}@guest.test` }), [
+				inbox.address,
+			]);
+		const two = await createCredential(support, {
+			name: "Two",
+			scope: "inboxes",
+			inbox_ids: [invoices.id],
+		});
+		const seen = await (await api(two.token, "/conversations")).json();
+		expect(new Set(seen.data.map((c: Json) => c.inbox_id))).toEqual(
+			new Set([support.id, invoices.id]),
+		);
+		expect((await api(two.token, `/inboxes/${sales.id}`)).status).toBe(404);
+		const all = await createCredential(support, { name: "All", scope: "brand" });
+		const later = await createInbox(org.id, {
+			name: "Later",
+			local_part: "later",
+			domain: org.domain,
+		});
+		const inboxes = await (await api(all.token, "/inboxes")).json();
+		expect(inboxes.data.map((i: Json) => i.id)).toContain(later.id);
+		// Another brand's inbox can't be named.
+		const other = await setUp();
+		await expect(
+			createCredential(support, {
+				name: "Bad",
+				scope: "inboxes",
+				inbox_ids: [other.support.id],
+			}),
+		).rejects.toThrow();
+		expect((await api(all.token, `/inboxes/${other.support.id}`)).status).toBe(404);
+	});
+});
+
+describe("timeline pages", () => {
+	it("pages a long conversation back with `before`", async () => {
+		const { support } = await setUp();
+		const fake = fakeAws();
+		const to = [support.address];
+		const first = `p-${uid()}@guest.test`;
+		await arrive(fake, mail({ to, id: first }), to);
+		let parent = first;
+		for (let i = 0; i < 4; i++) {
+			const id = `p-${uid()}@guest.test`;
+			await arrive(fake, mail({ to, id, inReplyTo: parent, references: [first] }), to);
+			parent = id;
+		}
+		const [conversation] = await conversationsOf(support.id);
+		const { token } = await credential(support);
+		const page1 = await (await api(token, `/conversations/${conversation?.id}?limit=2`)).json();
+		expect(page1.timeline).toHaveLength(2);
+		expect(page1.has_more).toBe(true);
+		const page2 = await (
+			await api(token, `/conversations/${conversation?.id}?limit=2&before=${page1.before}`)
+		).json();
+		const page3 = await (
+			await api(token, `/conversations/${conversation?.id}?limit=2&before=${page2.before}`)
+		).json();
+		expect(page3.has_more).toBe(false);
+		const ids = [...page3.timeline, ...page2.timeline, ...page1.timeline].map(
+			(t: Json) => t.id,
+		);
+		expect(new Set(ids).size).toBe(5);
+	});
+});
+
+describe("read state per message", () => {
+	it("marks single messages read or unread for one reader", async () => {
+		const { org, support } = await setUp();
+		const fake = fakeAws();
+		const to = [support.address];
+		const first = `u-${uid()}@guest.test`;
+		await arrive(fake, mail({ to, id: first }), to);
+		await arrive(fake, mail({ to, id: `u-${uid()}@guest.test`, inReplyTo: first }), to);
+		const [conversation] = await conversationsOf(support.id);
+		const { token } = await credential(support);
+		const open = await (await api(token, `/conversations/${conversation?.id}`)).json();
+		expect(open.timeline.map((t: Json) => t.unread)).toEqual([true, true]);
+		const [m1, m2] = open.timeline;
+		// Reading one message leaves the conversation unread.
+		await api(token, `/messages/${m1.id}?mark_read=true`);
+		let list = await (await api(token, "/conversations?unread=true")).json();
+		expect(list.data).toHaveLength(1);
+		await api(token, `/messages/${m2.id}`, {
+			method: "PATCH",
+			body: JSON.stringify({ read: true }),
+		});
+		list = await (await api(token, "/conversations?unread=true")).json();
+		expect(list.data).toHaveLength(0);
+		// Read whole, then the first message unread again: only it is.
+		await api(token, `/conversations/${conversation?.id}?mark_read=true`);
+		await api(token, `/messages/${m1.id}`, {
+			method: "PATCH",
+			body: JSON.stringify({ read: false }),
+		});
+		const again = await (await api(token, `/conversations/${conversation?.id}`)).json();
+		expect(again.unread).toBe(true);
+		expect(again.timeline.map((t: Json) => t.unread)).toEqual([true, false]);
+		// Nobody else's state changed.
+		const pat = await person(org.id);
+		const theirs = await getConversation(pat, conversation?.id as string);
+		expect(theirs.timeline.map((t) => (t.type === "inbound" ? t.unread : null))).toEqual([
+			true,
+			true,
+		]);
+	});
+});
+
+describe("reply attachments", () => {
+	it("keeps a draft's files, sends them, and sends on received ones only with the permission", async () => {
+		const { support } = await setUp();
+		const fake = fakeAws();
+		const to = [support.address];
+		const raw = [
+			"From: Ana Guest <ana@guest.test>",
+			`To: ${support.address}`,
+			"Subject: Itinerary",
+			`Message-ID: <a-${uid()}@guest.test>`,
+			"MIME-Version: 1.0",
+			'Content-Type: multipart/mixed; boundary="b1"',
+			"",
+			"--b1",
+			"Content-Type: text/plain; charset=utf-8",
+			"",
+			"Here it is.",
+			"--b1",
+			'Content-Type: application/pdf; name="itinerary.pdf"',
+			'Content-Disposition: attachment; filename="itinerary.pdf"',
+			"Content-Transfer-Encoding: base64",
+			"",
+			btoa("%PDF-1.4 fake"),
+			"--b1--",
+			"",
+		].join("\r\n");
+		await arrive(fake, raw, to);
+		const [conversation] = await conversationsOf(support.id);
+		const drafter = await credential(support, ["draft"]);
+		const draft = await (
+			await api(drafter.token, `/conversations/${conversation?.id}/drafts`, {
+				method: "POST",
+				body: JSON.stringify({
+					text: "Your invoice is attached.",
+					attachments: [
+						{
+							filename: "invoice.txt",
+							content: btoa("Invoice 1042"),
+							content_type: "text/plain",
+						},
+					],
+				}),
+			})
+		).json();
+		expect(draft.attachments).toMatchObject([{ filename: "invoice.txt", size: 12 }]);
+		expect(draft.attachments[0].key).toBeUndefined();
+		const message = (
+			await (await api(drafter.token, `/conversations/${conversation?.id}`)).json()
+		).timeline[0];
+		const attachment = message.attachments[0];
+		// Sending on a received attachment needs "attachments".
+		const refused = await api(drafter.token, `/drafts/${draft.id}`, {
+			method: "PATCH",
+			body: JSON.stringify({
+				attachments: [
+					{ id: draft.attachments[0].id },
+					{ message_id: message.id, attachment_id: attachment.id },
+				],
+			}),
+		});
+		expect(refused.status).toBe(403);
+		const sender_ = await credential(support, ["draft", "send", "attachments"]);
+		const sent = await (
+			await api(sender_.token, `/drafts/${draft.id}/send`, {
+				method: "POST",
+				body: JSON.stringify({
+					attachments: [
+						{ id: draft.attachments[0].id },
+						{ message_id: message.id, attachment_id: attachment.id },
+					],
+				}),
+			})
+		).json();
+		expect(sent.status).toBe("sent");
+		expect(sent.attachments.map((a: Json) => a.filename)).toEqual([
+			"invoice.txt",
+			"itinerary.pdf",
+		]);
+		expect(fake.sends).toHaveLength(1);
+		const body = await db
+			.select()
+			.from(schema.emailBodies)
+			.where(eq(schema.emailBodies.email_id, sent.email_id))
+			.get();
+		expect(body?.attachments?.map((a) => a.filename)).toEqual(["invoice.txt", "itinerary.pdf"]);
 	});
 });

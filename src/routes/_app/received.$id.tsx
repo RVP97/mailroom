@@ -13,8 +13,9 @@ import {
 	ShieldAlert,
 	Trash2,
 	User,
+	X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ApiDrawer } from "@/components/api-drawer";
 import { Confirm } from "@/components/confirm";
@@ -32,6 +33,8 @@ import { Textarea } from "@/components/ui/textarea";
 import {
 	deleteConversationDraftFn,
 	getConversationFn,
+	markMessageFn,
+	olderTimelineFn,
 	saveConversationDraftFn,
 	sendConversationReplyFn,
 	updateConversationFn,
@@ -90,11 +93,14 @@ function ConversationSketch() {
 			replied_by: null,
 			resolved_at: null,
 			created_at: at,
+			has_more: false,
+			before: null,
 			timeline: [
 				{
 					type: "inbound",
 					id: "sketch",
 					at,
+					unread: false,
 					from: listed?.contact ?? "guest@example.com",
 					to: ["support@example.com"],
 					cc: [],
@@ -169,6 +175,35 @@ function ConversationPage() {
 	};
 	const drafts = c.timeline.filter((t) => t.type === "draft");
 	const [editing, setEditing] = useState<string | null>(null);
+	// Older pages, added on "Load older" (the loader brings the newest).
+	const [older, setOlder] = useState<{
+		items: Item[];
+		more: boolean;
+		before: string | null;
+		busy: boolean;
+		for: string;
+	}>({ items: [], more: c.has_more, before: c.before, busy: false, for: c.id });
+	if (older.for !== c.id)
+		setOlder({ items: [], more: c.has_more, before: c.before, busy: false, for: c.id });
+	const timeline = [...older.items, ...c.timeline];
+	const firstUnread = timeline.find((t) => t.type === "inbound" && t.unread)?.id;
+	const loadOlder = async () => {
+		if (!older.before) return;
+		setOlder((o) => ({ ...o, busy: true }));
+		try {
+			const r = await olderTimelineFn({ data: { id: c.id, before: older.before } });
+			setOlder((o) => ({
+				...o,
+				items: [...r.timeline, ...o.items],
+				more: r.has_more,
+				before: r.before,
+				busy: false,
+			}));
+		} catch (error) {
+			toast.error(await errorMessage(error));
+			setOlder((o) => ({ ...o, busy: false }));
+		}
+	};
 	return (
 		<Page className="gap-8">
 			<div className="flex flex-col gap-5">
@@ -296,8 +331,34 @@ function ConversationPage() {
 			</Facts>
 
 			<ol className="flex flex-col gap-4">
-				{c.timeline.map((t) => (
+				{older.more && (
+					<li className="flex justify-center">
+						<Button
+							variant="outline"
+							size="sm"
+							disabled={older.busy}
+							onClick={loadOlder}
+						>
+							{older.busy && <Spinner />}
+							Load older
+						</Button>
+					</li>
+				)}
+				{timeline.map((t) => (
 					<li key={`${t.type}-${t.id}`}>
+						{t.id === firstUnread && (
+							<div className="mb-4 flex items-center gap-3 text-xs font-medium text-brand">
+								<span
+									aria-hidden="true"
+									className="h-px flex-1 bg-brand/40"
+								/>
+								New since you last read
+								<span
+									aria-hidden="true"
+									className="h-px flex-1 bg-brand/40"
+								/>
+							</div>
+						)}
 						{t.type === "draft" && editing === t.id ? (
 							<Composer
 								conversation={c.id}
@@ -375,6 +436,44 @@ function Author({ author }: { author: { type: string; name: string | null } }) {
 	);
 }
 
+const kb = (bytes: number) =>
+	bytes >= 1024 * 1024
+		? `${(bytes / 1024 / 1024).toFixed(1)} MB`
+		: `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
+
+function Files({
+	list,
+	onRemove,
+}: {
+	list: { id: string; filename: string; size: number }[];
+	onRemove?: (id: string) => void;
+}) {
+	return (
+		<div className="flex flex-wrap gap-2">
+			{list.map((a) => (
+				<span
+					key={a.id}
+					className="inline-flex h-7 items-center gap-1.5 rounded-md bg-muted px-2 text-xs"
+				>
+					<Paperclip className="size-3 text-muted-foreground" />
+					{a.filename}
+					<span className="text-muted-foreground tabular-nums">{kb(a.size)}</span>
+					{onRemove && (
+						<button
+							type="button"
+							aria-label={`Remove ${a.filename}`}
+							className="text-muted-foreground hover:text-foreground"
+							onClick={() => onRemove(a.id)}
+						>
+							<X className="size-3" />
+						</button>
+					)}
+				</span>
+			))}
+		</div>
+	);
+}
+
 function TimelineItem({
 	conversation,
 	item: t,
@@ -436,6 +535,23 @@ function TimelineItem({
 						<Button
 							size="sm"
 							variant="ghost"
+							aria-label="Mark this message unread"
+							title="Mark this message unread (for you)"
+							onClick={async () => {
+								try {
+									await markMessageFn({ data: { id: t.id, read: false } });
+									toast.success("Marked unread");
+									await router.navigate({ to: "/received" });
+								} catch (error) {
+									toast.error(await errorMessage(error));
+								}
+							}}
+						>
+							<Mail />
+						</Button>
+						<Button
+							size="sm"
+							variant="ghost"
 							asChild
 						>
 							<Link
@@ -457,7 +573,7 @@ function TimelineItem({
 								: "No longer kept (past its retention).")}
 					</Ph>
 				</p>
-				{t.attachments.length > 0 && (
+				{(t.attachments ?? []).length > 0 && (
 					<div className="flex flex-wrap gap-2">
 						{t.attachments.map((a) => (
 							<span
@@ -487,7 +603,7 @@ function TimelineItem({
 					{draft ? "Draft reply" : "Reply"}
 				</span>
 				<Author author={t.author} />
-				{draft && <Badge variant="brand">Needs review</Badge>}
+				{draft && t.author.type === "agent" && <Badge variant="brand">Needs review</Badge>}
 				{!draft && t.sent_by && (
 					<span className="text-sm text-muted-foreground">approved by {t.sent_by}</span>
 				)}
@@ -519,6 +635,8 @@ function TimelineItem({
 			<p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
 				<Ph>{t.text}</Ph>
 			</p>
+			{/* Pages kept in this browser before replies had files lack the list. */}
+			{(t.attachments ?? []).length > 0 && <Files list={t.attachments} />}
 			{draft && canReply && (
 				<div className="flex flex-wrap gap-2">
 					<SendDraft
@@ -621,6 +739,38 @@ function Composer({
 	const [text, setText] = useState(draft?.text ?? "");
 	const [more, setMore] = useState(Boolean(draft) || !compose.from);
 	const [busy, setBusy] = useState<"send" | "draft" | null>(null);
+	// The draft's files (kept by id) and new ones (sent as base64).
+	const [files, setFiles] = useState<
+		{ id: string; filename: string; size: number; content?: string; content_type?: string }[]
+	>(() =>
+		(draft?.attachments ?? []).map((a) => ({ id: a.id, filename: a.filename, size: a.size })),
+	);
+	const fileInput = useRef<HTMLInputElement>(null);
+	const addFiles = async (list: FileList | null) => {
+		const added = await Promise.all(
+			[...(list ?? [])].map(
+				(f) =>
+					new Promise<(typeof files)[number]>((resolve, reject) => {
+						const reader = new FileReader();
+						reader.onload = () =>
+							resolve({
+								id: crypto.randomUUID(),
+								filename: f.name,
+								size: f.size,
+								content: String(reader.result).replace(/^data:[^,]*,/, ""),
+								content_type: f.type || undefined,
+							});
+						reader.onerror = () => reject(reader.error);
+						reader.readAsDataURL(f);
+					}),
+			),
+		);
+		const next = [...files, ...added];
+		if (next.reduce((n, f) => n + f.size, 0) > 20 * 1024 * 1024)
+			toast.error("Attachments: up to 20 MB together");
+		else setFiles(next);
+		if (fileInput.current) fileInput.current.value = "";
+	};
 	const fields = {
 		conversation,
 		draft: draft?.id,
@@ -629,6 +779,19 @@ function Composer({
 		cc,
 		subject,
 		text,
+		...(draft || files.length
+			? {
+					attachments: files.map((f) =>
+						f.content
+							? {
+									filename: f.filename,
+									content: f.content,
+									...(f.content_type ? { content_type: f.content_type } : {}),
+								}
+							: { id: f.id },
+					),
+				}
+			: {}),
 	};
 	const run = async (kind: "send" | "draft") => {
 		setBusy(kind);
@@ -636,7 +799,10 @@ function Composer({
 			if (kind === "send") await sendConversationReplyFn({ data: fields });
 			else await saveConversationDraftFn({ data: fields });
 			toast.success(kind === "send" ? "Reply sent" : "Draft saved");
-			if (!draft) setText("");
+			if (!draft) {
+				setText("");
+				setFiles([]);
+			}
 			onDone?.();
 			await router.invalidate();
 		} catch (error) {
@@ -711,6 +877,19 @@ function Composer({
 					placeholder="Write a reply. It goes in the same thread in their mailbox."
 					onChange={(e) => setText(e.target.value)}
 				/>
+				{files.length > 0 && (
+					<Files
+						list={files}
+						onRemove={(id) => setFiles((l) => l.filter((f) => f.id !== id))}
+					/>
+				)}
+				<input
+					ref={fileInput}
+					type="file"
+					multiple
+					hidden
+					onChange={(e) => void addFiles(e.target.files)}
+				/>
 				<div className="flex flex-wrap gap-2">
 					<Button
 						type="submit"
@@ -727,6 +906,15 @@ function Composer({
 					>
 						{busy === "draft" ? <Spinner /> : <PenLine />}
 						{draft ? "Save draft" : "Save as draft"}
+					</Button>
+					<Button
+						type="button"
+						variant="ghost"
+						disabled={busy !== null}
+						onClick={() => fileInput.current?.click()}
+					>
+						<Paperclip />
+						Attach
 					</Button>
 					{onDone && (
 						<Button

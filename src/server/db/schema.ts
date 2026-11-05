@@ -470,6 +470,10 @@ export const inboxCredentials = sqliteTable(
 		permissions: text("permissions", { mode: "json" }).$type<InboxPermission[]>().notNull(),
 		/** With `send`: "replies" (only people already in the conversation) | "anyone". */
 		send_scope: text("send_scope").notNull().default("replies"),
+		/** Which inboxes it reaches: "inbox" (only inbox_id, where it was made), "inboxes"
+		 * (inbox_ids, all of the same brand) or "brand" (every inbox of the brand, new ones too). */
+		scope: text("scope").notNull().default("inbox"),
+		inbox_ids: text("inbox_ids", { mode: "json" }).$type<string[]>(),
 		created_by: text("created_by"),
 		created_at: text("created_at").notNull(),
 		last_used_at: text("last_used_at"),
@@ -559,6 +563,32 @@ export const conversationReads = sqliteTable(
 	],
 );
 
+/** One received message read by one reader (marking a whole conversation read is its
+ * conversation_reads row instead: everything up to its read_at). */
+export const messageReads = sqliteTable(
+	"message_reads",
+	{
+		message_id: text("message_id")
+			.notNull()
+			.references(() => receivedEmails.id, { onDelete: "cascade" }),
+		reader: text("reader").notNull(),
+		read_at: text("read_at").notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.message_id, t.reader] })],
+);
+
+export interface ReplyAttachment {
+	id: string;
+	filename: string;
+	content_type: string | null;
+	size: number;
+	/** Uploaded: where its bytes are, until it's sent. */
+	key?: string | null;
+	/** Or a received message's attachment, forwarded. */
+	message_id?: string | null;
+	attachment_id?: string | null;
+}
+
 /** A reply in a conversation: a draft (an agent's waits for a person when it can't send),
  * then sent (an email in `emails`), or discarded. */
 export const conversationReplies = sqliteTable(
@@ -580,6 +610,9 @@ export const conversationReplies = sqliteTable(
 		subject: text("subject").notNull(),
 		text: text("text").notNull(),
 		html: text("html"),
+		/** Its files: uploaded (kept in R2 under `key` while it's a draft) or a received
+		 * message's attachment (message_id + attachment_id), read when it's sent. */
+		attachments: text("attachments", { mode: "json" }).$type<ReplyAttachment[]>(),
 		/** Who wrote it: "agent" | "person" | "api", with their id and name. */
 		author_type: text("author_type").notNull(),
 		author_id: text("author_id"),

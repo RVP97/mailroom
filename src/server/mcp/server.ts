@@ -132,8 +132,8 @@ export async function agentMcpFetch(request: Request): Promise<Response> {
 		if (error instanceof ApiError) return error.toResponse();
 		throw error;
 	}
-	const inbox = (await listInboxes(actor))[0] ?? null;
-	const server = buildAgentServer(actor, inbox?.address ?? null);
+	const inboxes = await listInboxes(actor);
+	const server = buildAgentServer(actor, inboxes.map((i) => i.address).join(", ") || null);
 	const transport = new WebStandardStreamableHTTPServerTransport({
 		sessionIdGenerator: undefined,
 		enableJsonResponse: true,

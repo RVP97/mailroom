@@ -15,9 +15,10 @@ import { iso } from "./time";
  *
  * - An inbox is local@<a receiving host of the brand's> (support@reply.acme.com), or, with no
  *   domain, <brand slug>+local@INBOUND_DOMAIN.
- * - A credential (mri_…) is held to one inbox, read-only unless granted more; `send` also has a
- *   reach ("replies": only people already in the conversation, or "anyone"). The inbox's send
- *   allow and block lists apply to everyone who sends from it.
+ * - A credential (mri_…) is held to its inboxes (the one it was made on, a list of the brand's,
+ *   or every inbox of the brand), read-only unless granted more; `send` also has a reach
+ *   ("replies": only people already in the conversation, or "anyone"). Each inbox's send allow
+ *   and block lists apply to everyone who sends from it.
  * - Everything an agent does is in the inbox's activity.
  */
 
@@ -40,8 +41,9 @@ export interface InboxActor {
 	organizationId: string;
 	/** The brands it may see. */
 	brands: string[];
-	/** A credential: only this inbox (nothing outside it, not the brand's other mail). */
-	inboxId: string | null;
+	/** A credential: only these inboxes (nothing outside them, not the brand's other mail);
+	 * null: every inbox and address of its brands. */
+	inboxIds: string[] | null;
 	permissions: ReadonlySet<InboxPermission>;
 	sendScope: SendScope;
 	type: "agent" | "person" | "api";
@@ -68,7 +70,7 @@ export function memberActor(o: {
 	return {
 		organizationId: o.organizationId,
 		brands: o.brands,
-		inboxId: null,
+		inboxIds: null,
 		permissions: new Set<InboxPermission>(
 			o.canReply
 				? ["read", "attachments", "triage", "draft", "send"]
@@ -238,6 +240,34 @@ export async function updateInbox(inbox: Inbox, raw: unknown, now = Date.now()) 
 /** Removes the inbox and its credentials and webhooks; its conversations stay, in the brand's
  * Received (no longer any agent's). */
 export async function deleteInbox(inbox: Inbox) {
+	// Credentials made here that reach other inboxes too move to one of those (the rest go
+	// with the inbox).
+	const others = (await listCredentials(inbox)).filter(
+		(c) => c.inbox_id === inbox.id && c.scope !== "inbox",
+	);
+	if (others.length) {
+		const rest = await db
+			.select({ id: schema.inboxes.id })
+			.from(schema.inboxes)
+			.where(eq(schema.inboxes.organization_id, inbox.organization_id));
+		for (const c of others) {
+			const home = rest.find(
+				(i) =>
+					i.id !== inbox.id &&
+					(c.scope === "brand" || (c.inbox_ids ?? []).includes(i.id)),
+			);
+			if (home)
+				await db
+					.update(schema.inboxCredentials)
+					.set({
+						inbox_id: home.id,
+						...(c.inbox_ids
+							? { inbox_ids: c.inbox_ids.filter((x) => x !== inbox.id) }
+							: {}),
+					})
+					.where(eq(schema.inboxCredentials.id, c.id));
+		}
+	}
 	await db.batch([
 		db
 			.update(schema.conversations)
@@ -252,16 +282,16 @@ export async function deleteInbox(inbox: Inbox) {
 	forgetCredentials();
 }
 
-/** The inboxes an actor may see (a credential: its one). */
-export async function listInboxes(actor: Pick<InboxActor, "brands" | "inboxId">) {
-	if (!actor.brands.length) return [];
+/** The inboxes an actor may see (a credential: its own). */
+export async function listInboxes(actor: Pick<InboxActor, "brands" | "inboxIds">) {
+	if (!actor.brands.length || actor.inboxIds?.length === 0) return [];
 	return db
 		.select()
 		.from(schema.inboxes)
 		.where(
 			and(
 				inArray(schema.inboxes.organization_id, actor.brands),
-				actor.inboxId ? eq(schema.inboxes.id, actor.inboxId) : undefined,
+				actor.inboxIds ? inArray(schema.inboxes.id, actor.inboxIds) : undefined,
 			),
 		)
 		.orderBy(schema.inboxes.name);
@@ -269,7 +299,7 @@ export async function listInboxes(actor: Pick<InboxActor, "brands" | "inboxId">)
 
 /** One inbox the actor may see, by id or address; not found otherwise (never "forbidden", so
  * another inbox's existence isn't told). */
-export async function inboxFor(actor: Pick<InboxActor, "brands" | "inboxId">, ref: string) {
+export async function inboxFor(actor: Pick<InboxActor, "brands" | "inboxIds">, ref: string) {
 	const r = lower(ref);
 	const row = (await listInboxes(actor)).find((i) => i.id === ref || i.address === r);
 	if (!row) throw notFound("Inbox");
@@ -352,7 +382,45 @@ export const credentialInput = z.object({
 	/** read is always included; the default is read-only. */
 	permissions: z.array(z.enum(INBOX_PERMISSIONS)).max(5).optional(),
 	send_scope: z.enum(["replies", "anyone"]).optional(),
+	/** "inbox" (the one it's made on; the default), "inboxes" (inbox_ids) or "brand" (all). */
+	scope: z.enum(["inbox", "inboxes", "brand"]).optional(),
+	inbox_ids: z.array(z.string()).max(100).optional(),
 });
+
+export type CredentialScope = "inbox" | "inboxes" | "brand";
+
+/** The scope and list a credential is saved with: other inboxes must be the same brand's. */
+async function scopeOf(
+	home: Pick<Inbox, "id" | "organization_id">,
+	scope: CredentialScope | undefined,
+	ids: string[] | undefined,
+): Promise<{ scope: CredentialScope; inbox_ids: string[] | null }> {
+	if (scope === "brand") return { scope, inbox_ids: null };
+	if (scope !== "inboxes" && !(scope === undefined && ids?.length))
+		return { scope: "inbox", inbox_ids: null };
+	const wanted = [...new Set([home.id, ...(ids ?? [])])];
+	const found = await db
+		.select({ id: schema.inboxes.id })
+		.from(schema.inboxes)
+		.where(
+			and(
+				inArray(schema.inboxes.id, wanted),
+				eq(schema.inboxes.organization_id, home.organization_id),
+			),
+		);
+	const missing = wanted.find((id) => !found.some((f) => f.id === id));
+	if (missing) throw notFound("Inbox");
+	return { scope: "inboxes", inbox_ids: wanted };
+}
+
+/** Whether a credential reaches this inbox. */
+export const reaches = (
+	c: Pick<InboxCredential, "inbox_id" | "organization_id" | "scope" | "inbox_ids">,
+	inbox: Pick<Inbox, "id" | "organization_id">,
+) =>
+	c.inbox_id === inbox.id ||
+	(c.organization_id === inbox.organization_id &&
+		(c.scope === "brand" || (c.scope === "inboxes" && !!c.inbox_ids?.includes(inbox.id))));
 
 const normalize = (list: readonly InboxPermission[] | undefined): InboxPermission[] => {
 	const set = new Set<InboxPermission>(["read", ...(list ?? [])]);
@@ -366,6 +434,7 @@ export async function createCredential(
 	now = Date.now(),
 ) {
 	const v = credentialInput.parse(raw);
+	const reach = await scopeOf(inbox, v.scope, v.inbox_ids);
 	const token = newToken();
 	const row = {
 		id: crypto.randomUUID(),
@@ -376,6 +445,7 @@ export async function createCredential(
 		hash: await sha256Hex(token),
 		permissions: normalize(v.permissions),
 		send_scope: v.send_scope ?? "replies",
+		...reach,
 		created_by: by.userId ?? null,
 		created_at: iso(now),
 		last_used_at: null,
@@ -386,35 +456,51 @@ export async function createCredential(
 	return { credential: row as InboxCredential, token };
 }
 
+/** A credential that reaches this inbox (made on it, or on another inbox of the brand's with a
+ * wider reach). */
 export async function getCredential(inbox: Inbox, id: string) {
 	const row = await db
 		.select()
 		.from(schema.inboxCredentials)
 		.where(
-			and(eq(schema.inboxCredentials.id, id), eq(schema.inboxCredentials.inbox_id, inbox.id)),
+			and(
+				eq(schema.inboxCredentials.id, id),
+				eq(schema.inboxCredentials.organization_id, inbox.organization_id),
+			),
 		)
 		.get();
-	if (!row) throw notFound("Credential");
+	if (!row || !reaches(row, inbox)) throw notFound("Credential");
 	return row;
 }
 
+/** The credentials that reach this inbox. */
 export async function listCredentials(inbox: Inbox) {
-	return db
+	const rows = await db
 		.select()
 		.from(schema.inboxCredentials)
-		.where(eq(schema.inboxCredentials.inbox_id, inbox.id))
+		.where(eq(schema.inboxCredentials.organization_id, inbox.organization_id))
 		.orderBy(desc(schema.inboxCredentials.created_at));
+	return rows.filter((c) => reaches(c, inbox));
 }
 
 export async function updateCredential(c: InboxCredential, raw: unknown) {
 	const v = credentialInput.partial().parse(raw ?? {});
 	if (c.revoked_at) throw validation("This credential is revoked");
+	const reach =
+		v.scope !== undefined || v.inbox_ids !== undefined
+			? await scopeOf(
+					{ id: c.inbox_id, organization_id: c.organization_id },
+					v.scope ?? (c.scope as CredentialScope),
+					v.inbox_ids ?? c.inbox_ids ?? undefined,
+				)
+			: {};
 	const [row] = await db
 		.update(schema.inboxCredentials)
 		.set({
 			...(v.name ? { name: v.name } : {}),
 			...(v.permissions ? { permissions: normalize(v.permissions) } : {}),
 			...(v.send_scope ? { send_scope: v.send_scope } : {}),
+			...reach,
 		})
 		.where(eq(schema.inboxCredentials.id, c.id))
 		.returning();
@@ -454,6 +540,9 @@ export const credentialView = (c: InboxCredential) => ({
 	start: c.start,
 	permissions: c.permissions,
 	send_scope: c.send_scope,
+	/** Which inboxes it reaches: "inbox" (inbox_id), "inboxes" (inbox_ids) or "brand" (all). */
+	scope: c.scope as CredentialScope,
+	inbox_ids: c.scope === "inboxes" ? (c.inbox_ids ?? [c.inbox_id]) : [c.inbox_id],
 	status: c.revoked_at ? "revoked" : "active",
 	created_at: c.created_at,
 	last_used_at: c.last_used_at,
@@ -461,15 +550,14 @@ export const credentialView = (c: InboxCredential) => ({
 	revoked_at: c.revoked_at,
 });
 
-/** Lookups are cached briefly per isolate; revoking or rotating clears this isolate's at once,
- * and others' within CACHE_MS. */
-const CACHE_MS = 10_000;
+/** last_used_at is written at most every TOUCH_MS per credential (per isolate). */
 const TOUCH_MS = 5 * 60_000;
-const cache = new Map<string, { value: InboxActor | null; until: number }>();
 const touched = new Map<string, number>();
-export const forgetCredentials = () => cache.clear();
+/** Kept for callers: credentials aren't cached (a revoke or rotation holds at once everywhere). */
+export const forgetCredentials = () => {};
 
-/** The actor a Bearer mri_… token is, or null (unknown, revoked, or its inbox gone). */
+/** The actor a Bearer mri_… token is, or null (unknown, revoked, or its inbox gone). Looked up
+ * on every request, so revoking or rotating takes effect at once in every isolate. */
 export async function authenticateInbox(
 	header: string | null,
 	now = Date.now(),
@@ -477,8 +565,6 @@ export async function authenticateInbox(
 	const token = /^Bearer\s+(mri_[A-Za-z0-9]+)\s*$/.exec(header ?? "")?.[1];
 	if (!token || !TOKEN_RE.test(token)) return null;
 	const hash = await sha256Hex(token);
-	const hit = cache.get(hash);
-	if (hit && hit.until > now) return hit.value;
 	const row = await db
 		.select({
 			c: schema.inboxCredentials,
@@ -492,28 +578,45 @@ export async function authenticateInbox(
 			and(eq(schema.inboxCredentials.hash, hash), isNull(schema.inboxCredentials.revoked_at)),
 		)
 		.get();
-	const value: InboxActor | null = row
-		? {
-				organizationId: row.parent ?? row.brand,
-				brands: [row.brand],
-				inboxId: row.c.inbox_id,
-				permissions: new Set(row.c.permissions),
-				sendScope: row.c.send_scope === "anyone" ? "anyone" : "replies",
-				type: "agent",
-				id: row.c.id,
-				name: row.c.name,
-				reader: `cred:${row.c.id}`,
-			}
-		: null;
-	cache.set(hash, { value, until: now + CACHE_MS });
-	if (row && (touched.get(row.c.id) ?? 0) < now - TOUCH_MS) {
+	if (!row) return null;
+	// Its inboxes, as they are now (a brand-wide credential reaches inboxes made after it).
+	const inboxIds =
+		row.c.scope === "inbox"
+			? [row.c.inbox_id]
+			: (
+					await db
+						.select({ id: schema.inboxes.id })
+						.from(schema.inboxes)
+						.where(
+							and(
+								eq(schema.inboxes.organization_id, row.brand),
+								row.c.scope === "inboxes"
+									? inArray(
+											schema.inboxes.id,
+											row.c.inbox_ids ?? [row.c.inbox_id],
+										)
+									: undefined,
+							),
+						)
+				).map((i) => i.id);
+	if ((touched.get(row.c.id) ?? 0) < now - TOUCH_MS) {
 		touched.set(row.c.id, now);
 		await db
 			.update(schema.inboxCredentials)
 			.set({ last_used_at: iso(now) })
 			.where(eq(schema.inboxCredentials.id, row.c.id));
 	}
-	return value;
+	return {
+		organizationId: row.parent ?? row.brand,
+		brands: [row.brand],
+		inboxIds,
+		permissions: new Set(row.c.permissions),
+		sendScope: row.c.send_scope === "anyone" ? "anyone" : "replies",
+		type: "agent",
+		id: row.c.id,
+		name: row.c.name,
+		reader: `cred:${row.c.id}`,
+	};
 }
 
 // ── Activity ───────────────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ import {
 	deleteDraft,
 	getConversation,
 	listConversations,
+	markMessage,
 	saveDraft,
 	sendReply,
 	updateConversation,
@@ -141,6 +142,28 @@ export const getConversationFn = createServerFn({ method: "GET" })
 		}),
 	);
 
+/** An older page of a conversation's timeline ("Load older"). */
+export const olderTimelineFn = createServerFn({ method: "GET" })
+	.middleware([orgMiddleware])
+	.validator(z.object({ id: z.string(), before: z.string() }))
+	.handler(({ data, context }) =>
+		call(async () => {
+			const c = await getConversation(await personOf(context), data.id, {
+				html: true,
+				before: data.before,
+			});
+			return { timeline: c.timeline, has_more: c.has_more, before: c.before };
+		}),
+	);
+
+/** One received message read or unread, for the person only. */
+export const markMessageFn = createServerFn({ method: "POST" })
+	.middleware([orgMiddleware])
+	.validator(z.object({ id: z.string(), read: z.boolean() }))
+	.handler(({ data, context }) =>
+		call(async () => markMessage(await personOf(context), data.id, data.read)),
+	);
+
 export const updateConversationFn = createServerFn({ method: "POST" })
 	.middleware([orgMiddleware])
 	.validator(
@@ -162,6 +185,8 @@ const replyFields = z.object({
 	cc: z.string().optional(),
 	subject: z.string().optional(),
 	text: z.string().max(100_000).optional(),
+	/** Checked by the server's own reply input (new files, kept ones, received ones). */
+	attachments: z.array(z.object({}).passthrough()).max(20).optional(),
 });
 
 export const saveConversationDraftFn = createServerFn({ method: "POST" })
@@ -283,7 +308,7 @@ export const getInboxFn = createServerFn({ method: "GET" })
 			const inbox = await inboxFor(actor, data.id).catch(() => {
 				throw new Response("Inbox not found", { status: 404 });
 			});
-			const [credentials, hooks, activity, brands] = await Promise.all([
+			const [credentials, hooks, activity, brands, siblings] = await Promise.all([
 				listCredentials(inbox),
 				db
 					.select()
@@ -292,10 +317,13 @@ export const getInboxFn = createServerFn({ method: "GET" })
 					.orderBy(desc(schema.webhooks.created_at)),
 				inboxActivity({ inboxId: inbox.id, limit: 50 }),
 				viewScope(context.organizationId).then((v) => v.brands),
+				// The brand's inboxes, for a credential's reach.
+				listInboxes({ brands: [inbox.organization_id], inboxIds: null }),
 			]);
 			const { baseUrl } = await import("@/server/env");
 			return {
 				inbox: inboxView(inbox),
+				inboxes: siblings.map(lite),
 				brand: brands.find((b) => b.id === inbox.organization_id) ?? null,
 				credentials: credentials.map(credentialView),
 				webhooks: hooks.map(({ secret: _s, ...h }) => h),
@@ -387,6 +415,8 @@ export const createInboxCredentialFn = createServerFn({ method: "POST" })
 			name: z.string(),
 			permissions,
 			send_scope: z.enum(["replies", "anyone"]),
+			scope: z.enum(["inbox", "inboxes", "brand"]).optional(),
+			inbox_ids: z.array(z.string()).optional(),
 		}),
 	)
 	.handler(({ data: { id, ...fields }, context }) =>
@@ -404,6 +434,7 @@ export const createInboxCredentialFn = createServerFn({ method: "POST" })
 					name: credential.name,
 					permissions: credential.permissions,
 					send_scope: credential.send_scope,
+					scope: credential.scope,
 				},
 			});
 			return { credential: credentialView(credential), token };
@@ -418,6 +449,8 @@ export const updateInboxCredentialFn = createServerFn({ method: "POST" })
 			credential: z.string(),
 			permissions: permissions.optional(),
 			send_scope: z.enum(["replies", "anyone"]).optional(),
+			scope: z.enum(["inbox", "inboxes", "brand"]).optional(),
+			inbox_ids: z.array(z.string()).optional(),
 		}),
 	)
 	.handler(({ data: { id, credential: cid, ...fields }, context }) =>

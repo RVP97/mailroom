@@ -731,9 +731,10 @@ of the brand's sending domains (an inbox on a domain that sends uses its own add
 Reply-To the inbox. **Only send to** and **Never send to** lists hold for every reply from the
 inbox, an agent's or a person's.
 
-**Credentials** (`mri_…`, shown once, stored hashed) each reach one inbox and nothing else in
-Mailroom: other inboxes, the organization's emails, domains, keys and webhooks answer 404 or 403.
-They start read-only; grant what an agent needs:
+**Credentials** (`mri_…`, shown once, stored hashed) reach the inbox they're made on, or, if you
+choose, a list of the brand's inboxes or every inbox of the brand (new ones included), and nothing
+else in Mailroom: other inboxes, the organization's emails, domains, keys and webhooks answer 404
+or 403. They start read-only; grant what an agent needs:
 
 | Permission | Lets it |
 | --- | --- |
@@ -743,14 +744,15 @@ They start read-only; grant what an agent needs:
 | `draft` | write drafts for a person to approve |
 | `send` | send replies itself: only to people already in the conversation, unless its send scope is `anyone` |
 
-Rotate a credential to replace its secret, or revoke it; both take effect at once. The inbox's
+Rotate a credential to replace its secret, or revoke it; both take effect at once everywhere
+(credentials are checked on every request, not cached). The inbox's
 **Activity** records credential changes and what each agent read, drafted and sent (and who
 approved a draft).
 
 **Connecting an agent.** MCP: `https://<your Mailroom>/mcp` with
 `Authorization: Bearer mri_…` (no OAuth); it sees only the tools its credential allows
-(`list_conversations`, `get_conversation`, `search_messages`, `get_message`, `get_attachment`,
-`save_draft`, `send_reply`, `update_conversation`, `inbox_activity`). People connected to the MCP
+(`list_conversations`, `get_conversation`, `search_messages`, `get_message`, `update_message`,
+`get_attachment`, `save_draft`, `send_reply`, `update_conversation`, `inbox_activity`). People connected to the MCP
 server with OAuth get the same tools across their organizations' inboxes. REST, with the same
 credential or a full-access key:
 
@@ -765,8 +767,20 @@ curl -X PATCH "$MAILROOM/api/conversations/<id>" -H "Authorization: Bearer $MAIL
   -H "Content-Type: application/json" -d '{"status":"resolved"}'
 ```
 
+A conversation comes 50 items at a time, newest first: `has_more` and `before` page back
+(`?before=<before>&limit=`). Each message says whether *you* have read it: `?mark_read=true` on a
+conversation marks all of it read, `GET /api/messages/:id?mark_read=true` or
+`PATCH /api/messages/:id {"read": false}` one message; a conversation is unread while any of its
+messages is.
+
+Drafts and replies take `attachments` (up to 20 files, 20 MB together): new files
+(`{"filename", "content": <base64>, "content_type"}`), a message's attachment from the same
+conversation (`{"message_id", "attachment_id"}`, which needs `attachments`), or, on a draft, the
+files it has (`{"id"}`); given, the list replaces the draft's. A draft's new files wait in R2 and
+go when it's sent or discarded.
+
 Also: `GET /api/inboxes`, `GET /api/messages?q=&from=&since=&has_attachments=`,
-`GET /api/messages/:id`, `GET /api/messages/:id/attachments/:attachment_id`,
+`GET /api/messages/:id/attachments/:attachment_id`,
 `PATCH`/`DELETE /api/drafts/:id`, `POST /api/drafts/:id/send` and
 `GET /api/inboxes/:id/activity`. With a full-access key only: `POST /api/inboxes`,
 `PATCH`/`DELETE /api/inboxes/:id`, and `/api/inboxes/:id/credentials` (create, list, `PATCH`,
@@ -782,8 +796,8 @@ on the inbox's page (it gets only that inbox's events) or an organization-wide w
 events (it gets every inbox's). Payloads carry ids, addresses, the subject and a short snippet,
 never the message body: fetch it with the credential.
 
-Conversations and inbox activity are purged with the received emails after
-`INBOUND_RETENTION_DAYS`. A conversation's page and API show its newest 50 messages and replies.
+Conversations (with their drafts' files) and inbox activity are purged with the received emails
+after `INBOUND_RETENTION_DAYS`.
 
 ### One-click DNS (Domain Connect)
 

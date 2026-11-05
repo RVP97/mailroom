@@ -3,6 +3,8 @@ import { z } from "zod";
 import { maskDigits } from "../lib/permissions";
 import { bareAddress } from "./aws/mime";
 import { db, schema } from "./db";
+import type { ReplyAttachment } from "./db/schema";
+import { cfg } from "./env";
 import { ApiError, notFound, validation } from "./errors";
 import { attachmentsView, downloadUrl, parsedMessage, receivedView } from "./inbound";
 import { checkSendLists, type Inbox, type InboxActor, inboxFor, logInbox, need } from "./inboxes";
@@ -171,12 +173,12 @@ const chunk = <T>(list: T[], n: number) =>
 
 // ── Reading ────────────────────────────────────────────────────────────────
 
-/** What an actor may see: their brands, and an agent only its inbox. */
-function visible(actor: Pick<InboxActor, "brands" | "inboxId">) {
-	if (!actor.brands.length) return sql`0`;
+/** What an actor may see: their brands, and an agent only its inboxes. */
+function visible(actor: Pick<InboxActor, "brands" | "inboxIds">) {
+	if (!actor.brands.length || actor.inboxIds?.length === 0) return sql`0`;
 	return and(
 		inArray(c.organization_id, actor.brands),
-		actor.inboxId ? eq(c.inbox_id, actor.inboxId) : undefined,
+		actor.inboxIds ? inArray(c.inbox_id, actor.inboxIds) : undefined,
 	);
 }
 
@@ -185,9 +187,14 @@ function visible(actor: Pick<InboxActor, "brands" | "inboxId">) {
 const C_ID = sql.raw(`"conversations"."id"`);
 const C_INBOUND = sql.raw(`"conversations"."last_inbound_at"`);
 
+/**
+ * Unread for this reader: a message came in after their conversation mark (conversation_reads,
+ * everything up to read_at) that they haven't read on its own (message_reads). Backfilled
+ * conversations (no last_inbound_at) are read for everyone.
+ */
 const unreadSql = (reader: string | null) =>
 	reader
-		? sql<number>`(${C_INBOUND} IS NOT NULL AND NOT EXISTS (SELECT 1 FROM ${schema.conversationReads} r WHERE r.conversation_id = ${C_ID} AND r.reader = ${reader} AND r.read_at >= ${C_INBOUND}))`
+		? sql<number>`(${C_INBOUND} IS NOT NULL AND EXISTS (SELECT 1 FROM ${re} m WHERE m.conversation_id = ${C_ID} AND m.created_at > coalesce((SELECT r.read_at FROM ${schema.conversationReads} r WHERE r.conversation_id = ${C_ID} AND r.reader = ${reader}), '') AND NOT EXISTS (SELECT 1 FROM ${schema.messageReads} mr WHERE mr.message_id = m.id AND mr.reader = ${reader})))`
 		: sql<number>`0`;
 
 const draftsSql = sql<number>`(SELECT count(*) FROM ${rp} d WHERE d.conversation_id = ${C_ID} AND d.status = 'draft')`;
@@ -209,7 +216,7 @@ export async function listConversations(actor: InboxActor, f: ConversationFilter
 	const limit = Math.min(Math.max(f.limit ?? 25, 1), 100);
 	const conds = [visible(actor)];
 	if (f.inbox === "none") {
-		if (actor.inboxId) return { has_more: false, data: [] };
+		if (actor.inboxIds) return { has_more: false, data: [] };
 		conds.push(isNull(c.inbox_id));
 	} else if (f.inbox) conds.push(eq(c.inbox_id, (await inboxFor(actor, f.inbox)).id));
 	const status = f.status ?? "open";
@@ -291,35 +298,96 @@ export async function conversationFor(actor: InboxActor, id: string) {
 	return row;
 }
 
-const MAX_TIMELINE = 50;
+const TIMELINE_PAGE = 50;
+const REPLY_AT = sql<string>`coalesce(${rp.sent_at}, ${rp.updated_at})`;
+
+/** This reader's conversation mark and the messages they read on their own, among these. */
+async function readState(reader: string | null, conversationId: string, ids: string[]) {
+	if (!reader) return null;
+	const [mark, rows] = await Promise.all([
+		db
+			.select({ at: schema.conversationReads.read_at })
+			.from(schema.conversationReads)
+			.where(
+				and(
+					eq(schema.conversationReads.conversation_id, conversationId),
+					eq(schema.conversationReads.reader, reader),
+				),
+			)
+			.get(),
+		ids.length
+			? db
+					.select({ id: schema.messageReads.message_id })
+					.from(schema.messageReads)
+					.where(
+						and(
+							inArray(schema.messageReads.message_id, ids),
+							eq(schema.messageReads.reader, reader),
+						),
+					)
+			: [],
+	]);
+	return { mark: mark?.at ?? "", read: new Set(rows.map((r) => r.id)) };
+}
 
 /**
- * A conversation with its whole timeline: what came in (with bodies unless `bodies` is false),
- * our replies and drafts, and the email of ours it began as an answer to.
+ * A conversation with its timeline, newest page first: what came in (with bodies unless
+ * `bodies` is false; each read or unread for the caller), our replies and drafts, and the email
+ * of ours it began as an answer to. `before` (the previous page's `before`) pages back.
  */
 export async function getConversation(
 	actor: InboxActor,
 	id: string,
-	o: { bodies?: boolean; html?: boolean; markRead?: boolean; now?: number } = {},
+	o: {
+		bodies?: boolean;
+		html?: boolean;
+		markRead?: boolean;
+		before?: string | null;
+		limit?: number;
+		now?: number;
+	} = {},
 ) {
 	need(actor, "read");
 	const row = await conversationFor(actor, id);
-	const [messages, replies] = await Promise.all([
+	const limit = Math.min(Math.max(o.limit ?? TIMELINE_PAGE, 1), 100);
+	const [allMessages, allReplies] = await Promise.all([
 		db
 			.select()
 			.from(re)
-			.where(eq(re.conversation_id, id))
+			.where(
+				and(eq(re.conversation_id, id), o.before ? lt(re.created_at, o.before) : undefined),
+			)
 			.orderBy(desc(re.created_at))
-			.limit(MAX_TIMELINE),
+			.limit(limit + 1),
 		db
 			.select()
 			.from(rp)
-			.where(eq(rp.conversation_id, id))
-			.orderBy(desc(rp.created_at))
-			.limit(MAX_TIMELINE),
+			.where(and(eq(rp.conversation_id, id), o.before ? lt(REPLY_AT, o.before) : undefined))
+			.orderBy(desc(REPLY_AT))
+			.limit(limit + 1),
 	]);
+	// The newest `limit` of both, together.
+	const page = [
+		...allMessages.map((m) => ({ at: m.created_at, m, r: null })),
+		...allReplies.map((r) => ({ at: r.sent_at ?? r.updated_at, m: null, r })),
+	]
+		.sort((a, b) => b.at.localeCompare(a.at))
+		.slice(0, limit);
+	const hasMore = allMessages.length + allReplies.length > page.length;
+	const messages = page.flatMap((p) => (p.m ? [p.m] : []));
+	const replies = page.flatMap((p) => (p.r ? [p.r] : []));
+	const state = await readState(
+		actor.reader,
+		id,
+		messages.map((m) => m.id),
+	);
+	const unreadOf = (m: (typeof messages)[number]) =>
+		!!state && !!row.c.last_inbound_at && m.created_at > state.mark && !state.read.has(m.id);
 	const sentIds = replies.flatMap((r) => (r.email_id ? [r.email_id] : []));
-	const firstAnswers = messages.findLast((m) => m.answers_email_id)?.answers_email_id ?? null;
+	// The email it began as an answer to goes first, on the last page.
+	const firstAnswers = hasMore
+		? null
+		: (messages.findLast((m) => m.answers_email_id)?.answers_email_id ?? null);
 	const outbound = [...new Set([...sentIds, ...(firstAnswers ? [firstAnswers] : [])])];
 	const emails = outbound.length
 		? await db
@@ -350,6 +418,8 @@ export async function getConversation(
 				type: "inbound" as const,
 				id: m.id,
 				at: m.created_at,
+				/** For the caller (each reader has their own). */
+				unread: unreadOf(m),
 				from: v.from,
 				to: v.to,
 				cc: v.cc,
@@ -386,6 +456,7 @@ export async function getConversation(
 			cc: r.cc ?? [],
 			subject: dots(r.subject),
 			text: dots(r.text),
+			attachments: (r.attachments ?? []).map(({ key: _k, ...a }) => a),
 			author: { type: r.author_type, id: r.author_id, name: r.author_name },
 			sent_by: r.sent_by,
 			email_id: r.email_id,
@@ -425,6 +496,9 @@ export async function getConversation(
 	return {
 		...conversationView(row.c, o.markRead ? { ...row, unread: 0 } : row, actor),
 		timeline,
+		/** Older items: pass this as `before`. */
+		has_more: hasMore,
+		before: hasMore ? (page.at(-1)?.at ?? null) : null,
 	};
 }
 
@@ -445,7 +519,92 @@ export async function markRead(
 				target: [r.conversation_id, r.reader],
 				set: { read_at: iso(now) },
 			});
-	else await db.delete(r).where(and(eq(r.conversation_id, x.id), eq(r.reader, actor.reader)));
+	else {
+		const mr = schema.messageReads;
+		await db.batch([
+			db.delete(r).where(and(eq(r.conversation_id, x.id), eq(r.reader, actor.reader))),
+			db
+				.delete(mr)
+				.where(
+					and(
+						eq(mr.reader, actor.reader),
+						inArray(
+							mr.message_id,
+							db.select({ id: re.id }).from(re).where(eq(re.conversation_id, x.id)),
+						),
+					),
+				),
+		]);
+	}
+}
+
+/**
+ * Marks one received message read or unread for this reader only. Unread under their
+ * conversation mark moves the mark back to just before it, keeping later messages read.
+ */
+export async function markMessage(
+	actor: InboxActor,
+	messageId: string,
+	read: boolean,
+	now = Date.now(),
+) {
+	need(actor, "read");
+	const m = await messageFor(actor, messageId);
+	const reader = actor.reader;
+	if (!reader) return { id: m.id, unread: false };
+	const mr = schema.messageReads;
+	if (read) {
+		await db
+			.insert(mr)
+			.values({ message_id: m.id, reader, read_at: iso(now) })
+			.onConflictDoUpdate({ target: [mr.message_id, mr.reader], set: { read_at: iso(now) } });
+		if (actor.type === "agent")
+			await logInbox(actor, {
+				brandId: m.organization_id,
+				inboxId: m.inbox_id,
+				conversationId: m.conversation_id,
+				action: "message.read",
+				detail: { message_id: m.id },
+				now,
+			});
+		return { id: m.id, unread: false };
+	}
+	await db.delete(mr).where(and(eq(mr.message_id, m.id), eq(mr.reader, reader)));
+	const cr = schema.conversationReads;
+	const mark = m.conversation_id
+		? await db
+				.select()
+				.from(cr)
+				.where(and(eq(cr.conversation_id, m.conversation_id), eq(cr.reader, reader)))
+				.get()
+		: null;
+	if (m.conversation_id && mark && mark.read_at >= m.created_at) {
+		const back = iso(new Date(m.created_at).getTime() - 1);
+		const later = await db
+			.select({ id: re.id })
+			.from(re)
+			.where(
+				and(
+					eq(re.conversation_id, m.conversation_id),
+					lt(re.created_at, mark.read_at),
+					sql`${re.created_at} > ${back}`,
+					sql`${re.id} != ${m.id}`,
+				),
+			);
+		await db.batch([
+			db
+				.update(cr)
+				.set({ read_at: back })
+				.where(and(eq(cr.conversation_id, m.conversation_id), eq(cr.reader, reader))),
+			...later.map((l) =>
+				db
+					.insert(mr)
+					.values({ message_id: l.id, reader, read_at: iso(now) })
+					.onConflictDoNothing(),
+			),
+		]);
+	}
+	return { id: m.id, unread: true };
 }
 
 export const conversationUpdate = z.object({
@@ -496,11 +655,11 @@ const who = (a: Pick<InboxActor, "type" | "id" | "name">) => ({
 
 // ── Messages ───────────────────────────────────────────────────────────────
 
-function visibleMessages(actor: Pick<InboxActor, "brands" | "inboxId">) {
-	if (!actor.brands.length) return sql`0`;
+function visibleMessages(actor: Pick<InboxActor, "brands" | "inboxIds">) {
+	if (!actor.brands.length || actor.inboxIds?.length === 0) return sql`0`;
 	return and(
 		inArray(re.organization_id, actor.brands),
-		actor.inboxId ? eq(re.inbox_id, actor.inboxId) : undefined,
+		actor.inboxIds ? inArray(re.inbox_id, actor.inboxIds) : undefined,
 	);
 }
 
@@ -586,11 +745,18 @@ export async function messageFor(actor: InboxActor, id: string) {
 	return row;
 }
 
-/** One message with its content; attachment links only with "attachments". */
-export async function getMessage(actor: InboxActor, id: string, now = Date.now()) {
+/** One message with its content; attachment links only with "attachments". `markRead` marks
+ * it read for the caller. */
+export async function getMessage(
+	actor: InboxActor,
+	id: string,
+	o: { markRead?: boolean; now?: number } = {},
+) {
+	const now = o.now ?? Date.now();
 	const row = await messageFor(actor, id);
 	const v = await receivedView(row);
 	const m = actor.masked;
+	if (o.markRead) await markMessage(actor, row.id, true, now);
 	return {
 		...v,
 		inbox_id: row.inbox_id,
@@ -660,7 +826,25 @@ const addresses = z
 		(Array.isArray(v) ? v : v.split(/[,;]+/)).map((a) => a.trim()).filter(Boolean),
 	);
 
+const replyFile = z.union([
+	/** A file already on the draft, kept. */
+	z.object({ id: z.string() }).strict(),
+	/** A new file. */
+	z.object({
+		filename: z.string().trim().min(1).max(255),
+		content: z
+			.string()
+			.transform((s) => s.replace(/\s+/g, ""))
+			.refine((s) => /^[A-Za-z0-9+/]*={0,2}$/.test(s), "content: base64"),
+		content_type: z.string().max(255).optional(),
+	}),
+	/** An attachment of a message in this conversation, sent on. */
+	z.object({ message_id: z.string(), attachment_id: z.string() }),
+]);
+
 export const replyInput = z.object({
+	/** Replaces the draft's files when given ([] removes them). */
+	attachments: z.array(replyFile).max(20).optional(),
 	text: z.string().max(100_000).optional(),
 	html: z.string().max(500_000).nullish(),
 	to: addresses.optional(),
@@ -669,6 +853,126 @@ export const replyInput = z.object({
 	/** A person may pick the From (an address on one of the brand's sending domains). */
 	from: z.string().trim().max(320).optional(),
 });
+
+// ── Reply attachments ──────────────────────────────────────────────────────
+
+const MAX_REPLY_FILES = 20;
+/** All of a reply's files together (SES takes 40 MB a message, base64 included). */
+const MAX_REPLY_BYTES = 20 * 1024 * 1024;
+const files = () => cfg().INBOUND ?? null;
+
+function toBase64(bytes: Uint8Array) {
+	let bin = "";
+	for (let i = 0; i < bytes.length; i += 0x8000)
+		bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+	return btoa(bin);
+}
+
+const base64Size = (s: string) =>
+	Math.floor((s.length * 3) / 4) - (s.match(/=+$/)?.[0].length ?? 0);
+
+/** The files a draft or reply is to have: new ones stored, received ones checked (the caller
+ * needs "attachments" to send those on), kept ones found among `current`. */
+async function prepareFiles(
+	actor: InboxActor,
+	x: Pick<Conversation, "id">,
+	input: z.infer<typeof replyFile>[],
+	current: ReplyAttachment[],
+): Promise<ReplyAttachment[]> {
+	if (input.length > MAX_REPLY_FILES) throw validation(`Up to ${MAX_REPLY_FILES} files`);
+	const out: ReplyAttachment[] = [];
+	const stored: string[] = [];
+	try {
+		for (const f of input) {
+			if ("id" in f) {
+				const kept = current.find((a) => a.id === f.id);
+				if (!kept) throw notFound("Attachment");
+				out.push(kept);
+			} else if ("message_id" in f) {
+				need(actor, "attachments");
+				const m = await messageFor(actor, f.message_id);
+				if (m.conversation_id !== x.id) throw notFound("Message");
+				const meta = m.attachments?.find((a) => a.id === f.attachment_id);
+				if (!meta) throw notFound("Attachment");
+				out.push({
+					id: crypto.randomUUID(),
+					filename: meta.filename ?? "attachment",
+					content_type: meta.content_type,
+					size: meta.size,
+					message_id: m.id,
+					attachment_id: meta.id,
+				});
+			} else {
+				const bucket = files();
+				if (!bucket) throw validation("Attachments need the INBOUND R2 bucket");
+				const id = crypto.randomUUID();
+				const key = `reply-files/${x.id}/${id}`;
+				const bytes = Uint8Array.from(atob(f.content), (ch) => ch.charCodeAt(0));
+				await bucket.put(key, bytes, {
+					httpMetadata: { contentType: f.content_type ?? "application/octet-stream" },
+				});
+				stored.push(key);
+				out.push({
+					id,
+					filename: f.filename,
+					content_type: f.content_type ?? null,
+					size: base64Size(f.content),
+					key,
+				});
+			}
+		}
+		const total = out.reduce((n, a) => n + a.size, 0);
+		if (total > MAX_REPLY_BYTES)
+			throw validation(
+				`Attachments: up to ${MAX_REPLY_BYTES / 1024 / 1024} MB together (these are ${(total / 1024 / 1024).toFixed(1)} MB)`,
+			);
+		return out;
+	} catch (error) {
+		await files()?.delete(stored);
+		throw error;
+	}
+}
+
+/** The files' bytes, for sending. */
+async function fileContents(list: ReplyAttachment[]) {
+	return Promise.all(
+		list.map(async (a) => {
+			let content: string | null = null;
+			if (a.key) {
+				const obj = await files()?.get(a.key);
+				if (obj) content = toBase64(new Uint8Array(await obj.arrayBuffer()));
+			} else if (a.message_id) {
+				const m = await db.select().from(re).where(eq(re.id, a.message_id)).get();
+				const index = (m?.attachments ?? []).findIndex((x) => x.id === a.attachment_id);
+				const parsed = m && index >= 0 ? await parsedMessage(m).catch(() => null) : null;
+				const p = parsed?.attachments[index];
+				if (p)
+					content = toBase64(
+						typeof p.content === "string"
+							? new TextEncoder().encode(p.content)
+							: new Uint8Array(p.content),
+					);
+			}
+			if (content === null)
+				throw validation(
+					`${a.filename} is no longer available: remove it and add it again`,
+				);
+			return {
+				filename: a.filename,
+				content,
+				...(a.content_type ? { content_type: a.content_type } : {}),
+			};
+		}),
+	);
+}
+
+/** Drops uploaded files' bytes (a draft discarded, a reply sent: the email keeps its own copy). */
+async function dropFiles(list: ReplyAttachment[] | null | undefined) {
+	const keys = (list ?? []).flatMap((a) => (a.key ? [a.key] : []));
+	if (keys.length) await files()?.delete(keys);
+}
+
+const sentFiles = (list: ReplyAttachment[]) => list.map(({ key: _k, ...a }) => a);
 
 async function inboxOfConversation(x: Conversation): Promise<Inbox | null> {
 	if (!x.inbox_id) return null;
@@ -746,9 +1050,17 @@ export async function saveDraft(
 	if (o.draftId) {
 		const draft = await draftFor(actor, o.draftId);
 		if (draft.conversation_id !== x.id) throw notFound("Draft");
+		const attachments = v.attachments
+			? await prepareFiles(actor, x, v.attachments, draft.attachments ?? [])
+			: undefined;
+		if (attachments)
+			await dropFiles(
+				draft.attachments?.filter((a) => !attachments.some((n) => n.id === a.id)),
+			);
 		const [row] = await db
 			.update(rp)
 			.set({
+				...(attachments ? { attachments: attachments.length ? attachments : null } : {}),
 				...(v.text !== undefined ? { text: v.text } : {}),
 				...(v.html !== undefined ? { html: v.html ?? null } : {}),
 				...(v.to ? { to: v.to } : {}),
@@ -770,7 +1082,11 @@ export async function saveDraft(
 		return replyView(row as Reply);
 	}
 	if (!v.text?.trim()) throw validation("text: write the reply");
+	const attachments = v.attachments?.length
+		? await prepareFiles(actor, x, v.attachments, [])
+		: null;
 	const row = {
+		attachments,
 		id: crypto.randomUUID(),
 		organization_id: x.organization_id,
 		conversation_id: x.id,
@@ -825,6 +1141,7 @@ export async function deleteDraft(actor: InboxActor, id: string) {
 	need(actor, "draft");
 	const d = await draftFor(actor, id);
 	await db.delete(rp).where(eq(rp.id, d.id));
+	await dropFiles(d.attachments);
 	await logInbox(actor, {
 		brandId: d.organization_id,
 		inboxId: d.inbox_id,
@@ -846,6 +1163,7 @@ export const replyView = (r: Reply) => ({
 	subject: r.subject,
 	text: r.text,
 	html: r.html,
+	attachments: sentFiles(r.attachments ?? []),
 	author: { type: r.author_type, id: r.author_id, name: r.author_name },
 	sent_by: r.sent_by,
 	email_id: r.email_id,
@@ -908,6 +1226,11 @@ export async function sendReply(
 			);
 	}
 	if (inbox) checkSendLists(inbox, recipients);
+	// New files given now are stored first (and dropped again if the send fails).
+	const attachments = v.attachments
+		? await prepareFiles(actor, x, v.attachments, draft?.attachments ?? [])
+		: (draft?.attachments ?? []);
+	const added = attachments.filter((a) => !draft?.attachments?.some((k) => k.id === a.id));
 	const last = d.last;
 	const parent = last?.message_id ? `<${normalizeId(last.message_id)}>` : null;
 	const chain = [
@@ -918,31 +1241,41 @@ export async function sendReply(
 	const quoted = last
 		? `\n\nOn ${new Date(last.created_at).toUTCString()}, ${last.from} wrote: "${last.subject}"`
 		: "";
-	const emailId = await sender.send(x.organization_id, {
-		brand: x.organization_id,
-		from,
-		to,
-		...(cc.length ? { cc } : {}),
-		...(inbox && lowerBare(from) !== inbox.address ? { reply_to: [inbox.address] } : {}),
-		subject,
-		text: `${text}${quoted}`,
-		html:
-			html ??
-			`<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;white-space:pre-wrap">${escaped}</div>`,
-		...(parent
-			? {
-					headers: {
-						"In-Reply-To": parent,
-						References: chain.map((r) => `<${r}>`).join(" "),
-					},
-				}
-			: {}),
-		tags: [
-			{ name: "conversation", value: x.id },
-			...(last ? [{ name: "reply_to_received", value: last.id }] : []),
-		],
-	});
+	let emailId: string;
+	try {
+		emailId = await sender.send(x.organization_id, {
+			brand: x.organization_id,
+			...(attachments.length ? { attachments: await fileContents(attachments) } : {}),
+			from,
+			to,
+			...(cc.length ? { cc } : {}),
+			...(inbox && lowerBare(from) !== inbox.address ? { reply_to: [inbox.address] } : {}),
+			subject,
+			text: `${text}${quoted}`,
+			html:
+				html ??
+				`<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;white-space:pre-wrap">${escaped}</div>`,
+			...(parent
+				? {
+						headers: {
+							"In-Reply-To": parent,
+							References: chain.map((r) => `<${r}>`).join(" "),
+						},
+					}
+				: {}),
+			tags: [
+				{ name: "conversation", value: x.id },
+				...(last ? [{ name: "reply_to_received", value: last.id }] : []),
+			],
+		});
+	} catch (error) {
+		await dropFiles(added);
+		throw error;
+	}
+	// The email keeps its own copy of the files.
+	await dropFiles(attachments);
 	const values = {
+		attachments: attachments.length ? sentFiles(attachments) : null,
 		status: "sent",
 		from,
 		to,
@@ -1062,6 +1395,20 @@ export async function purgeConversations(before: string, rounds = 10) {
 			.orderBy(asc(c.last_message_at))
 			.limit(90);
 		if (!rows.length) return;
+		// Drafts' uploaded files go with them.
+		const drafts = await db
+			.select({ a: rp.attachments })
+			.from(rp)
+			.where(
+				and(
+					inArray(
+						rp.conversation_id,
+						rows.map((r) => r.id),
+					),
+					eq(rp.status, "draft"),
+				),
+			);
+		await dropFiles(drafts.flatMap((d) => d.a ?? []));
 		await db.delete(c).where(
 			inArray(
 				c.id,

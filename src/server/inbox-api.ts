@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import type { KeyAuth } from "./api-keys";
 import { brandIds, brandIn } from "./brands";
 import {
@@ -9,6 +10,7 @@ import {
 	getConversation,
 	getMessage,
 	listConversations,
+	markMessage,
 	type Sender,
 	saveDraft,
 	searchMessages,
@@ -108,7 +110,7 @@ export async function keyActor(auth: KeyAuth): Promise<InboxActor> {
 	return {
 		organizationId: auth.organizationId,
 		brands: auth.brandId ? [auth.brandId] : await brandIds(auth.organizationId),
-		inboxId: null,
+		inboxIds: null,
 		permissions: ALL_INBOX_PERMISSIONS,
 		sendScope: "anyone",
 		type: "api",
@@ -162,6 +164,8 @@ export const agentRoutes: [string, RegExp, Handler][] = [
 				await getConversation(actor, p.id as string, {
 					html: flag(url, "html") ?? false,
 					markRead: flag(url, "mark_read") ?? false,
+					before: url.searchParams.get("before"),
+					limit: num(url, "limit"),
 				}),
 			),
 	],
@@ -233,7 +237,23 @@ export const agentRoutes: [string, RegExp, Handler][] = [
 	[
 		"GET",
 		/^\/messages\/(?<id>[^/]+)$/,
-		async (_req, actor, p) => json(await getMessage(actor, p.id as string)),
+		async (_req, actor, p, url) =>
+			json(
+				await getMessage(actor, p.id as string, {
+					markRead: flag(url, "mark_read") ?? false,
+				}),
+			),
+	],
+	[
+		"PATCH",
+		/^\/messages\/(?<id>[^/]+)$/,
+		async (req, actor, p) => {
+			const v = z.object({ read: z.boolean() }).parse(await body(req));
+			return json({
+				object: "message",
+				...(await markMessage(actor, p.id as string, v.read)),
+			});
+		},
 	],
 	[
 		"GET",

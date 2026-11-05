@@ -302,6 +302,13 @@
       "when": 1793847068116,
       "tag": "0042_agent_inboxes",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "6",
+      "when": 1793850053346,
+      "tag": "0043_agent_inbox_limits",
+      "breakpoints": true
     }
   ]
 }
