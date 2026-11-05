@@ -5,6 +5,8 @@ transactional email with a Resend-compatible API, newsletters and broadcasts wit
 automations, receiving, and deliverability monitoring, for as many businesses as you like, on your
 own AWS and Cloudflare accounts.
 
+**Website:** [rvp97.github.io/mailroom](https://rvp97.github.io/mailroom/) (its source is in [`site/`](site/))
+
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/RVP97/mailroom)
 
 ![The overview: emails sent, delivered, opened and clicked over 30 days, with bounce and complaint rates against SES's review lines](docs/screenshots/overview.png)
