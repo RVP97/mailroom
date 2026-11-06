@@ -60,8 +60,8 @@ function demo(): Plugin {
 						)
 						// Same origin, so the demo's service worker answers the widget's calls too.
 						.replace(
-							'sandbox="allow-scripts"',
-							'sandbox="allow-scripts allow-same-origin"',
+							'sandbox="allow-scripts allow-forms"',
+							'sandbox="allow-scripts allow-forms allow-same-origin"',
 						)
 				);
 			if (id === `${SRC}components/org-logo-card.tsx`)

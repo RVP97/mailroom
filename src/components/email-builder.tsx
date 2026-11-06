@@ -48,6 +48,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { Choice, ColorField, Group, Labeled, SwitchRow } from "@/components/design-controls";
+import { LiveFrame } from "@/components/live-frame";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -107,6 +108,7 @@ import {
 	textLook,
 } from "@/lib/email-doc";
 import { errorMessage } from "@/lib/errors";
+import { useLiveFrame } from "@/lib/live-frame";
 import { useMe } from "@/lib/me";
 import {
 	CHIP,
@@ -633,10 +635,9 @@ function PreviewFrame({ doc, phone }: { doc: EmailDoc; phone: boolean }) {
 	const html = useMemo(() => sampleFill(renderEmail(doc)), [doc]);
 	return (
 		<div className={cn("flex min-h-full justify-center", phone ? "px-4 py-8" : "")}>
-			<iframe
+			<LiveFrame
 				title="Preview"
-				sandbox=""
-				srcDoc={html}
+				html={html}
 				className={cn(
 					"block w-full bg-white",
 					phone
@@ -1079,13 +1080,15 @@ function cssOf(s: string): CSSProperties {
  * it. Same-origin only so the canvas can read its height; scripts stay off, which is what matters.
  */
 function HtmlBlockPreview({ html, theme: t }: { html: string; theme: Theme }) {
-	const ref = useRef<HTMLIFrameElement>(null);
 	const [height, setHeight] = useState(40);
 	const doc = useMemo(
 		() =>
 			`<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: http: data:; style-src 'unsafe-inline'; font-src https: data:"><style>html,body{margin:0;background:transparent;overflow:hidden}body{font-family:${bodyStack(t).replace(/</g, "")};font-size:${t.size}px;line-height:1.65;color:${t.text}}img{max-width:100%}</style></head><body>${html}</body></html>`,
 		[html, t],
 	);
+	// Typing in the block changes it in place: no reload, so no flash.
+	const live = useLiveFrame(doc);
+	const ref = live.ref;
 	useEffect(() => {
 		const frame = ref.current;
 		if (!frame) return;
@@ -1106,13 +1109,14 @@ function HtmlBlockPreview({ html, theme: t }: { html: string; theme: Theme }) {
 			frame.removeEventListener("load", measure);
 			observer?.disconnect();
 		};
-	}, []);
+	}, [ref]);
 	return (
 		<iframe
 			ref={ref}
 			title="HTML block"
-			srcDoc={doc}
-			sandbox="allow-same-origin"
+			srcDoc={live.srcDoc}
+			sandbox={live.sandbox}
+			onLoad={live.onLoad}
 			className="pointer-events-none block w-full border-0"
 			style={{ height }}
 		/>
@@ -2772,11 +2776,10 @@ export function Thumb({ doc, height = 900 }: { doc: EmailDoc; height?: number })
 			ref={box}
 			className="pointer-events-none absolute inset-0 block overflow-hidden"
 		>
-			<iframe
+			<LiveFrame
 				title="Design"
-				sandbox=""
 				tabIndex={-1}
-				srcDoc={html}
+				html={html}
 				style={{
 					width: 680,
 					height,

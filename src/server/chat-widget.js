@@ -309,7 +309,7 @@ function mailroomChat(c) {
 			".av img{width:100%;height:100%;object-fit:cover}" +
 			".col{display:flex;flex-direction:column;gap:3px;min-width:0;max-width:78%}.me .col{align-items:flex-end}" +
 			".name{font-size:12px;color:var(--muted);margin:0 0 2px 4px;font-weight:500}" +
-			".msg{padding:9px 13px;border-radius:18px;background:var(--soft);white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;animation:pop .22s cubic-bezier(.2,.8,.2,1);max-width:100%}" +
+			".msg{padding:9px 13px;border-radius:18px;background:var(--soft);white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;max-width:100%}.msg.new{animation:pop .22s cubic-bezier(.2,.8,.2,1)}" +
 			".msg a{color:inherit;text-decoration:underline;text-underline-offset:2px}" +
 			".me .msg{background:var(--accent);color:var(--on-accent)}" +
 			".grp:not(.me) .msg:not(:last-of-type){border-bottom-left-radius:6px}.grp:not(.me) .msg+.msg,.grp:not(.me) .msg+.file,.grp:not(.me) .file+.msg{border-top-left-radius:6px}" +
@@ -784,6 +784,16 @@ function mailroomChat(c) {
 			: null;
 	}
 
+	// Lines already on screen: a redraw (new settings, a refresh) keeps them still, and only a
+	// line that's new pops in.
+	var seen = {};
+	function fresh(m) {
+		var k = m.client_id || m.id || m.text;
+		if (seen[k]) return false;
+		seen[k] = true;
+		return true;
+	}
+
 	function render() {
 		list.textContent = "";
 		var msgs = state.messages.slice();
@@ -835,7 +845,11 @@ function mailroomChat(c) {
 			if (old) old.remove();
 			if (m.text) {
 				var b = h("div", {
-					class: "msg" + (m.pending ? " pending" : "") + (m.failed ? " failed" : ""),
+					class:
+						"msg" +
+						(fresh(m) ? " new" : "") +
+						(m.pending ? " pending" : "") +
+						(m.failed ? " failed" : ""),
 				});
 				b.appendChild(linkify(m.text));
 				colEl.appendChild(b);
@@ -1799,22 +1813,37 @@ function mailroomChat(c) {
 			});
 		}, 1400);
 	}
+	// The page sends the settings a few times (until the widget is there): the same ones again
+	// change nothing, so nothing is redrawn.
+	var lastDesign = null;
 	function applyDesign(next) {
+		var json = JSON.stringify(next);
+		if (json === lastDesign) return;
+		lastDesign = json;
 		for (var k in next) cfg[k] = next[k];
 		LANG = cfg.language === "es" ? "es" : "en";
 		dark = isDark();
-		root.className = rootClass();
-		style.textContent = css(cfg);
+		var rc = rootClass();
+		if (root.className !== rc) root.className = rc;
+		var sheet = css(cfg);
+		if (style.textContent !== sheet) style.textContent = sheet;
 		head.querySelector(".ht b").textContent = cfg.title;
 		var small = head.querySelector(".ht small span:last-child");
 		if (small) small.textContent = cfg.subtitle || "";
 		var hs = head.querySelector(".ht small");
 		if (hs) hs.style.display = cfg.subtitle ? "" : "none";
 		var lg = head.querySelector(".logo");
-		if (lg) lg.replaceWith(logoEl("logo"));
+		var nl = logoEl("logo");
+		if (lg && !lg.isEqualNode(nl)) lg.replaceWith(nl);
 		input.placeholder = cfg.placeholder || T("Write a message…");
-		launcher.className = "launcher" + (cfg.launcher === "label" ? " label" : "");
-		launcher.querySelector(".ic").innerHTML = launcherIcon();
+		var lc = "launcher" + (cfg.launcher === "label" ? " label" : "");
+		if (launcher.className !== lc) launcher.className = lc;
+		var ic = launcher.querySelector(".ic");
+		var icon = launcherIcon();
+		if (ic._src !== icon) {
+			ic.innerHTML = icon;
+			ic._src = icon;
+		}
 		var lt = launcher.querySelector(".lt");
 		if (cfg.launcher === "label") {
 			if (!lt)
@@ -1850,11 +1879,13 @@ function mailroomChat(c) {
 				at: new Date(Date.now() - 3 * 60000).toISOString(),
 			},
 		];
+		var lastView = null;
 		window.addEventListener("message", (e) => {
 			if (!e.data) return;
 			if (e.data.type === "mailroom-chat-design") applyDesign(e.data.config || {});
 			// What the preview shows: the chat open, closed, or the greeting popped up.
-			if (e.data.type === "mailroom-chat-view") {
+			if (e.data.type === "mailroom-chat-view" && e.data.view !== lastView) {
+				lastView = e.data.view;
 				nudge.classList.remove("on");
 				if (e.data.view === "open") openPanel();
 				else {

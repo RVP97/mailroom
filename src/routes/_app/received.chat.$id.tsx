@@ -624,7 +624,8 @@ function Canvas({
 						ref={frame}
 						key={`${site}-${phone}`}
 						title="How the chat looks on a website"
-						sandbox="allow-scripts"
+						// Forms too, so writing in the preview sends (its own handler keeps it here).
+						sandbox="allow-scripts allow-forms"
 						srcDoc={doc}
 						onLoad={() => {
 							push();

@@ -45,6 +45,7 @@ import { EmailBuilder } from "@/components/email-builder";
 import { EmailContent } from "@/components/email-content";
 import { ClientSelect, InboxNotes } from "@/components/inbox-notes";
 import { ListSelect } from "@/components/list-dialogs";
+import { LiveFrame } from "@/components/live-frame";
 import { Page } from "@/components/page";
 import { Fact, Facts, IdChip, RecordHeader } from "@/components/record";
 import { Button } from "@/components/ui/button";
@@ -1346,10 +1347,9 @@ function Preview({ form, email }: { form: Form; email: string }) {
 					phone && "px-4 py-6",
 				)}
 			>
-				<iframe
+				<LiveFrame
 					title="Preview"
-					sandbox=""
-					srcDoc={shown}
+					html={shown}
 					className={cn(
 						"mx-auto block h-[560px] w-full bg-white sm:h-[720px]",
 						phone &&

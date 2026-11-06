@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Choice, ColorField, SwitchRow } from "@/components/design-controls";
 import { ImagePick } from "@/components/email-builder";
+import { LiveFrame } from "@/components/live-frame";
 import { FontPick, Part, Preview, Row } from "@/components/newsletter-look-editor";
 import { Button } from "@/components/ui/button";
 import {
@@ -637,10 +638,9 @@ function Templates({
 									height: THUMB.h * THUMB.scale,
 								}}
 							>
-								<iframe
+								<LiveFrame
 									title={t.name}
-									srcDoc={t.html}
-									sandbox=""
+									html={t.html}
 									tabIndex={-1}
 									aria-hidden
 									loading="lazy"

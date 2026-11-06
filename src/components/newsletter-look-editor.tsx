@@ -2,6 +2,7 @@ import { Monitor, Moon, Plus, Smartphone, Sun, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Choice, ColorField, SwitchRow } from "@/components/design-controls";
 import { ImagePick } from "@/components/email-builder";
+import { LiveFrame } from "@/components/live-frame";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -589,12 +590,12 @@ export function Preview({
 						)}
 					/>
 				) : shown ? (
-					<iframe
+					<LiveFrame
 						title="Public page preview"
 						// No scripts; same origin so its pictures load as the page's own would
-						// (the demo's logos come from its service worker, which only answers it).
-						sandbox="allow-same-origin"
-						srcDoc={shown}
+						// (the demo's logos come from its service worker, which only answers it),
+						// and each new drawing is patched in rather than reloaded.
+						html={shown}
 						style={{ height }}
 						className={cn(
 							"max-w-full rounded-lg border border-border/70 bg-white transition-[width] duration-300 ease-out",

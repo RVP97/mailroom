@@ -22,6 +22,7 @@ import { ContentChecks } from "@/components/content-checks";
 import { useCopy } from "@/components/copy";
 import { EmailBuilder } from "@/components/email-builder";
 import { EmailContent } from "@/components/email-content";
+import { LiveFrame } from "@/components/live-frame";
 import { Page } from "@/components/page";
 import { Fact, Facts, IdChip, RecordHeader } from "@/components/record";
 import { TemplateStatus } from "@/components/template-status";
@@ -559,10 +560,9 @@ function TemplatePage() {
 							phone && "px-4 py-6",
 						)}
 					>
-						<iframe
+						<LiveFrame
 							title="Preview"
-							sandbox=""
-							srcDoc={preview}
+							html={preview}
 							className={cn(
 								"mx-auto block h-[560px] w-full bg-white sm:h-[720px]",
 								phone &&
