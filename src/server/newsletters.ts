@@ -16,8 +16,10 @@ import {
 	lookCss,
 	lookOf,
 	PAGE_FONTS,
+	PAGE_WORDS,
 	type PageFont,
 	shapeVars,
+	wordOf,
 } from "../lib/newsletter-look";
 import { type FeedItem, parseFeed } from "../lib/rss";
 import { esc, parseDesign } from "../lib/signup-form-render";
@@ -26,7 +28,7 @@ import { bareAddress } from "./aws/mime";
 import type { Broadcast } from "./broadcasts";
 import type { Contact } from "./contacts";
 import { db, schema } from "./db";
-import type { NewsletterLook, ReferralReward } from "./db/schema";
+import type { NewsletterLook, PageWord, ReferralReward } from "./db/schema";
 import { ApiError, notFound, validation } from "./errors";
 import { domainFor, type OrgContext, orgContext } from "./org";
 import { ownHostBase, publicUrl, shownHere } from "./public-host";
@@ -96,6 +98,16 @@ const lookInput = z.object({
 	corners: z.enum(["square", "soft", "round"]).nullish(),
 	borders: z.boolean().nullish(),
 	bar: z.enum(["glass", "solid", "none"]).nullish(),
+	words: z
+		.object(
+			Object.fromEntries(
+				PAGE_WORDS.map((k) => [k, z.string().trim().max(300).nullish()]),
+			) as Record<PageWord, z.ZodOptional<z.ZodNullable<z.ZodString>>>,
+		)
+		.partial()
+		.nullish(),
+	show_count: z.boolean().nullish(),
+	show_rss: z.boolean().nullish(),
 });
 
 const reward = z.object({
@@ -584,7 +596,7 @@ export function dressFonts(d: Dress) {
 /** A page's top bar: its logo and name (to the archive), and a Subscribe button. */
 export function dressBar(d: Dress, extra = "") {
 	const inner = `${d.logo ? `<img src="${esc(d.logo)}" alt="">` : ""}<span>${esc(d.name)}</span>`;
-	return `<header class="mrw mrw-bar"><div>${d.home ? `<a class="mrw-home" href="${esc(d.home)}">${inner}</a>` : `<span class="mrw-home">${inner}</span>`}${extra}${d.subscribe && d.home ? `<a class="mrw-btn sm" href="${esc(d.home)}#subscribe">Subscribe</a>` : ""}</div></header>`;
+	return `<header class="mrw mrw-bar"><div>${d.home ? `<a class="mrw-home" href="${esc(d.home)}">${inner}</a>` : `<span class="mrw-home">${inner}</span>`}${extra}${d.subscribe && d.home ? `<a class="mrw-btn sm" href="${esc(d.home)}#subscribe">${esc(wordOf(d.look, "subscribe", d.name))}</a>` : ""}</div></header>`;
 }
 
 /** A whole page in a newsletter's dress. */
@@ -649,7 +661,7 @@ async function issuePage(x: Broadcast, n: Newsletter | null) {
 		const others = (await issuesOf(n.id, { web: true, limit: 4 })).filter((o) => o.id !== x.id);
 		const clean = (s: string) => fill(s, values).replace(/\{\{\{[^}]*\}\}\}/g, "");
 		if (others.length)
-			more = `<div class="mrw-more"><h3>More from ${esc(n.name)}</h3>${others
+			more = `<div class="mrw-more"><h3>${esc(wordOf(d.look, "more", n.name))}</h3>${others
 				.slice(0, 3)
 				.map(
 					(o) =>
@@ -659,7 +671,7 @@ async function issuePage(x: Broadcast, n: Newsletter | null) {
 	}
 	const cta =
 		d.subscribe && d.home
-			? `<div class="mrw-cta"><h2>Get the next one in your inbox</h2><p>${esc(n?.description || `Subscribe to ${d.name} and each new issue comes to you.`)}</p><a class="mrw-btn" href="${esc(d.home)}#subscribe">Subscribe</a></div>`
+			? `<div class="mrw-cta"><h2>${esc(wordOf(d.look, "cta_title", d.name))}</h2><p>${esc(wordOf(d.look, "cta_text", d.name) || n?.description || `Subscribe to ${d.name} and each new issue comes to you.`)}</p><a class="mrw-btn" href="${esc(d.home)}#subscribe">${esc(wordOf(d.look, "subscribe", d.name))}</a></div>`
 			: "";
 	const after = cta || more ? `<div class="mrw mrw-after">${cta}${more}</div>` : "";
 	if (!/<html[\s>]/i.test(doc))
@@ -707,7 +719,8 @@ export async function archivePage(n: Newsletter, u: URL) {
 			const { brandWidget } = await import("./turnstile");
 			const { embedHtml } = await import("../lib/signup-form-render");
 			const sitekey = (await brandWidget(f.organization_id))?.sitekey;
-			// The form wears the page's look: its color and fonts, and no second title (the page has it).
+			// The form wears the page's look: its color and fonts, and no second title or logo (the
+			// page has its own, or none when its logo is set to None).
 			const own = parseDesign(f.design);
 			const dark = l.theme === "dark";
 			const design = {
@@ -717,6 +730,7 @@ export async function archivePage(n: Newsletter, u: URL) {
 				accent: n.accent ?? own.accent,
 				eyebrow: "",
 				show_title: false,
+				show_logo: false,
 				...(dark ? { background: "#18181b", text: "#f4f4f5" } : {}),
 			};
 			form = embedHtml(await renderInput(f, carried(u)), design, { sitekey });
@@ -729,7 +743,7 @@ export async function archivePage(n: Newsletter, u: URL) {
 	const preview = (x: Broadcast) =>
 		x.preview_text ? `<span class="p">${esc(clean(x.preview_text))}</span>` : "";
 	let list: string;
-	if (!issues.length) list = `<p class="empty">The first issue is on its way.</p>`;
+	if (!issues.length) list = `<p class="empty">${esc(wordOf(l, "empty", n.name))}</p>`;
 	else if (l.layout === "cards")
 		list = `<div class="cards">${issues
 			.map((x, i) => {
@@ -750,15 +764,22 @@ export async function archivePage(n: Newsletter, u: URL) {
 	const links = l.links.length
 		? `<nav class="links">${l.links.map((k) => `<a class="mrw-ghost" href="${esc(k.url)}" rel="noopener" target="_blank">${esc(k.label)}</a>`).join("")}</nav>`
 		: "";
-	const count = issues.length
-		? `${issues.length.toLocaleString("en-US")} ${issues.length === 1 ? "issue" : "issues"}`
-		: "";
+	const count =
+		issues.length && l.show_count
+			? `${issues.length.toLocaleString("en-US")} ${issues.length === 1 ? "issue" : "issues"}`
+			: "";
 	const subscribe = form
 		? `<section id="subscribe" class="sub ${l.form_position}">${form}</section>`
 		: "";
 	const image = l.cover ?? (issues[0] ? firstImage(issues[0]) : null);
 	const head = `${n.description ? `<meta name="description" content="${esc(n.description)}"><meta property="og:description" content="${esc(n.description)}">` : ""}<meta property="og:title" content="${esc(n.name)}"><meta property="og:type" content="website"><meta property="og:url" content="${esc(url)}">${image ? `<meta property="og:image" content="${esc(absolute(image) ?? "")}"><meta name="twitter:card" content="summary_large_image">` : ""}${d.logo ? `<link rel="icon" href="${esc(d.logo)}">` : ""}<link rel="canonical" href="${esc(url)}"><link rel="alternate" type="application/rss+xml" title="${esc(n.name)}" href="${esc(url)}/feed.xml">`;
 	const left = l.align === "left";
+	// "-" hides the heading; empty is the default.
+	const heading =
+		l.words.issues_heading?.trim() === "-" ? "" : wordOf(l, "issues_heading", n.name);
+	const footer = l.words.footer
+		? esc(wordOf(l, "footer", n.name))
+		: `&copy; ${new Date().getUTCFullYear()} ${esc(d.brand || n.name)}`;
 	const css = `
 .cover{height:clamp(160px,30vw,320px);background:var(--line) center/cover no-repeat}
 main{max-width:760px;margin:0 auto;padding:56px 20px 72px}
@@ -793,7 +814,7 @@ h1{margin:0;font-size:clamp(30px,6vw,46px);line-height:1.1;letter-spacing:-.025e
 .empty{padding:28px 4px;color:var(--soft);border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:0}
 footer{margin-top:56px;padding-top:24px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px 16px;justify-content:space-between;font-size:13px;color:var(--mute)}
 footer a{color:inherit}`;
-	const body = `${l.cover ? `<div class="cover" style="background-image:url('${esc(absolute(l.cover) ?? "").replace(/'/g, "%27")}')"></div>` : ""}<main><header class="hero${d.logo ? "" : " no-logo"}">${d.logo ? `<img class="logo" src="${esc(d.logo)}" alt="${esc(d.brand)}">` : ""}<h1>${esc(n.name)}</h1>${n.description ? `<p>${esc(n.description)}</p>` : ""}${links}${count ? `<div class="meta">${count}</div>` : ""}</header>${l.form_position === "top" ? subscribe : ""}<section><h2>${issues.length ? "Latest issues" : "Issues"}</h2>${list}</section>${l.form_position === "bottom" ? subscribe : ""}<footer><span>&copy; ${new Date().getUTCFullYear()} ${esc(d.brand || n.name)}</span><a href="${esc(url)}/feed.xml">RSS feed</a></footer></main>`;
+	const body = `${l.cover ? `<div class="cover" style="background-image:url('${esc(absolute(l.cover) ?? "").replace(/'/g, "%27")}')"></div>` : ""}<main><header class="hero${d.logo ? "" : " no-logo"}">${d.logo ? `<img class="logo" src="${esc(d.logo)}" alt="${esc(d.brand)}">` : ""}<h1>${esc(n.name)}</h1>${n.description ? `<p>${esc(n.description)}</p>` : ""}${links}${count ? `<div class="meta">${count}</div>` : ""}</header>${l.form_position === "top" ? subscribe : ""}<section>${heading ? `<h2>${esc(heading)}</h2>` : ""}${list}</section>${l.form_position === "bottom" ? subscribe : ""}<footer><span>${footer}</span>${l.show_rss ? `<a href="${esc(url)}/feed.xml">RSS feed</a>` : ""}</footer></main>`;
 	return dressPage(d, {
 		title: n.name,
 		head,

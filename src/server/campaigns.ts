@@ -219,6 +219,58 @@ export async function campaignReport(id: string) {
 	};
 }
 
+/** How each of these broadcasts did (newsletter issues' table): its emails' counts, by broadcast. */
+export async function broadcastStats(ids: string[]) {
+	if (!ids.length) return {};
+	const e = schema.emails;
+	const ev = schema.emailEvents;
+	const [per, unsub] = await Promise.all([
+		db
+			.select({
+				id: e.broadcast_id,
+				sent: sql<number>`SUM(CASE WHEN ${e.sent_at} IS NOT NULL THEN 1 ELSE 0 END)`,
+				delivered: sql<number>`SUM(CASE WHEN ${e.delivered_at} IS NOT NULL THEN 1 ELSE 0 END)`,
+				opened: sql<number>`SUM(CASE WHEN ${e.opened_at} IS NOT NULL THEN 1 ELSE 0 END)`,
+				clicked: sql<number>`SUM(CASE WHEN ${e.clicked_at} IS NOT NULL THEN 1 ELSE 0 END)`,
+				bounced: sql<number>`SUM(CASE WHEN ${e.status} = 'bounced' THEN 1 ELSE 0 END)`,
+			})
+			.from(e)
+			.where(inArray(e.broadcast_id, ids))
+			.groupBy(e.broadcast_id),
+		db
+			.select({ id: e.broadcast_id, n: sql<number>`COUNT(*)` })
+			.from(ev)
+			.innerJoin(e, eq(e.id, ev.email_id))
+			.where(and(eq(ev.type, "email.unsubscribed"), inArray(e.broadcast_id, ids)))
+			.groupBy(e.broadcast_id),
+	]);
+	const n = (v: unknown) => Number(v ?? 0);
+	const left = new Map(unsub.map((r) => [r.id as string, n(r.n)]));
+	return Object.fromEntries(
+		per.map((r) => [
+			r.id as string,
+			{
+				sent: n(r.sent),
+				delivered: n(r.delivered),
+				opened: n(r.opened),
+				clicked: n(r.clicked),
+				bounced: n(r.bounced),
+				unsubscribed: left.get(r.id as string) ?? 0,
+			},
+		]),
+	) as Record<
+		string,
+		{
+			sent: number;
+			delivered: number;
+			opened: number;
+			clicked: number;
+			bounced: number;
+			unsubscribed: number;
+		}
+	>;
+}
+
 /** Campaigns' broadcast counts and how far each got, for the list. */
 export async function campaignCounts(ids: string[]) {
 	if (!ids.length) return new Map<string, { total: number; sent: number }>();

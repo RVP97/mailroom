@@ -21,6 +21,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { createBroadcastFn } from "@/functions/broadcasts";
 import { campaignPageFn, deleteCampaignFn, saveCampaignFn } from "@/functions/newsletters";
 import { errorMessage } from "@/lib/errors";
@@ -422,12 +423,41 @@ function CampaignPage() {
 	);
 }
 
-const shortDate = (ms: number) =>
-	new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+const DAY = 86_400_000;
+
+const shortDate = (ms: number, monthOnly = false) =>
+	new Date(ms).toLocaleDateString(
+		undefined,
+		monthOnly ? { month: "short" } : { month: "short", day: "numeric" },
+	);
+
+const shortWhen = (ms: number) =>
+	new Date(ms).toLocaleString(undefined, {
+		month: "short",
+		day: "numeric",
+		hour: "numeric",
+		minute: "2-digit",
+	});
+
+/** Day marks for the axis: local midnights a few days, a week or a month apart, at most ~7. */
+function dayTicks(from: number, to: number) {
+	const days = (to - from) / DAY;
+	const step = [1, 2, 3, 7, 14, 30, 61, 91].find((s) => days / s <= 7) ?? 182;
+	const start = new Date(from);
+	start.setHours(0, 0, 0, 0);
+	if (start.getTime() < from) start.setDate(start.getDate() + 1);
+	const out: number[] = [];
+	for (const d = new Date(start); d.getTime() <= to; d.setDate(d.getDate() + step))
+		out.push(d.getTime());
+	return { ticks: out, monthOnly: step >= 30 };
+}
+
+const LANE = "h-12";
 
 /**
- * The campaign's emails along its dates: each one's dot (sent green, scheduled blue) with its
- * name, a mark for now, and the ones without a time yet in a row of their own.
+ * The campaign's emails along its dates, one lane each so nothing ever overlaps: its name on
+ * the left, its dot and time on a shared axis, today as a line across every lane, and the
+ * emails without a time yet in a row of their own.
  */
 function Timeline({
 	broadcasts,
@@ -440,62 +470,185 @@ function Timeline({
 	spanMs: number | null;
 	now: number;
 }) {
-	const placed = broadcasts.filter((b) => whenOf(b));
+	const placed = broadcasts
+		.filter((b) => whenOf(b))
+		.map((b) => ({ b, t: Date.parse(whenOf(b) as string) }))
+		.sort((x, y) => x.t - y.t);
 	const drafts = broadcasts.filter((b) => !whenOf(b));
 	const at = (ms: number) =>
 		spanMs ? Math.min(100, Math.max(0, ((ms - from) / spanMs) * 100)) : 50;
-	const nowAt = spanMs ? ((now - from) / spanMs) * 100 : null;
+	const nowAt = spanMs && now >= from && now <= from + spanMs ? at(now) : null;
+	const { ticks, monthOnly } = spanMs
+		? dayTicks(from, from + spanMs)
+		: { ticks: [], monthOnly: false };
+	const sent = placed.filter((p) => p.b.status !== "scheduled").length;
 	return (
-		<Card className="gap-4 p-5">
+		<Card className="gap-0 overflow-hidden p-0">
+			<div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border/70 px-5 py-3">
+				<p className="text-sm font-medium">
+					Timeline
+					<span className="ml-2 font-normal text-muted-foreground tabular-nums">
+						{sent} of {broadcasts.length} sent
+					</span>
+				</p>
+				<div className="flex items-center gap-3.5 text-xs text-muted-foreground">
+					<span className="flex items-center gap-1.5">
+						<span className="size-2 rounded-full bg-success" />
+						Sent
+					</span>
+					<span className="flex items-center gap-1.5">
+						<span className="size-2 rounded-full bg-sky-500" />
+						Scheduled
+					</span>
+					{nowAt !== null && (
+						<span className="flex items-center gap-1.5">
+							<span className="h-3 w-px bg-primary" />
+							Today
+						</span>
+					)}
+				</div>
+			</div>
 			{placed.length > 0 && (
-				<div>
-					<div className="relative mx-10 h-16">
-						<div className="absolute inset-x-0 top-6 h-1 rounded-full bg-muted" />
-						{nowAt !== null && nowAt >= 0 && nowAt <= 100 && (
+				<div className="grid grid-cols-[minmax(0,7.5rem)_minmax(0,1fr)] gap-x-4 px-5 pt-2 pb-3 sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)]">
+					<div>
+						<div className="h-7" />
+						{placed.map(({ b }) => (
 							<div
-								className="absolute top-0 flex h-14 -translate-x-1/2 flex-col items-center"
-								style={{ left: `${nowAt}%` }}
-							>
-								<span className="text-[10px] font-medium uppercase tracking-wide text-primary">
-									Now
-								</span>
-								<span className="h-5 w-px bg-primary/50" />
-							</div>
-						)}
-						{placed.map((b) => (
-							<Link
 								key={b.id}
-								to="/broadcasts/$id"
-								params={{ id: b.id }}
-								title={`${b.name}, ${formatDateTime(whenOf(b) as string)}`}
-								className="group absolute top-[18px] flex -translate-x-1/2 flex-col items-center outline-none"
-								style={{ left: `${at(Date.parse(whenOf(b) as string))}%` }}
+								className={cn(LANE, "flex min-w-0 flex-col justify-center")}
 							>
-								<span
-									className={cn(
-										"size-4 rounded-full ring-4 ring-card transition-transform group-hover:scale-125 group-focus-visible:ring-ring",
-										b.status === "scheduled" ? "bg-sky-500" : "bg-success",
-									)}
-								/>
-								<span className="relative z-10 mt-1.5 max-w-32 truncate rounded bg-card px-1 text-xs font-medium">
+								<Link
+									to="/broadcasts/$id"
+									params={{ id: b.id }}
+									className="truncate text-sm font-medium hover:underline"
+								>
 									{b.name}
+								</Link>
+								<span className="truncate text-xs text-muted-foreground">
+									{b.segment ?? "No segment yet"}
 								</span>
-							</Link>
+							</div>
 						))}
 					</div>
-					{spanMs && (
-						<div className="mt-2 flex justify-between text-xs text-muted-foreground tabular-nums">
-							<span>{shortDate(from)}</span>
-							<span>{shortDate(from + spanMs)}</span>
+					<div className="relative min-w-0">
+						{/* The axis, and its marks down through every lane. */}
+						<div className="relative h-7 text-[11px] text-muted-foreground tabular-nums">
+							{ticks.map((t, i) => {
+								const x = at(t);
+								// Today's label sits on the axis; a date under it would collide.
+								const off = nowAt !== null ? Math.abs(x - nowAt) : 100;
+								if (off < 7) return null;
+								return (
+									<span
+										key={t}
+										className={cn(
+											"absolute top-1.5 whitespace-nowrap",
+											// On a phone the axis is narrow: every other date, none near today.
+											(i % 2 === 1 || off < 22) && "max-sm:hidden",
+											x < 6
+												? ""
+												: x > 94
+													? "-translate-x-full"
+													: "-translate-x-1/2",
+										)}
+										style={{ left: `${x}%` }}
+									>
+										{shortDate(t, monthOnly)}
+									</span>
+								);
+							})}
 						</div>
-					)}
+						<div className="pointer-events-none absolute inset-x-0 top-7 bottom-0">
+							{nowAt !== null && (
+								<div
+									className="absolute inset-y-0 left-0 rounded-l-md bg-muted/50"
+									style={{ width: `${nowAt}%` }}
+								/>
+							)}
+							{ticks.map((t) => (
+								<div
+									key={t}
+									className="absolute inset-y-0 border-l border-dashed border-border/60"
+									style={{ left: `${at(t)}%` }}
+								/>
+							))}
+							{nowAt !== null && (
+								<div
+									className="absolute -top-7 bottom-0 z-10 flex -translate-x-1/2 flex-col items-center"
+									style={{ left: `${nowAt}%` }}
+								>
+									<span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] leading-none font-medium text-primary-foreground">
+										Today
+									</span>
+									<span className="w-px flex-1 bg-primary/70" />
+								</div>
+							)}
+						</div>
+						{placed.map(({ b, t }) => {
+							const x = at(t);
+							const flip = x > 78;
+							const stats = b.stats;
+							return (
+								<div
+									key={b.id}
+									className={cn(LANE, "relative")}
+								>
+									<div className="absolute inset-x-0 top-1/2 h-px bg-border/70" />
+									<Tooltip>
+										<TooltipTrigger asChild>
+											<Link
+												to="/broadcasts/$id"
+												params={{ id: b.id }}
+												aria-label={`${b.name}, ${formatDateTime(whenOf(b) as string)}`}
+												className={cn(
+													"group absolute top-1/2 z-20 flex -translate-y-1/2 items-center gap-2 rounded-full outline-none",
+													flip && "flex-row-reverse",
+												)}
+												style={
+													flip
+														? { right: `${100 - x}%`, marginRight: -7 }
+														: { left: `${x}%`, marginLeft: -7 }
+												}
+											>
+												<span
+													className={cn(
+														"size-3.5 shrink-0 rounded-full ring-[3px] ring-card transition-transform group-hover:scale-125 group-focus-visible:ring-ring",
+														b.status === "scheduled"
+															? "bg-sky-500"
+															: "bg-success",
+													)}
+												/>
+												<span className="rounded-md border border-border/70 bg-card px-1.5 py-0.5 text-xs whitespace-nowrap max-sm:hidden text-muted-foreground tabular-nums shadow-xs group-hover:text-foreground">
+													{shortWhen(t)}
+												</span>
+											</Link>
+										</TooltipTrigger>
+										<TooltipContent className="flex flex-col gap-0.5 py-1.5">
+											<span>{b.name}</span>
+											<span className="font-normal opacity-75">
+												{b.status === "scheduled" ? "Goes " : "Sent "}
+												{formatDateTime(whenOf(b) as string)}
+											</span>
+											{stats && stats.sent > 0 && (
+												<span className="font-normal opacity-75 tabular-nums">
+													{stats.sent.toLocaleString()} sent ·{" "}
+													{rate(stats.opened, stats.sent)} opened ·{" "}
+													{rate(stats.clicked, stats.sent)} clicked
+												</span>
+											)}
+										</TooltipContent>
+									</Tooltip>
+								</div>
+							);
+						})}
+					</div>
 				</div>
 			)}
 			{drafts.length > 0 && (
 				<div
 					className={cn(
-						"flex flex-wrap items-center gap-2 text-sm",
-						placed.length > 0 && "border-t border-border/70 pt-4",
+						"flex flex-wrap items-center gap-2 px-5 py-3 text-sm",
+						placed.length > 0 && "border-t border-border/70",
 					)}
 				>
 					<span className="text-muted-foreground">Not scheduled yet</span>
@@ -504,10 +657,10 @@ function Timeline({
 							key={b.id}
 							to="/broadcasts/$id"
 							params={{ id: b.id }}
-							className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-border px-2.5 py-1 text-xs font-medium hover:border-foreground/40"
+							className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-dashed border-border px-2.5 py-1 text-xs font-medium hover:border-foreground/40"
 						>
-							<span className="size-2 rounded-full border border-muted-foreground" />
-							{b.name}
+							<span className="size-2 shrink-0 rounded-full border border-muted-foreground" />
+							<span className="truncate">{b.name}</span>
 						</Link>
 					))}
 				</div>

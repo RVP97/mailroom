@@ -3,6 +3,7 @@ import { z } from "zod";
 import { brandIn, viewScope } from "@/server/brands";
 import { broadcastView } from "@/server/broadcasts";
 import {
+	broadcastStats,
 	campaignBroadcasts,
 	campaignCounts,
 	campaignReport,
@@ -89,10 +90,11 @@ export const newsletterPageFn = createServerFn({ method: "GET" })
 					orgContext(brand),
 					listTemplates(context.organizationId),
 					issuesOf(n.id),
-					leaderboard(brand),
+					leaderboard(brand, 25),
 					referralTotals(brand),
 					brandLooks([brand]),
 				]);
+			const stats = await broadcastStats(issues.map((x) => x.id));
 			return {
 				newsletter: newsletterView(n, ctx),
 				brand: brands.find((b) => b.id === brand) ?? null,
@@ -113,6 +115,7 @@ export const newsletterPageFn = createServerFn({ method: "GET" })
 					started_at: x.started_at,
 					queued: x.queued,
 					url: webUrl(x, n),
+					stats: stats[x.id] ?? null,
 				})),
 				leaderboard: board,
 				referrals: totals,

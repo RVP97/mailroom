@@ -1641,7 +1641,22 @@ export type NewsletterLook = {
 	borders?: boolean | null;
 	/** The top bar: "glass" (default), "solid" or "none". */
 	bar?: "glass" | "solid" | "none" | null;
+	/** The pages' own words; an empty one is the default. {name} is the newsletter's name. */
+	words?: Partial<Record<PageWord, string | null>> | null;
+	/** "9 issues" under the description. On by default. */
+	show_count?: boolean | null;
+	/** The RSS feed link in the footer. On by default. */
+	show_rss?: boolean | null;
 };
+
+export type PageWord =
+	| "issues_heading"
+	| "empty"
+	| "subscribe"
+	| "cta_title"
+	| "cta_text"
+	| "more"
+	| "footer";
 
 /**
  * A brand's newsletter (src/server/newsletters.ts): what lasts across its issues. Its issues are

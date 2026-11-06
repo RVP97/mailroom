@@ -2,6 +2,7 @@ import { inArray } from "drizzle-orm";
 import { z } from "zod";
 import { broadcastView } from "../broadcasts";
 import {
+	broadcastStats,
 	campaignBroadcasts,
 	campaignCounts,
 	campaignReport,
@@ -499,7 +500,7 @@ export const AUDIENCE_TOOLS: Tool[] = [
 		name: "get_newsletter",
 		title: "Get a newsletter",
 		description:
-			"One newsletter with its settings and look, its issues (broadcasts, with their public URLs), the referral leaderboard and totals.",
+			"One newsletter with its settings and look, its issues (broadcasts, with their public URLs and stats: sent, delivered, opened, clicked, bounced, unsubscribed), the referral leaderboard and totals.",
 		input: { organization, newsletter: z.string() },
 		readOnly: true,
 		run: async (a, ctx) => {
@@ -511,6 +512,7 @@ export const AUDIENCE_TOOLS: Tool[] = [
 				leaderboard(n.organization_id),
 				referralTotals(n.organization_id),
 			]);
+			const stats = await broadcastStats(issues.map((x) => x.id));
 			return {
 				...newsletterView(n, c),
 				issues: issues.map((x) => ({
@@ -522,6 +524,7 @@ export const AUDIENCE_TOOLS: Tool[] = [
 					started_at: x.started_at,
 					queued: x.queued,
 					url: webUrl(x, n),
+					stats: stats[x.id] ?? null,
 				})),
 				referrals: { ...totals, leaderboard: board },
 			};
@@ -531,7 +534,7 @@ export const AUDIENCE_TOOLS: Tool[] = [
 		name: "save_newsletter",
 		title: "Create or edit a newsletter",
 		description:
-			"Creates a newsletter in a brand (name required), or with `newsletter` edits one. Fields: slug (its public page /n/<slug>), description, segment_id, topic_id, from, form_id (its sign-up form), public (archive page on), accent (#rrggbb), rss_url + rss_mode (draft: new posts make a draft issue; send: they go out) + rss_style (full|compact|titles) + rss_intro, referrals (on/off) + referral_rewards ([{ count, reward, template_id? }]), look ({ logo: brand|none|URL, cover, font, heading_font, theme auto|light|dark, background, layout list|cards, align, form_position top|bottom, links: [{ label, url }], logo_shape original|rounded|circle, logo_size small|medium|large, corners square|soft|round, borders (true: thin line, false: shadow), bar glass|solid|none }). New issues: save_broadcast with newsletter_id.",
+			"Creates a newsletter in a brand (name required), or with `newsletter` edits one. Fields: slug (its public page /n/<slug>), description, segment_id, topic_id, from, form_id (its sign-up form), public (archive page on), accent (#rrggbb), rss_url + rss_mode (draft: new posts make a draft issue; send: they go out) + rss_style (full|compact|titles) + rss_intro, referrals (on/off) + referral_rewards ([{ count, reward, template_id? }]), look ({ logo: brand|none|URL, cover, font, heading_font, theme auto|light|dark, background, layout list|cards, align, form_position top|bottom, links: [{ label, url }], logo_shape original|rounded|circle, logo_size small|medium|large, corners square|soft|round, borders (true: thin line, false: shadow), bar glass|solid|none, show_count, show_rss, words: { issues_heading (a dash hides it), empty, subscribe, cta_title, cta_text, more, footer } where {name} is the newsletter's name and an empty one is the default }). New issues: save_broadcast with newsletter_id.",
 		input: {
 			organization,
 			brand: oneBrand,

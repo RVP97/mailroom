@@ -1334,11 +1334,12 @@ function Preview({ form, email }: { form: Form; email: string }) {
 						<ImageIcon className="size-3.5" />
 					)}
 				</button>
-				<ClientSelect
-					value={client}
-					onChange={setClient}
-				/>
 			</div>
+			<ClientSelect
+				value={client}
+				onChange={setClient}
+				className="border-b border-border/70 px-3 pt-2.5 pb-2"
+			/>
 			<div
 				className={cn(
 					"bg-muted/60 transition-[padding] duration-300 ease-out",

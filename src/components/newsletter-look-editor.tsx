@@ -1,6 +1,6 @@
 import { Monitor, Moon, Plus, Smartphone, Sun, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Choice, ColorField } from "@/components/design-controls";
+import { Choice, ColorField, SwitchRow } from "@/components/design-controls";
 import { ImagePick } from "@/components/email-builder";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -14,13 +14,25 @@ import {
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { previewNewsletterFn } from "@/functions/newsletters";
-import { type Look, PAGE_FONTS, type PageFont } from "@/lib/newsletter-look";
+import { type Look, PAGE_FONTS, PAGE_WORD_DEFAULTS, type PageFont } from "@/lib/newsletter-look";
 import { cn } from "@/lib/utils";
+import type { PageWord } from "@/server/db/schema";
 
 /**
  * The newsletter page's "How it looks": its logo, cover, colors, fonts, light or dark, layout and
  * header links, beside a live preview of the public page with what's set (saved or not).
  */
+/** The page words people can change: which, its label, and a hint when it has no default. */
+const WORD_FIELDS: [PageWord, string, string][] = [
+	["issues_heading", "Above the issues (a dash hides it)", ""],
+	["empty", "Before the first issue", ""],
+	["subscribe", "Subscribe buttons", ""],
+	["cta_title", "Under each issue on the web", ""],
+	["cta_text", "…and the line below it", "The newsletter's description"],
+	["more", "Other issues, under one", ""],
+	["footer", "Footer", "© this year and the brand's name"],
+];
+
 export function LookEditor({
 	id,
 	look,
@@ -297,6 +309,45 @@ export function LookEditor({
 							</Button>
 						)}
 					</Part>
+					<Part
+						title="Words"
+						hint="Leave one empty for the default. {name} is the newsletter's name."
+					>
+						{WORD_FIELDS.map(([k, label, hint]) => (
+							<div
+								key={k}
+								className="flex flex-col gap-1.5 text-sm"
+							>
+								<label
+									htmlFor={`look-word-${k}`}
+									className="text-muted-foreground"
+								>
+									{label}
+								</label>
+								<Input
+									id={`look-word-${k}`}
+									value={look.words[k] ?? ""}
+									placeholder={PAGE_WORD_DEFAULTS[k] || hint}
+									maxLength={300}
+									onChange={(e) =>
+										set("words", { ...look.words, [k]: e.target.value })
+									}
+								/>
+							</div>
+						))}
+						<SwitchRow
+							label="Number of issues"
+							hint="“9 issues” under the description."
+							checked={look.show_count}
+							onChange={(v) => set("show_count", v)}
+						/>
+						<SwitchRow
+							label="RSS feed link"
+							hint="In the footer. The feed works either way."
+							checked={look.show_rss}
+							onChange={(v) => set("show_rss", v)}
+						/>
+					</Part>
 				</fieldset>
 			</Card>
 			<Preview
@@ -540,7 +591,9 @@ export function Preview({
 				) : shown ? (
 					<iframe
 						title="Public page preview"
-						sandbox=""
+						// No scripts; same origin so its pictures load as the page's own would
+						// (the demo's logos come from its service worker, which only answers it).
+						sandbox="allow-same-origin"
 						srcDoc={shown}
 						style={{ height }}
 						className={cn(

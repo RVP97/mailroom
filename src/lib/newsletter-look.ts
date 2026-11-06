@@ -1,4 +1,4 @@
-import type { NewsletterLook } from "@/server/db/schema";
+import type { NewsletterLook, PageWord } from "@/server/db/schema";
 
 /**
  * How a newsletter's public pages look (its archive, issues on the web, poll results and the
@@ -97,7 +97,36 @@ export type Look = {
 	borders: boolean;
 	/** The top bar: see-through over the page, solid, or none at all. */
 	bar: "glass" | "solid" | "none";
+	/** Words changed from the defaults (PAGE_WORD_DEFAULTS); the others are left out. */
+	words: Partial<Record<PageWord, string>>;
+	show_count: boolean;
+	show_rss: boolean;
 };
+
+export const PAGE_WORDS = [
+	"issues_heading",
+	"empty",
+	"subscribe",
+	"cta_title",
+	"cta_text",
+	"more",
+	"footer",
+] as const satisfies readonly PageWord[];
+
+/** What each word says unless changed; {name} is the newsletter's name. */
+export const PAGE_WORD_DEFAULTS: Record<PageWord, string> = {
+	issues_heading: "Latest issues",
+	empty: "The first issue is on its way.",
+	subscribe: "Subscribe",
+	cta_title: "Get the next one in your inbox",
+	cta_text: "",
+	more: "More from {name}",
+	footer: "",
+};
+
+/** A page's word: the one set, else the default, with {name} filled in. */
+export const wordOf = (l: Pick<Look, "words">, k: PageWord, name: string) =>
+	(l.words[k] || PAGE_WORD_DEFAULTS[k]).replaceAll("{name}", name);
 
 export type LogoShape = "original" | "rounded" | "circle";
 export type LogoSize = "small" | "medium" | "large";
@@ -119,6 +148,9 @@ export const DEFAULT_LOOK: Look = {
 	corners: "round",
 	borders: true,
 	bar: "glass",
+	words: {},
+	show_count: true,
+	show_rss: true,
 };
 
 export const logoShapeOf = (v: unknown): LogoShape =>
@@ -190,6 +222,16 @@ export function lookOf(raw: NewsletterLook | null | undefined): Look {
 		corners: cornersOf(v.corners),
 		borders: v.borders !== false,
 		bar: v.bar === "solid" || v.bar === "none" ? v.bar : "glass",
+		words: Object.fromEntries(
+			PAGE_WORDS.map((k) => [
+				k,
+				String(v.words?.[k] ?? "")
+					.trim()
+					.slice(0, 300),
+			]).filter(([, w]) => w),
+		),
+		show_count: v.show_count !== false,
+		show_rss: v.show_rss !== false,
 	};
 }
 
