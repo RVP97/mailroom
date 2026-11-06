@@ -156,7 +156,10 @@ function mailroomChat(c) {
 	};
 	function fmtTime(at) {
 		try {
-			return new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+			return new Date(at).toLocaleTimeString(LANG === "es" ? "es-MX" : [], {
+				hour: "numeric",
+				minute: "2-digit",
+			});
 		} catch (_) {
 			return "";
 		}
@@ -558,6 +561,12 @@ function mailroomChat(c) {
 
 	var host = h("div", { id: "mailroom-chat-" + KEY, "data-mailroom-chat": "" });
 	host.style.cssText = "position:fixed;z-index:2147483000;inset:auto";
+	// What the visitor types is theirs: the page's own keyboard shortcuts (a «/» that opens its
+	// search, an «n» for new…) never see it. From the page, the shadow root's field reads as this
+	// host, so the page can't tell on its own.
+	["keydown", "keypress", "keyup"].forEach((t) => {
+		host.addEventListener(t, (e) => e.stopPropagation());
+	});
 	var shadow = host.attachShadow ? host.attachShadow({ mode: "open" }) : host;
 	var style = h("style", { text: css(cfg) });
 	var root = h("div", { class: "root" + (dark ? " dark" : "") });

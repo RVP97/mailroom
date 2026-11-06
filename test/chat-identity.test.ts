@@ -259,6 +259,9 @@ describe("website chat: identity verification", () => {
 			.get();
 		const cfg = await publicConfig({ widget: w as typeof widget, inbox });
 		expect(cfg.language).toBe("es");
+		// Texts it wasn't given come in Spanish too.
+		expect(cfg.away).toMatch(/^Gracias/);
+		expect(cfg.placeholder).toBe("Escriba un mensaje…");
 		expect(cfg.identity_required).toBe(true);
 		expect(JSON.stringify(cfg)).not.toContain("mrcs_");
 	});

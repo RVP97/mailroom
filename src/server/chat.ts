@@ -183,9 +183,21 @@ export const DESIGN_DEFAULTS: Required<{
 	language: "en",
 };
 
+/** The default texts of a chat in Spanish (design.language "es"). */
+export const DESIGN_DEFAULTS_ES = {
+	subtitle: "Solemos responder en unos minutos",
+	greeting: "¡Hola! ¿En qué le ayudamos?",
+	placeholder: "Escriba un mensaje…",
+	launcher_text: "Chatee con nosotros",
+	away: "Gracias. Le respondemos aquí en cuanto podamos; déjenos su correo y se lo enviamos ahí también.",
+} satisfies Partial<typeof DESIGN_DEFAULTS>;
+
 export const designOf = (w: Pick<ChatWidget, "design">) => {
 	const d = (w.design ?? {}) as ChatDesign;
-	const out: Record<string, unknown> = { ...DESIGN_DEFAULTS };
+	const out: Record<string, unknown> = {
+		...DESIGN_DEFAULTS,
+		...(d.language === "es" ? DESIGN_DEFAULTS_ES : {}),
+	};
 	for (const [k, v] of Object.entries(d)) if (v !== undefined) out[k] = v;
 	return out as typeof DESIGN_DEFAULTS;
 };
