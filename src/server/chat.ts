@@ -66,6 +66,9 @@ export const FILE_TYPES: Record<string, string> = {
 	"application/pdf": "pdf",
 	"text/plain": "txt",
 	"text/csv": "csv",
+	// Facturas (CFDI) and other XML: downloaded, never shown in the page.
+	"application/xml": "xml",
+	"text/xml": "xml",
 	"application/zip": "zip",
 	"application/msword": "doc",
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
@@ -913,6 +916,15 @@ export async function markVisitorSeen(conversationId: string, now = Date.now()) 
 
 const bucket = () => cfg().INBOUND ?? null;
 
+/** Some browsers send no type (or a generic one) for .xml, .csv or .heic: go by the name then. */
+function fileType(contentType: string, filename: string) {
+	const type = lower(contentType.split(";")[0] ?? "");
+	if (FILE_TYPES[type]) return type;
+	const ext = lower(filename.split(".").pop() ?? "");
+	const byExt = Object.entries(FILE_TYPES).find(([, e]) => e === ext);
+	return byExt && (!type || type === "application/octet-stream") ? byExt[0] : type;
+}
+
 /** Stores one file of a chat's in R2 (its type and size checked). */
 export async function storeChatFile(
 	x: Pick<Conversation, "id" | "organization_id">,
@@ -920,8 +932,9 @@ export async function storeChatFile(
 ) {
 	const store = bucket();
 	if (!store) throw new ApiError(503, "files_unavailable", "Files can't be stored here");
-	const type = lower(f.content_type.split(";")[0] ?? "");
-	if (!FILE_TYPES[type]) throw validation("file: send an image, a PDF, or an office document");
+	const type = fileType(f.content_type, f.filename);
+	if (!FILE_TYPES[type])
+		throw validation("file: send an image, a PDF, an XML or an office document");
 	const size = f.bytes.byteLength;
 	if (!size) throw validation("file: it's empty");
 	if (size > CHAT_LIMITS.fileBytes) throw validation("file: up to 10 MB");

@@ -716,7 +716,7 @@ function mailroomChat(c) {
 	});
 	var fileInput = h("input", {
 		type: "file",
-		accept: "image/*,application/pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip",
+		accept: "image/*,application/pdf,.xml,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip",
 		style: "display:none",
 	});
 	var sendBtn = h("button", {

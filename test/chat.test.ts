@@ -306,6 +306,22 @@ describe("website chat: the visitor", () => {
 			}),
 		);
 		expect(refused.status).toBe(422);
+		// A factura's XML, even when the browser sends no type: a download, never shown inline.
+		const xml = new FormData();
+		xml.append("file", new File(["<cfdi:Comprobante/>"], "factura.xml", { type: "" }));
+		const sent = await handleChat(
+			new Request(`https://mailroom.test/chat/${widget.public_key}/files`, {
+				method: "POST",
+				headers: { origin: SITE, authorization: `Bearer ${chat.token}` },
+				body: xml,
+			}),
+		);
+		expect(sent.status).toBe(201);
+		const x = ((await sent.json()) as Json).message.files[0];
+		expect(x).toMatchObject({ filename: "factura.xml", image: false });
+		const got = await handleChat(new Request(x.url));
+		expect(got.headers.get("content-type")).toBe("application/xml");
+		expect(got.headers.get("content-disposition")).toMatch(/^attachment/);
 	});
 
 	it("stops at once when the chat is turned off", async () => {
