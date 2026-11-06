@@ -631,6 +631,10 @@ export async function markRefused(
 		.returning({ from: e.from });
 	if (!failed) return "failed";
 	await batch(bump(row.organization_id, dayOf(now), failed.from, "failed"));
+	// A conversation's reply that never went: the conversation isn't answered by it.
+	await import("./conversations")
+		.then((m) => m.replyFailed(row.id, now))
+		.catch((error) => console.error("send: reply failure not recorded", error));
 	await emitEvent(
 		row.organization_id,
 		"email.failed",

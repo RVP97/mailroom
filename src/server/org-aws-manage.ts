@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import {
 	type AwsConfig,
 	arn,
@@ -143,7 +143,7 @@ export async function ownAccountStatus(
 						? { accountId: move.to_account_id, region: move.to_region }
 						: null,
 					startedAt: move.started_at,
-					error: move.error,
+					error: move.error?.startsWith(COMPLETING) ? null : move.error,
 					subscriptionConfirmedAt: move.subscription_confirmed_at,
 					domains: bound.domains
 						.filter((d) => d.move_dkim_tokens)
@@ -565,6 +565,10 @@ export async function cancelMove(organizationId: string) {
 	return ownAccountStatus(organizationId);
 }
 
+/** A move's `error` while completeMove runs: "completing:<when it started>" (not an error). */
+const COMPLETING = "completing:";
+const COMPLETING_MS = 10 * 60_000;
+
 /** Cron (every 5 minutes): each move's domains checked in the new account; done once all are. */
 export async function checkMoves(now = Date.now()) {
 	const moves = await db.select().from(schema.orgAwsMoves);
@@ -606,7 +610,8 @@ export async function checkMove(move: Move) {
 				.where(eq(schema.domains.id, d.id));
 		else all = false;
 	}
-	if (move.error)
+	// A completion under way keeps its claim (see completeMove).
+	if (move.error && !move.error.startsWith(COMPLETING))
 		await db
 			.update(schema.orgAwsMoves)
 			.set({ error: null })
@@ -622,6 +627,24 @@ export async function checkMove(move: Move) {
 export async function completeMove(organizationId: string, now = Date.now()) {
 	const move = await moveRow(organizationId);
 	if (!move) return;
+	// One completion at a time (the cron and the MCP tool may both get here): the move is
+	// claimed for it, and a claim older than COMPLETING_MS (a run that died) can be taken over.
+	const claim = `${COMPLETING}${iso(now)}`;
+	const [claimed] = await db
+		.update(schema.orgAwsMoves)
+		.set({ error: claim })
+		.where(
+			and(
+				eq(schema.orgAwsMoves.organization_id, organizationId),
+				or(
+					isNull(schema.orgAwsMoves.error),
+					sql`${schema.orgAwsMoves.error} NOT LIKE ${`${COMPLETING}%`}`,
+					lt(schema.orgAwsMoves.error, `${COMPLETING}${iso(now - COMPLETING_MS)}`),
+				),
+			),
+		)
+		.returning({ id: schema.orgAwsMoves.organization_id });
+	if (!claimed) return;
 	const brands = await brandsOfOrganization(organizationId);
 	const domains = await db
 		.select()
@@ -631,27 +654,34 @@ export async function completeMove(organizationId: string, now = Date.now()) {
 	const { addReceivingRule, dropReceiving, receivingPlace } = await import("./inbound");
 	const fromReceiving = await receivingPlace(organizationId).catch(() => null);
 	const fromAccount = await from.account();
-	for (const d of domains) {
-		const sending = await sendingOf(d.organization_id);
-		const tenant = sending ? tenantFor(sending, d.purpose) : null;
-		try {
-			if (tenant)
-				await disassociateFromTenant(
-					from.aws,
-					tenant,
-					arn(from.region, fromAccount, "identity", d.name),
-				).catch((error) => {
-					if (!notFoundAtSes(error)) throw error;
-				});
-			if (d.receiving) await dropReceiving(d, undefined, { place: fromReceiving });
-			if (d.ses_owned)
-				await deleteIdentity(from.aws, d.name).catch((error) => {
-					if (!notFoundAtSes(error)) throw error;
-				});
-		} catch (error) {
-			console.error("org-aws: old account not cleaned up", d.name, error);
-		}
-	}
+	// What the old account has, read before the switch and removed after it: emails keep going
+	// out of the old account until the new one sends, never through neither.
+	const old = await Promise.all(
+		domains.map(async (d) => {
+			const sending = await sendingOf(d.organization_id);
+			return { d, tenant: sending ? tenantFor(sending, d.purpose) : null };
+		}),
+	);
+	const cleanUpOld = async () => {
+		for (const { d, tenant } of old)
+			try {
+				if (tenant)
+					await disassociateFromTenant(
+						from.aws,
+						tenant,
+						arn(from.region, fromAccount, "identity", d.name),
+					).catch((error) => {
+						if (!notFoundAtSes(error)) throw error;
+					});
+				if (d.receiving) await dropReceiving(d, undefined, { place: fromReceiving });
+				if (d.ses_owned)
+					await deleteIdentity(from.aws, d.name).catch((error) => {
+						if (!notFoundAtSes(error)) throw error;
+					});
+			} catch (error) {
+				console.error("org-aws: old account not cleaned up", d.name, error);
+			}
+	};
 	// Sending switches.
 	if (move.to_access_key_id && move.to_secret_encrypted) {
 		const existing = await ownAccountRow(organizationId);
@@ -707,6 +737,7 @@ export async function completeMove(organizationId: string, now = Date.now()) {
 				console.error("org-aws: receiving not moved", d.name, error),
 			);
 	for (const b of brands) forgetOrg(b);
+	await cleanUpOld();
 	await tellAdmins(organizationId, move).catch((error) =>
 		console.error("org-aws: admins not emailed", error),
 	);

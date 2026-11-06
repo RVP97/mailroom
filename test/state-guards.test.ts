@@ -11,6 +11,7 @@ import {
 	updateBroadcast,
 } from "@/server/broadcasts";
 import { createSegment, importContacts, upsertContact } from "@/server/contacts";
+import { replyFailed, threadReceived } from "@/server/conversations";
 import { db, schema } from "@/server/db";
 import { handleSns } from "@/server/events";
 import { setDomainPaused } from "@/server/provision";
@@ -168,6 +169,115 @@ describe("contacts", () => {
 			)
 			.get();
 		expect(u?.group).toBe("broadcasts");
+	});
+});
+
+describe("conversations", () => {
+	async function received(org: { id: string }, o: { messageId: string; inReplyTo?: string }) {
+		const id = `re_${uid()}`;
+		const row = {
+			id,
+			organization_id: org.id,
+			ses_message_id: `ses-${uid()}`,
+			message_id: o.messageId,
+			in_reply_to: o.inReplyTo ?? null,
+			// Stored without <>, as inbound.ts keeps it.
+			references: o.inReplyTo?.replace(/[<>]/g, "") ?? null,
+			from: "guest@guest.test",
+			to: ["hello@hotel.test"],
+			recipients: ["hello@hotel.test"],
+			subject: "Question",
+			object_key: `k/${id}`,
+			created_at: new Date().toISOString(),
+			inbox_id: null,
+			answers_email_id: null,
+		};
+		await db.insert(schema.receivedEmails).values(row);
+		return row;
+	}
+
+	it("the same message handled twice at once is one message in one conversation", async () => {
+		const org = await seedOrg();
+		const a = await received(org, { messageId: `<a-${uid()}@guest.test>` });
+		const [one, two] = await Promise.all([threadReceived(a, "hi"), threadReceived(a, "hi")]);
+		expect(one.conversationId).toBe(two.conversationId);
+		const convs = await db
+			.select()
+			.from(schema.conversations)
+			.where(eq(schema.conversations.organization_id, org.id));
+		expect(convs).toHaveLength(1);
+		expect(convs[0]?.messages).toBe(1);
+	});
+
+	it("two messages of one new thread at once end up in one conversation", async () => {
+		const org = await seedOrg();
+		const first = `<a-${uid()}@guest.test>`;
+		const a = await received(org, { messageId: first });
+		const b = await received(org, { messageId: `<b-${uid()}@guest.test>`, inReplyTo: first });
+		const [x, y] = await Promise.all([threadReceived(a, "a"), threadReceived(b, "b")]);
+		expect(x.conversationId).toBe(y.conversationId);
+		const convs = await db
+			.select()
+			.from(schema.conversations)
+			.where(eq(schema.conversations.organization_id, org.id));
+		expect(convs).toHaveLength(1);
+		expect(convs[0]?.messages).toBe(2);
+	});
+});
+
+describe("replies", () => {
+	it("a reply whose email failed doesn't leave the conversation answered or resolved", async () => {
+		const org = await seedOrg();
+		const at = new Date().toISOString();
+		const conv = `cv_${uid()}`;
+		const email = `em_${uid()}`;
+		await db.insert(schema.conversations).values({
+			id: conv,
+			organization_id: org.id,
+			subject: "Q",
+			contact: "guest@guest.test",
+			status: "resolved",
+			resolved_at: at,
+			messages: 2,
+			last_message_at: at,
+			last_inbound_at: at,
+			last_reply_at: at,
+			first_reply_at: at,
+			replied_by: "person",
+			created_at: at,
+			updated_at: at,
+		});
+		await db.insert(schema.emails).values({
+			id: email,
+			organization_id: org.id,
+			from: `a@${org.domain}`,
+			to: ["guest@guest.test"],
+			subject: "Re: Q",
+			status: "failed",
+			created_at: at,
+		});
+		await db.insert(schema.conversationReplies).values({
+			id: `rp_${uid()}`,
+			organization_id: org.id,
+			conversation_id: conv,
+			status: "sent",
+			to: ["guest@guest.test"],
+			subject: "Re: Q",
+			text: "Hi",
+			author_type: "person",
+			author_name: "Ana",
+			email_id: email,
+			sent_at: at,
+			created_at: at,
+			updated_at: at,
+		});
+		await replyFailed(email);
+		const x = await db
+			.select()
+			.from(schema.conversations)
+			.where(eq(schema.conversations.id, conv))
+			.get();
+		expect(x).toMatchObject({ status: "open", last_reply_at: null, first_reply_at: null });
 	});
 });
 

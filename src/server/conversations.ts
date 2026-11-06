@@ -159,8 +159,74 @@ export async function threadReceived(
 		});
 	}
 	const ids = [...new Set([...(own ? [own] : []), ...(parent ? [parent] : []), ...refs])];
+	// The message is threaded once: the same notification handled twice at the same moment
+	// counts it once (the second finds it taken and leaves).
+	const took = await db
+		.update(re)
+		.set({ conversation_id: conversationId })
+		.where(and(eq(re.id, row.id), isNull(re.conversation_id)))
+		.returning({ id: re.id });
+	if (!took.length) {
+		if (created) await dropIfEmpty(conversationId, row.id);
+		const now2 = await db
+			.select({ conversation_id: re.conversation_id })
+			.from(re)
+			.where(eq(re.id, row.id))
+			.get();
+		return { conversationId: now2?.conversation_id ?? conversationId, created: false };
+	}
+	// Two messages of one new thread at the same moment each started a conversation: the
+	// younger one joins the older (both decide the same way, so they never swap).
+	if (created && ids.length) {
+		const mine = conversationId;
+		await db.batch(
+			chunk(ids, 20).map((part) =>
+				db
+					.insert(schema.conversationRefs)
+					.values(
+						part.map((ref) => ({
+							organization_id: row.organization_id,
+							scope,
+							ref,
+							conversation_id: mine,
+						})),
+					)
+					.onConflictDoNothing(),
+			) as never,
+		);
+		const owners = await db
+			.selectDistinct({ id: schema.conversationRefs.conversation_id })
+			.from(schema.conversationRefs)
+			.where(
+				and(
+					eq(schema.conversationRefs.organization_id, row.organization_id),
+					eq(schema.conversationRefs.scope, scope),
+					inArray(schema.conversationRefs.ref, ids.slice(0, 90)),
+				),
+			);
+		const others = owners.map((o) => o.id).filter((id) => id !== mine);
+		if (others.length) {
+			// Another conversation took one of its ids first: this message joins it (the oldest,
+			// if several), and the one just made goes unless another message is already in it.
+			const all = await db
+				.select({ id: c.id, created_at: c.created_at })
+				.from(c)
+				.where(inArray(c.id, others));
+			const target = all.sort((a, b) =>
+				a.created_at === b.created_at
+					? a.id.localeCompare(b.id)
+					: a.created_at.localeCompare(b.created_at),
+			)[0];
+			if (target) {
+				// Moved first, then the empty one removed: two that find each other never both vanish.
+				await db.update(re).set({ conversation_id: target.id }).where(eq(re.id, row.id));
+				await dropIfEmpty(mine, row.id);
+				conversationId = target.id;
+				created = false;
+			}
+		}
+	}
 	await db.batch([
-		db.update(re).set({ conversation_id: conversationId }).where(eq(re.id, row.id)),
 		db
 			.update(c)
 			.set({
@@ -191,6 +257,28 @@ export async function threadReceived(
 		),
 	] as never);
 	return { conversationId, created };
+}
+
+/**
+ * Removes a conversation just made for `rowId` if nothing else is in it yet (its refs go with
+ * it); true when it was removed. Another message already in it keeps it.
+ */
+async function dropIfEmpty(conversationId: string, rowId: string) {
+	const gone = await db
+		.delete(c)
+		.where(
+			and(
+				eq(c.id, conversationId),
+				eq(c.messages, 0),
+				sql`NOT EXISTS (SELECT 1 FROM received_emails WHERE conversation_id = ${conversationId} AND id <> ${rowId})`,
+			),
+		)
+		.returning({ id: c.id });
+	if (!gone.length) return false;
+	await db
+		.delete(schema.conversationRefs)
+		.where(eq(schema.conversationRefs.conversation_id, conversationId));
+	return true;
 }
 
 const chunk = <T>(list: T[], n: number) =>
@@ -1802,6 +1890,54 @@ export async function unsendReply(actor: InboxActor, replyId: string, now = Date
 	});
 	const fresh = await db.select().from(rp).where(eq(rp.id, r.id)).get();
 	return replyView(fresh as Reply);
+}
+
+/**
+ * A reply's email failed for good (SES refused it): the conversation isn't answered by it. Its
+ * reply times leave it out, a conversation resolved meanwhile is open again, and the SLA's
+ * reply is due again. The reply stays (its timeline shows the failed delivery, to send again).
+ */
+export async function replyFailed(emailId: string, now = Date.now()) {
+	const r = await db
+		.select()
+		.from(rp)
+		.where(and(eq(rp.email_id, emailId), eq(rp.status, "sent")))
+		.get();
+	if (!r) return;
+	const e = schema.emails;
+	const others = await db
+		.select({ at: rp.sent_at })
+		.from(rp)
+		.innerJoin(e, eq(e.id, rp.email_id))
+		.where(
+			and(
+				eq(rp.conversation_id, r.conversation_id),
+				eq(rp.status, "sent"),
+				sql`${e.status} NOT IN ('failed', 'canceled')`,
+			),
+		);
+	const times = others.flatMap((o) => (o.at ? [o.at] : [])).sort();
+	await db
+		.update(c)
+		.set({
+			last_reply_at: times.at(-1) ?? null,
+			first_reply_at: times[0] ?? null,
+			...(times.length ? {} : { replied_by: null }),
+			status: "open",
+			resolved_at: null,
+			updated_at: iso(now),
+		})
+		.where(eq(c.id, r.conversation_id));
+	const after = await db.select().from(c).where(eq(c.id, r.conversation_id)).get();
+	if (after) await planSla(after, now, { recompute: true });
+	await logInbox("system", {
+		brandId: r.organization_id,
+		inboxId: r.inbox_id,
+		conversationId: r.conversation_id,
+		action: "reply.failed",
+		detail: { reply_id: r.id, email_id: emailId },
+		now,
+	});
 }
 
 // ── Events ─────────────────────────────────────────────────────────────────

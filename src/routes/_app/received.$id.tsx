@@ -226,6 +226,7 @@ const ACTIONS: Record<string, string> = {
 	"draft.discarded": "discarded a draft",
 	"reply.sent": "sent a reply",
 	"reply.unsent": "called a reply back",
+	"reply.failed": "couldn't send a reply (it's open again)",
 	"note.created": "added a note",
 	"note.deleted": "deleted a note",
 	"message.held": "held a message for a person",
