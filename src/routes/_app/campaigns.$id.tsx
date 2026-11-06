@@ -1,14 +1,16 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { Flag, Plus, Trash2 } from "lucide-react";
+import { Copy, Flag, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { BroadcastStatus } from "@/components/broadcast-status";
 import { Confirm } from "@/components/confirm";
 import { DatePicker } from "@/components/date-picker";
+import { CopyMenuItem, MoreMenu } from "@/components/more-menu";
 import { Page, Section, TableCard } from "@/components/page";
 import { RecordHeader } from "@/components/record";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
@@ -155,15 +157,36 @@ function CampaignPage() {
 						.join(" · ")}
 					title={c.name}
 					actions={
-						canManage && (
-							<Button
-								disabled={adding}
-								onClick={add}
-							>
-								{adding ? <Spinner /> : <Plus />}
-								Add an email
-							</Button>
-						)
+						<>
+							{canManage && (
+								<Button
+									disabled={adding}
+									onClick={add}
+								>
+									{adding ? <Spinner /> : <Plus />}
+									Add an email
+								</Button>
+							)}
+							<MoreMenu>
+								<CopyMenuItem
+									icon={Copy}
+									label="Copy campaign id"
+									value={c.id}
+								/>
+								{canManage && (
+									<>
+										<DropdownMenuSeparator />
+										<DropdownMenuItem
+											variant="destructive"
+											onSelect={() => setDeleting(true)}
+										>
+											<Trash2 />
+											Delete campaign
+										</DropdownMenuItem>
+									</>
+								)}
+							</MoreMenu>
+						</>
 					}
 				/>
 			</div>

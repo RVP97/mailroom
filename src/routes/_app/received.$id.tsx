@@ -7,6 +7,7 @@ import {
 	ChevronUp,
 	CircleCheck,
 	Clock,
+	Copy,
 	Ellipsis,
 	History,
 	Keyboard,
@@ -18,6 +19,7 @@ import {
 	PenLine,
 	RotateCcw,
 	Send,
+	Settings2,
 	ShieldAlert,
 	ShieldCheck,
 	Star,
@@ -25,6 +27,7 @@ import {
 	Trash2,
 	Undo2,
 	User,
+	Workflow,
 	X,
 	Zap,
 } from "lucide-react";
@@ -45,6 +48,7 @@ import {
 	slaState,
 	TagsMenu,
 } from "@/components/inbox-triage";
+import { CopyMenuItem, MoreMenu } from "@/components/more-menu";
 import { Page, Section } from "@/components/page";
 import { IdChip, RecordHeader } from "@/components/record";
 import { StatusBadge, StatusDot } from "@/components/status-badge";
@@ -401,6 +405,7 @@ function ConversationPage() {
 	const chat = c.channel === "chat";
 	const [live, setLive] = useState<Live | null>(null);
 	const canDelete = allows(me.active?.access, "inbox:reply");
+	const [deletingNow, setDeletingNow] = useState(false);
 	const held = timeline.filter((t) => t.type === "inbound" && t.held);
 	const nameOfReader = (reader: string) => people.find((p) => p.reader === reader)?.name;
 	const notes = timeline.filter((t) => t.type === "note");
@@ -555,15 +560,8 @@ function ConversationPage() {
 							)}
 							{chat && canDelete && (
 								<Confirm
-									trigger={
-										<Button
-											variant="ghost"
-											aria-label="Delete now"
-											title="Delete now"
-										>
-											<Trash2 />
-										</Button>
-									}
+									open={deletingNow}
+									onOpenChange={setDeletingNow}
 									title="Delete this chat now?"
 									description="The messages and files go for good, and the visitor's chat ends. It doesn't wait for the inbox's retention."
 									action="Delete now"
@@ -632,6 +630,60 @@ function ConversationPage() {
 							>
 								<Keyboard />
 							</Button>
+							<MoreMenu>
+								<CopyMenuItem
+									icon={Copy}
+									label="Copy conversation id"
+									value={c.id}
+								/>
+								{inbox && (
+									<>
+										<DropdownMenuSeparator />
+										<DropdownMenuLabel className="truncate text-xs font-normal text-muted-foreground">
+											{inbox.name}
+										</DropdownMenuLabel>
+										<DropdownMenuItem asChild>
+											<Link
+												to="/received/inboxes/$id"
+												params={{ id: inbox.id }}
+											>
+												<Settings2 />
+												Inbox settings
+											</Link>
+										</DropdownMenuItem>
+										<DropdownMenuItem asChild>
+											<Link
+												to="/received/workflow/$id"
+												params={{ id: inbox.id }}
+											>
+												<Workflow />
+												Workflow
+											</Link>
+										</DropdownMenuItem>
+										<DropdownMenuItem asChild>
+											<Link
+												to="/received/chat/$id"
+												params={{ id: inbox.id }}
+											>
+												<MessageCircle />
+												Website chat
+											</Link>
+										</DropdownMenuItem>
+									</>
+								)}
+								{chat && canDelete && (
+									<>
+										<DropdownMenuSeparator />
+										<DropdownMenuItem
+											variant="destructive"
+											onSelect={() => setDeletingNow(true)}
+										>
+											<Trash2 />
+											Delete chat now
+										</DropdownMenuItem>
+									</>
+								)}
+							</MoreMenu>
 						</>
 					}
 				/>

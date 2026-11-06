@@ -447,7 +447,7 @@ export const listInboxesFn = createServerFn({ method: "GET" })
 				viewScope(context.organizationId),
 			]);
 			const ids = inboxes.map((i) => i.id);
-			const [creds, open] = ids.length
+			const [creds, open, chats] = ids.length
 				? await Promise.all([
 						db
 							.select({
@@ -466,8 +466,16 @@ export const listInboxesFn = createServerFn({ method: "GET" })
 									eq(schema.conversations.status, "open"),
 								),
 							),
+						db
+							.select({
+								inbox: schema.chatWidgets.inbox_id,
+								enabled: schema.chatWidgets.enabled,
+								origins: schema.chatWidgets.origins,
+							})
+							.from(schema.chatWidgets)
+							.where(inArray(schema.chatWidgets.inbox_id, ids)),
 					])
-				: [[], []];
+				: [[], [], []];
 			// Where a new inbox can live: each brand's receiving domains.
 			const hosts = await db
 				.select({
@@ -504,6 +512,8 @@ export const listInboxesFn = createServerFn({ method: "GET" })
 							.sort()
 							.at(-1) ?? null,
 					open: open.filter((o) => o.inbox === i.id).length,
+					// Its website chat, when it has one.
+					chat: chats.find((c) => c.inbox === i.id) ?? null,
 				})),
 			};
 		}),

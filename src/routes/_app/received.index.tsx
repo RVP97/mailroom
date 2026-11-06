@@ -15,6 +15,7 @@ import { z } from "zod";
 import { ApiDrawer } from "@/components/api-drawer";
 import { BrandFilter } from "@/components/brand-filter";
 import { InboundAddress } from "@/components/inbound-address";
+import { InboxMenu } from "@/components/inbox-menu";
 import { Avatar, PriorityFlag, SlaText, Stars, TagChip } from "@/components/inbox-triage";
 import { CopyText, Page, PageHeader, TableCard, TablePager } from "@/components/page";
 import { RowsPending } from "@/components/route-states";
@@ -429,6 +430,16 @@ function Received() {
 						</SelectContent>
 					</Select>
 				)}
+				{(() => {
+					// The inbox picked: its settings, workflow and website chat, one click away.
+					const picked = inboxes.get(search.inbox ?? "");
+					return picked && canAgents ? (
+						<InboxMenu
+							inbox={picked}
+							here="conversations"
+						/>
+					) : null;
+				})()}
 				<BrandFilter
 					brands={page.brands}
 					value={search.brand}

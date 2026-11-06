@@ -1,8 +1,9 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { Bot, KeyRound, Plus } from "lucide-react";
+import { Bot, KeyRound, MessageCircle, Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ApiDrawer } from "@/components/api-drawer";
+import { InboxMenu } from "@/components/inbox-menu";
 import { Page, PageHeader, TableCard } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -77,6 +78,7 @@ function InboxesSketch() {
 			credentials: 1,
 			last_used_at: null,
 			open: 0,
+			chat: null,
 		})),
 	};
 	return (
@@ -177,6 +179,14 @@ function InboxesPage() {
 													? ` · ${names.get(i.brand_id)}`
 													: ""}
 											</Ph>
+											{i.chat && (
+												<span className="ml-2 inline-flex items-center gap-1 align-middle text-xs">
+													<MessageCircle className="size-3" />
+													{i.chat.enabled
+														? "Website chat"
+														: "Website chat (off)"}
+												</span>
+											)}
 										</span>
 									</TableCell>
 									<TableCell className="hidden w-32 py-3 text-sm sm:table-cell">
@@ -203,6 +213,12 @@ function InboxesPage() {
 										) : (
 											<Badge variant="outline">No credential</Badge>
 										)}
+									</TableCell>
+									<TableCell className="w-14 py-3 pr-3 text-right">
+										<InboxMenu
+											inbox={i}
+											className="relative z-10 size-8"
+										/>
 									</TableCell>
 								</TableRow>
 							))}

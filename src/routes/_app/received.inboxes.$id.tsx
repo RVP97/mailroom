@@ -10,7 +10,6 @@ import {
 	TriangleAlert,
 	User,
 	Webhook,
-	Workflow,
 } from "lucide-react";
 import { useId, useState } from "react";
 import { toast } from "sonner";
@@ -19,6 +18,7 @@ import { ChoiceCards } from "@/components/choice-cards";
 import { CodeTabs } from "@/components/code-block";
 import { Confirm } from "@/components/confirm";
 import { CopyIcon, CopyValue, useCopy } from "@/components/copy";
+import { InboxMenu, InboxPages } from "@/components/inbox-menu";
 import { Page, Section } from "@/components/page";
 import { Fact, Facts, IdChip, RecordHeader } from "@/components/record";
 import { Badge } from "@/components/ui/badge";
@@ -163,6 +163,7 @@ function InboxPage() {
 	const { inbox } = data;
 	const [token, setToken] = useState<{ token: string; name: string } | null>(null);
 	const [secret, setSecret] = useState<string | null>(null);
+	const [deleting, setDeleting] = useState(false);
 	return (
 		<Page className="gap-8">
 			<div className="flex flex-col gap-5">
@@ -203,28 +204,16 @@ function InboxPage() {
 									Conversations
 								</Link>
 							</Button>
-							<Button
-								variant="outline"
-								asChild
-							>
-								<Link
-									to="/received/workflow/$id"
-									params={{ id: inbox.id }}
-								>
-									<Workflow />
-									Workflow
-								</Link>
-							</Button>
+							<InboxMenu
+								inbox={inbox}
+								here="settings"
+								label={false}
+								onDelete={canManage ? () => setDeleting(true) : undefined}
+							/>
 							{canManage && (
 								<Confirm
-									trigger={
-										<Button
-											variant="ghost"
-											aria-label="Delete inbox"
-										>
-											<Trash2 />
-										</Button>
-									}
+									open={deleting}
+									onOpenChange={setDeleting}
 									title={`Delete ${inbox.name}?`}
 									description="Its credentials stop working and its webhooks are removed. Its conversations stay, under Other addresses; mail to it keeps arriving there if its domain receives."
 									action="Delete inbox"
@@ -241,6 +230,11 @@ function InboxPage() {
 							)}
 						</>
 					}
+				/>
+				<InboxPages
+					inbox={inbox}
+					here="settings"
+					chat={data.chat}
 				/>
 			</div>
 

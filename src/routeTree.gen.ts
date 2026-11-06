@@ -61,6 +61,7 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as AppContactsFormsIndexRouteImport } from './routes/_app/contacts.forms.index'
 import { Route as AppContactsFormsIdRouteImport } from './routes/_app/contacts.forms.$id'
 import { Route as AppInsightsKindKeyRouteImport } from './routes/_app/insights.$kind.$key'
+import { Route as AppReceivedChatIndexRouteImport } from './routes/_app/received.chat.index'
 import { Route as AppReceivedChatIdRouteImport } from './routes/_app/received.chat.$id'
 import { Route as AppReceivedInboxesIndexRouteImport } from './routes/_app/received.inboxes.index'
 import { Route as AppReceivedInboxesIdRouteImport } from './routes/_app/received.inboxes.$id'
@@ -326,6 +327,11 @@ const AppInsightsKindKeyRoute = AppInsightsKindKeyRouteImport.update({
   path: '/insights/$kind/$key',
   getParentRoute: () => AppRoute,
 } as any)
+const AppReceivedChatIndexRoute = AppReceivedChatIndexRouteImport.update({
+  id: '/received/chat/',
+  path: '/received/chat/',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppReceivedChatIdRoute = AppReceivedChatIdRouteImport.update({
   id: '/received/chat/$id',
   path: '/received/chat/$id',
@@ -408,6 +414,7 @@ export interface FileRoutesByFullPath {
   '/received/m/$id': typeof AppReceivedMIdRoute
   '/received/workflow/$id': typeof AppReceivedWorkflowIdRoute
   '/contacts/forms/': typeof AppContactsFormsIndexRoute
+  '/received/chat/': typeof AppReceivedChatIndexRoute
   '/received/inboxes/': typeof AppReceivedInboxesIndexRoute
 }
 export interface FileRoutesByTo {
@@ -466,6 +473,7 @@ export interface FileRoutesByTo {
   '/received/m/$id': typeof AppReceivedMIdRoute
   '/received/workflow/$id': typeof AppReceivedWorkflowIdRoute
   '/contacts/forms': typeof AppContactsFormsIndexRoute
+  '/received/chat': typeof AppReceivedChatIndexRoute
   '/received/inboxes': typeof AppReceivedInboxesIndexRoute
 }
 export interface FileRoutesById {
@@ -526,6 +534,7 @@ export interface FileRoutesById {
   '/_app/received/m/$id': typeof AppReceivedMIdRoute
   '/_app/received/workflow/$id': typeof AppReceivedWorkflowIdRoute
   '/_app/contacts/forms/': typeof AppContactsFormsIndexRoute
+  '/_app/received/chat/': typeof AppReceivedChatIndexRoute
   '/_app/received/inboxes/': typeof AppReceivedInboxesIndexRoute
 }
 export interface FileRouteTypes {
@@ -586,6 +595,7 @@ export interface FileRouteTypes {
     | '/received/m/$id'
     | '/received/workflow/$id'
     | '/contacts/forms/'
+    | '/received/chat/'
     | '/received/inboxes/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -644,6 +654,7 @@ export interface FileRouteTypes {
     | '/received/m/$id'
     | '/received/workflow/$id'
     | '/contacts/forms'
+    | '/received/chat'
     | '/received/inboxes'
   id:
     | '__root__'
@@ -703,6 +714,7 @@ export interface FileRouteTypes {
     | '/_app/received/m/$id'
     | '/_app/received/workflow/$id'
     | '/_app/contacts/forms/'
+    | '/_app/received/chat/'
     | '/_app/received/inboxes/'
   fileRoutesById: FileRoutesById
 }
@@ -1084,6 +1096,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInsightsKindKeyRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/received/chat/': {
+      id: '/_app/received/chat/'
+      path: '/received/chat'
+      fullPath: '/received/chat/'
+      preLoaderRoute: typeof AppReceivedChatIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/received/chat/$id': {
       id: '/_app/received/chat/$id'
       path: '/received/chat/$id'
@@ -1170,6 +1189,7 @@ interface AppRouteChildren {
   AppReceivedMIdRoute: typeof AppReceivedMIdRoute
   AppReceivedWorkflowIdRoute: typeof AppReceivedWorkflowIdRoute
   AppContactsFormsIndexRoute: typeof AppContactsFormsIndexRoute
+  AppReceivedChatIndexRoute: typeof AppReceivedChatIndexRoute
   AppReceivedInboxesIndexRoute: typeof AppReceivedInboxesIndexRoute
 }
 
@@ -1221,6 +1241,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppReceivedMIdRoute: AppReceivedMIdRoute,
   AppReceivedWorkflowIdRoute: AppReceivedWorkflowIdRoute,
   AppContactsFormsIndexRoute: AppContactsFormsIndexRoute,
+  AppReceivedChatIndexRoute: AppReceivedChatIndexRoute,
   AppReceivedInboxesIndexRoute: AppReceivedInboxesIndexRoute,
 }
 

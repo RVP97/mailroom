@@ -1,12 +1,15 @@
 import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
 import {
+	Copy,
 	ExternalLink,
 	Gift,
 	Globe,
+	Link2,
 	Newspaper,
 	Plus,
 	RefreshCw,
 	Rss,
+	Settings2,
 	Trash2,
 	Trophy,
 } from "lucide-react";
@@ -18,11 +21,13 @@ import { Confirm } from "@/components/confirm";
 import { CopyButton } from "@/components/copy";
 import { SwitchRow } from "@/components/design-controls";
 import { ListSelect } from "@/components/list-dialogs";
+import { CopyMenuItem, MoreMenu } from "@/components/more-menu";
 import { LookEditor } from "@/components/newsletter-look-editor";
 import { Page, Section, TableCard } from "@/components/page";
 import { RecordHeader } from "@/components/record";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -307,6 +312,48 @@ function NewsletterPage() {
 									New issue
 								</Button>
 							)}
+							<MoreMenu>
+								{n.public && (
+									<CopyMenuItem
+										icon={Link2}
+										label="Copy public page link"
+										value={n.url}
+									/>
+								)}
+								{n.public && (
+									<CopyMenuItem
+										icon={Rss}
+										label="Copy RSS feed link"
+										value={n.feed_url}
+									/>
+								)}
+								<CopyMenuItem
+									icon={Copy}
+									label="Copy newsletter id"
+									value={n.id}
+								/>
+								<DropdownMenuSeparator />
+								<DropdownMenuItem onSelect={() => setTab("settings")}>
+									<Settings2 />
+									Settings
+								</DropdownMenuItem>
+								<DropdownMenuItem onSelect={() => setTab("page")}>
+									<Globe />
+									Public page look
+								</DropdownMenuItem>
+								{canManage && (
+									<>
+										<DropdownMenuSeparator />
+										<DropdownMenuItem
+											variant="destructive"
+											onSelect={() => setDeleting(true)}
+										>
+											<Trash2 />
+											Delete newsletter
+										</DropdownMenuItem>
+									</>
+								)}
+							</MoreMenu>
 						</>
 					}
 				/>

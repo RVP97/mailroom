@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import {
 	ArrowLeft,
+	Bot,
 	CircleHelp,
 	ExternalLink,
 	Hand,
@@ -23,6 +24,9 @@ import { toast } from "sonner";
 import { CodeBlock } from "@/components/code-block";
 import { Confirm } from "@/components/confirm";
 import { Choice, ColorField, Group, Labeled, SwitchRow } from "@/components/design-controls";
+import { InboxMenu, InboxPages } from "@/components/inbox-menu";
+import { Page } from "@/components/page";
+import { RecordHeader } from "@/components/record";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
@@ -125,12 +129,46 @@ function TurnOn({ data }: { data: Data }) {
 	const canManage = allows(me.active?.access, "inbox:agents");
 	const [busy, setBusy] = useState(false);
 	return (
-		<div className="flex flex-col">
-			<header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 px-3 sm:px-4">
-				<BackLink inbox={data.inbox.id} />
-				<span className="text-[15px] font-semibold">Website chat</span>
-			</header>
-			<div className="mx-auto flex w-full max-w-2xl flex-col items-center gap-6 px-4 py-16 text-center">
+		<Page className="gap-8">
+			<div className="flex flex-col gap-5">
+				<nav
+					aria-label="Breadcrumb"
+					className="text-sm text-muted-foreground"
+				>
+					<Link
+						to="/received"
+						className="rounded-sm transition-colors hover:text-foreground"
+					>
+						Received
+					</Link>
+					<span aria-hidden="true"> / </span>
+					<Link
+						to="/received/chat"
+						className="rounded-sm transition-colors hover:text-foreground"
+					>
+						Website chat
+					</Link>
+				</nav>
+				<RecordHeader
+					icon={Bot}
+					tone="brand"
+					kind="Agent inbox"
+					title={data.inbox.name}
+					actions={
+						<InboxMenu
+							inbox={data.inbox}
+							here="chat"
+							label={false}
+						/>
+					}
+				/>
+				<InboxPages
+					inbox={data.inbox}
+					here="chat"
+					chat={null}
+				/>
+			</div>
+			<div className="mx-auto flex w-full max-w-2xl flex-col items-center gap-6 px-4 py-8 text-center">
 				<span className="flex size-14 items-center justify-center rounded-2xl bg-brand/10 text-brand">
 					<MessageCircle className="size-7" />
 				</span>
@@ -182,7 +220,7 @@ function TurnOn({ data }: { data: Data }) {
 					Set up website chat
 				</Button>
 			</div>
-		</div>
+		</Page>
 	);
 }
 
@@ -351,6 +389,10 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 					{busy && <Spinner />}
 					Save
 				</Button>
+				<InboxMenu
+					inbox={data.inbox}
+					here="chat"
+				/>
 			</header>
 			{missing && !dirty && (
 				<div className="border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-sm text-amber-900 dark:text-amber-200">

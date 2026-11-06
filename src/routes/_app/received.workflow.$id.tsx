@@ -2,6 +2,7 @@ import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import {
 	ArrowDown,
 	ArrowUp,
+	Bot,
 	Clock,
 	MoreHorizontal,
 	Plus,
@@ -10,7 +11,6 @@ import {
 	Tag,
 	Trash2,
 	Users,
-	Workflow,
 	X,
 	Zap,
 } from "lucide-react";
@@ -18,6 +18,7 @@ import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import { ChoiceCards } from "@/components/choice-cards";
 import { Confirm } from "@/components/confirm";
+import { InboxMenu, InboxPages } from "@/components/inbox-menu";
 import { Avatar, PRIORITY, type Priority, TAG_COLORS, TagChip } from "@/components/inbox-triage";
 import { Page } from "@/components/page";
 import { RecordHeader, Stamp } from "@/components/record";
@@ -160,41 +161,51 @@ function WorkflowPage() {
 					className="text-sm text-muted-foreground"
 				>
 					<Link
+						to="/received"
+						className="rounded-sm transition-colors hover:text-foreground"
+					>
+						Received
+					</Link>
+					<span aria-hidden="true"> / </span>
+					<Link
 						to="/received/inboxes"
 						className="rounded-sm transition-colors hover:text-foreground"
 					>
 						Agent inboxes
 					</Link>
-					<span aria-hidden="true"> / </span>
-					<Link
-						to="/received/inboxes/$id"
-						params={{ id: data.inbox.id }}
-						className="rounded-sm transition-colors hover:text-foreground"
-					>
-						{data.inbox.name}
-					</Link>
 				</nav>
 				<RecordHeader
-					icon={Workflow}
+					icon={Bot}
 					tone="brand"
-					kind={`Workflow of ${data.inbox.address}`}
+					kind="Agent inbox"
 					title={data.inbox.name}
 					actions={
-						tab !== "rules" && (
-							<>
-								<span className="hidden text-xs text-muted-foreground md:inline">
-									{dirty ? "Unsaved changes" : "All changes saved"}
-								</span>
-								<Button
-									disabled={busy || !dirty || !canManage}
-									onClick={save}
-								>
-									{busy && <Spinner />}
-									Save
-								</Button>
-							</>
-						)
+						<>
+							{tab !== "rules" && (
+								<>
+									<span className="hidden text-xs text-muted-foreground md:inline">
+										{dirty ? "Unsaved changes" : "All changes saved"}
+									</span>
+									<Button
+										disabled={busy || !dirty || !canManage}
+										onClick={save}
+									>
+										{busy && <Spinner />}
+										Save
+									</Button>
+								</>
+							)}
+							<InboxMenu
+								inbox={data.inbox}
+								here="workflow"
+								label={false}
+							/>
+						</>
 					}
+				/>
+				<InboxPages
+					inbox={data.inbox}
+					here="workflow"
 				/>
 			</div>
 			<Tabs
