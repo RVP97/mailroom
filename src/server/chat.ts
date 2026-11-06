@@ -241,10 +241,10 @@ export const settingsInput = z.object({
 	daily_limit: z.number().int().min(1).max(10_000).optional(),
 	/** Email the team (notify) about visitors' new lines nobody read, after this many minutes. */
 	email_team: z.boolean().optional(),
-	email_team_after: z.number().int().min(1).max(1440).optional(),
+	email_team_after: z.number().int().min(0).max(1440).optional(),
 	/** Email a visitor who left their email the team's lines they didn't see, after this many minutes. */
 	email_visitor: z.boolean().optional(),
-	email_visitor_after: z.number().int().min(1).max(1440).optional(),
+	email_visitor_after: z.number().int().min(0).max(1440).optional(),
 	/** The inbox's retention: days, 0 always, null the deployment's. */
 	retention_days: z.number().int().min(0).max(3650).nullish(),
 	/** Only visitors the website signed in may chat (needs the identity secret). */
@@ -1546,13 +1546,7 @@ export async function notifyTeam(now = Date.now(), sender?: ChatSender) {
 	const pending = await db
 		.select()
 		.from(cm)
-		.where(
-			and(
-				isNull(cm.notified_at),
-				eq(cm.author, "visitor"),
-				lte(cm.created_at, iso(now - 30_000)),
-			),
-		)
+		.where(and(isNull(cm.notified_at), eq(cm.author, "visitor"), lte(cm.created_at, iso(now))))
 		.orderBy(asc(cm.created_at))
 		.limit(300);
 	if (!pending.length) return 0;
@@ -1581,8 +1575,11 @@ export async function notifyTeam(now = Date.now(), sender?: ChatSender) {
 			await done();
 			continue;
 		}
-		// Each chat's own wait (a minute by default: the cron's minute plus half of one).
-		const wait = Math.max(30_000, widget.email_team_after * 60_000 - 30_000);
+		// Each chat's own wait (a minute by default: the cron's minute plus half of one; 0 is
+		// right away, at the cron's next minute).
+		const wait = widget.email_team_after
+			? Math.max(30_000, widget.email_team_after * 60_000 - 30_000)
+			: 0;
 		if ((lines[0]?.created_at ?? "") > iso(now - wait)) continue;
 		const newest = lines.at(-1)?.created_at ?? "";
 		const read = await db
@@ -1671,8 +1668,8 @@ export async function notifyTeam(now = Date.now(), sender?: ChatSender) {
 }
 
 /** The soonest a visitor's unseen lines can go by email; each chat sets its own wait
- * (email_visitor_after, 3 minutes by default). */
-const VISITOR_AWAY_MS = 60_000;
+ * (email_visitor_after, 3 minutes by default, 0 right away). */
+const VISITOR_AWAY_MS = 20_000;
 
 /** Cron (every minute): the team's lines a visitor who left hasn't seen, to their email. */
 export async function emailVisitors(now = Date.now(), sender?: ChatSender) {
@@ -1712,7 +1709,8 @@ export async function emailVisitors(now = Date.now(), sender?: ChatSender) {
 			await mark(waiting.map((l) => l.id));
 			continue;
 		}
-		const wait = (settings?.email_visitor_after ?? 3) * 60_000;
+		// Right away (0) still gives an open widget a moment to say it showed the line.
+		const wait = Math.max(20_000, (settings?.email_visitor_after ?? 3) * 60_000);
 		const all = waiting.filter((l) => l.created_at <= iso(now - wait));
 		if (!all.length) continue;
 		const from = inbox ? fromOf(inbox) : null;

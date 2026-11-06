@@ -422,6 +422,17 @@ describe("website chat: the team", () => {
 });
 
 describe("website chat: its email settings", () => {
+	it("emails the team right away when its wait is 0", async () => {
+		const { widget, inbox } = await setUp();
+		await saveChatWidget(inbox, { email_team_after: 0 });
+		const t0 = Date.parse("2025-03-04T09:00:00Z");
+		vi.setSystemTime(t0);
+		await start(widget.public_key, "Quick question");
+		vi.useRealTimers();
+		const { s } = sender();
+		expect(await notifyTeam(t0 + 5_000, s)).toBe(1);
+	});
+
 	it("waits as long as each chat says, and sends nothing when its emails are off", async () => {
 		const { org, widget, inbox } = await setUp();
 		await saveChatWidget(inbox, { email_team_after: 10, email_visitor: false });

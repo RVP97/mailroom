@@ -104,7 +104,7 @@ const fieldsOf = (d: Data): Fields => ({
 /** A wait in whole minutes, 1 to 1440 (a day); anything else is the default. */
 const minutes = (s: string, fallback: number) => {
 	const n = Math.round(Number(s));
-	return Number.isFinite(n) && n >= 1 ? Math.min(n, 1440) : fallback;
+	return Number.isFinite(n) && n >= 0 ? Math.min(n, 1440) : fallback;
 };
 
 const lines = (s: string) =>
@@ -1506,9 +1506,13 @@ function SettingsPanel({
 	);
 }
 
-const WAITS = ["1", "3", "5", "10", "15", "30", "60", "120", "240", "1440"];
-const waitText = (m: string) => {
+const WAITS = ["0", "1", "3", "5", "10", "15", "30", "60", "120", "240", "1440"];
+const waitText = (m: string, unseen: string) => {
 	const n = Number(m);
+	if (n === 0) return "Right away";
+	return `${waitTime(n)} ${unseen}`;
+};
+const waitTime = (n: number) => {
 	if (n >= 60 && n % 60 === 0)
 		return n === 60 ? "1 hour" : n === 1440 ? "1 day" : `${n / 60} hours`;
 	return n === 1 ? "1 minute" : `${n} minutes`;
@@ -1542,7 +1546,7 @@ function WaitPick({
 							key={m}
 							value={m}
 						>
-							{waitText(m)} {unseen}
+							{waitText(m, unseen)}
 						</SelectItem>
 					))}
 				</SelectContent>
