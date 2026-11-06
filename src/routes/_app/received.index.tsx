@@ -184,6 +184,7 @@ function ReceivedSketch() {
 						sla: { reply_due_at: null, resolve_due_at: null, breached: [] },
 						csat: null,
 						held: false,
+						held_at: null,
 					}),
 				),
 				me: "",

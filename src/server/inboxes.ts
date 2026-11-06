@@ -548,6 +548,12 @@ export async function revokeCredential(c: InboxCredential, now = Date.now()) {
 		.set({ revoked_at: iso(now) })
 		.where(eq(schema.inboxCredentials.id, c.id))
 		.returning();
+	// What it held (claimed, or assigned for good) goes back to nobody: it can't work on it anymore.
+	const cv = schema.conversations;
+	await db
+		.update(cv)
+		.set({ assignee: null, assignee_name: null, claimed_until: null, updated_at: iso(now) })
+		.where(eq(cv.assignee, `cred:${c.id}`));
 	forgetCredentials();
 	return row as InboxCredential;
 }

@@ -10,7 +10,7 @@ import {
 	segmentOf,
 	upsertContact,
 } from "./contacts";
-import { db, schema } from "./db";
+import { db, raw, schema } from "./db";
 import type { AutomationStatus, AutomationStep, AutomationTrigger } from "./db/schema";
 import { ApiError, notFound, validation } from "./errors";
 import { createEmails, parseSend } from "./send";
@@ -278,6 +278,21 @@ export async function updateAutomation(brand: string, id: string, raw: unknown, 
 	const steps = v.steps ? normalizeAll(v.steps) : x.steps;
 	const status = v.status ?? x.status;
 	if (status === "active") await check(brand, t, steps);
+	// Runs under way keep their place by step number: steps may be changed and added, but not
+	// removed or moved while someone is part-way through (they'd land on another step).
+	if (v.steps && !sameShape(x.steps, steps)) {
+		const under = await db
+			.select({ id: r.id })
+			.from(r)
+			.where(and(eq(r.automation_id, id), eq(r.status, "active")))
+			.get();
+		if (under)
+			throw new ApiError(
+				409,
+				"runs_under_way",
+				"Contacts are part-way through this automation: you can change steps and add new ones at the end, but removing or reordering steps would move them to the wrong step. Duplicate it to make a new version, or cancel their runs first.",
+			);
+	}
 	const [row] = await db
 		.update(a)
 		.set({
@@ -292,6 +307,20 @@ export async function updateAutomation(brand: string, id: string, raw: unknown, 
 		.returning();
 	// Paused: runs under way wait where they are; on again, they go on.
 	return row as Automation;
+}
+
+/**
+ * Whether every step of `before` is still where it was in `after`, of the same kind (a
+ * condition's "no" steps too): steps changed in place or added at the end of a list are fine.
+ */
+export function sameShape(before: AutomationStep[], after: AutomationStep[]): boolean {
+	return before.every((s, i) => {
+		const t = after[i];
+		if (!t || t.type !== s.type) return false;
+		if (s.type === "condition" && t.type === "condition")
+			return sameShape(s.no ?? [], t.no ?? []);
+		return true;
+	});
 }
 
 export async function setAutomationStatus(brand: string, id: string, status: AutomationStatus) {
@@ -319,27 +348,22 @@ async function start(
 	data: Record<string, unknown> | null,
 	now: number,
 ) {
-	if (!(x.reentry && REENTERS.has(x.trigger.type))) {
-		const before = await db
-			.select({ id: r.id })
-			.from(r)
-			.where(and(eq(r.automation_id, x.id), eq(r.contact_id, contactId)))
-			.get();
-		if (before) return false;
-	}
-	await db.insert(r).values({
-		id: crypto.randomUUID(),
-		automation_id: x.id,
-		organization_id: x.organization_id,
-		contact_id: contactId,
-		step: 0,
-		status: "active",
-		next_at: iso(now),
-		data,
-		created_at: iso(now),
-		updated_at: iso(now),
-	});
-	return true;
+	const once = !(x.reentry && REENTERS.has(x.trigger.type));
+	// One statement: the check and the insert can't be split by a second trigger for the same
+	// contact at the same moment (a contact added to a segment while it's created, an event sent twice).
+	const res = await raw(
+		`INSERT INTO automation_runs (id, automation_id, organization_id, contact_id, step, status, next_at, data, created_at, updated_at)
+		SELECT ?1, ?2, ?3, ?4, 0, 'active', ?5, ?6, ?5, ?5
+		WHERE ?7 = 0 OR NOT EXISTS (SELECT 1 FROM automation_runs WHERE automation_id = ?2 AND contact_id = ?4)`,
+		crypto.randomUUID(),
+		x.id,
+		x.organization_id,
+		contactId,
+		iso(now),
+		data === null ? null : JSON.stringify(data),
+		once ? 1 : 0,
+	).run();
+	return (res.meta?.changes ?? 0) > 0;
 }
 
 const active = (brand: string) =>
@@ -585,17 +609,40 @@ async function actStep(
 	await updateContact(x.organization_id, contact.id, { properties: { [s.key]: s.value } }, now);
 }
 
+/**
+ * Extends the run's claim if it's still the one this cron holds (and the run still active);
+ * false when a cancel or another cron took it meanwhile. `run.locked_until` follows.
+ */
+async function renewClaim(run: AutomationRun, now: number) {
+	const until = iso(Math.max(Date.now(), now) + CLAIM_MS);
+	const kept = await db
+		.update(r)
+		.set({ locked_until: until })
+		.where(
+			and(
+				eq(r.id, run.id),
+				eq(r.status, "active"),
+				run.locked_until ? eq(r.locked_until, run.locked_until) : isNull(r.locked_until),
+			),
+		)
+		.returning({ id: r.id });
+	if (!kept.length) return false;
+	run.locked_until = until;
+	return true;
+}
+
 /** Moves one run on: steps until a wait or the end. */
 async function advance(x: Automation, run: AutomationRun, now: number) {
 	const set: Partial<AutomationRun> = { locked_until: null, updated_at: iso(now) };
+	// Where it got to, kept even when a later step fails (its emails sent are recorded).
+	let path = run.path?.length ? [...run.path] : [run.step];
+	let lastEmail = run.last_email_id;
 	try {
 		const contact = await db
 			.select()
 			.from(schema.contacts)
 			.where(eq(schema.contacts.id, run.contact_id))
 			.get();
-		let path = run.path?.length ? [...run.path] : [run.step];
-		let lastEmail = run.last_email_id;
 		let status: AutomationRun["status"] = "active";
 		let nextAt: string | null = iso(now);
 		let error: string | null = null;
@@ -625,6 +672,8 @@ async function advance(x: Automation, run: AutomationRun, now: number) {
 					error = "The contact unsubscribed";
 					break;
 				}
+				// Still this claim's (renewed): one that ran out was taken by another cron, which sends it.
+				if (!(await renewClaim(run, now))) return;
 				lastEmail = await sendStep(
 					x,
 					{ ...run, last_email_id: lastEmail },
@@ -658,12 +707,28 @@ async function advance(x: Automation, run: AutomationRun, now: number) {
 	} catch (e) {
 		console.error("automations: run failed", run.id, e);
 		Object.assign(set, {
+			// The step it failed at, and the last email it did send: nothing is sent twice if it's
+			// looked at again.
+			step: path[0] ?? 0,
+			path: path.length > 1 ? path : null,
+			last_email_id: lastEmail,
 			status: "failed",
 			next_at: null,
 			error: (e instanceof Error ? e.message : String(e)).slice(0, 500),
 		});
 	}
-	await db.update(r).set(set).where(eq(r.id, run.id));
+	// Only if it's still this claim's: a cancel in between stays canceled, and a run another
+	// cron took over (this one ran past its claim) isn't moved twice.
+	await db
+		.update(r)
+		.set(set)
+		.where(
+			and(
+				eq(r.id, run.id),
+				eq(r.status, "active"),
+				run.locked_until ? eq(r.locked_until, run.locked_until) : isNull(r.locked_until),
+			),
+		);
 }
 
 /** The cron's turn: runs due move on. Returns how many. */

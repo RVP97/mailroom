@@ -36,7 +36,7 @@ import { listNewsletters, newsletterView, webUrl } from "@/server/newsletters";
 import { orgContext } from "@/server/org";
 import { peopleNames } from "@/server/people";
 import { pollResults, votersToSegment } from "@/server/polls";
-import { approvalRequired, assertApproved, contentHash } from "@/server/reviews";
+import { approvalRequired, contentHash } from "@/server/reviews";
 import { brandForSend, createEmails, parseSend } from "@/server/send";
 import { brandLooks, logoBackgrounds } from "@/server/signup-forms";
 import { listTemplates, templateView } from "@/server/templates";
@@ -318,7 +318,6 @@ export const sendBroadcastFn = createServerFn({ method: "POST" })
 	.handler(({ data, context }) =>
 		call(async () => {
 			const x = await ownBroadcast(context.organizationId, data.id);
-			await assertApproved(context.organizationId, x);
 			const row = await sendBroadcast(x.organization_id, x.id, data.at, Date.now(), {
 				ab_test: data.ab_test,
 				local_time: data.local_time,

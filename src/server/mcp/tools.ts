@@ -1805,8 +1805,6 @@ export const TOOLS: Tool[] = [
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization, "manage");
 			const x = await getBroadcast(await brandIds(org.id), a.broadcast as string);
-			const { assertApproved } = await import("../reviews");
-			await assertApproved(org.id, x);
 			const row = await sendBroadcast(
 				x.organization_id,
 				x.id,

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { ENFORCING_DMARC, prepareBimiSvg } from "../lib/bimi";
 import type { AwsConfig } from "./aws/ses";
 import {
@@ -360,23 +360,46 @@ export async function setDomainPaused(
 			.from(schema.domains)
 			.where(and(eq(schema.domains.id, id), eq(schema.domains.organization_id, brandId)))
 			.get();
-		if (x?.reason === "sending_limits")
+		if (!x) throw new ApiError(404, "not_found", "Domain not found");
+		if (x.reason === "sending_limits")
 			throw new ApiError(
 				403,
 				"paused_by_mailroom",
 				"Mailroom paused this domain for going over the sending limits; ask this deployment's admins to resume it",
 			);
 	}
+	const d = schema.domains;
 	const [row] = await db
-		.update(schema.domains)
+		.update(d)
 		.set(
 			paused
-				? { paused_at: iso(now), paused_reason: reason }
+				? {
+						paused_at: sql`COALESCE(${d.paused_at}, ${iso(now)})`,
+						// A pause for the sending limits stays one (only admins lift it), whoever pauses again.
+						paused_reason: sql`CASE WHEN ${d.paused_at} IS NOT NULL AND ${d.paused_reason} = 'sending_limits' THEN 'sending_limits' ELSE ${reason} END`,
+					}
 				: { paused_at: null, paused_reason: null, resumed_at: iso(now) },
 		)
-		.where(and(eq(schema.domains.id, id), eq(schema.domains.organization_id, brandId)))
+		.where(
+			and(
+				eq(d.id, id),
+				eq(d.organization_id, brandId),
+				// Resuming by the brand: never a limits pause placed in between.
+				!paused && !o.isAdmin
+					? sql`coalesce(${d.paused_reason}, '') <> 'sending_limits'`
+					: undefined,
+			),
+		)
 		.returning();
-	if (!row) throw new ApiError(404, "not_found", "Domain not found");
+	if (!row) {
+		if (!paused && !o.isAdmin)
+			throw new ApiError(
+				403,
+				"paused_by_mailroom",
+				"Mailroom paused this domain for going over the sending limits; ask this deployment's admins to resume it",
+			);
+		throw new ApiError(404, "not_found", "Domain not found");
+	}
 	forgetOrg(brandId);
 	return row;
 }
@@ -866,22 +889,43 @@ export async function removeDomain(organizationId: string, id: string) {
 	await syncSmtpPolicy(organizationId);
 }
 
-/** Cron: pending domains are checked again (every 10 minutes for their first 3 days). */
-export async function checkPendingDomains(now = Date.now(), limit = 10) {
-	const rows = await db
-		.select({
-			id: schema.domains.id,
-			organization_id: schema.domains.organization_id,
-			created_at: schema.domains.created_at,
-		})
-		.from(schema.domains)
-		.where(eq(schema.domains.status, "pending"))
-		.limit(limit);
-	for (const r of rows)
-		if (Date.parse(r.created_at) > now - 3 * 86_400_000)
-			await verifyDomain(r.organization_id, r.id).catch((error) =>
-				console.error("domains: check failed", error),
-			);
+/**
+ * Cron: pending domains are checked again (each run, for their first 3 days), the least recently
+ * checked first so older ones never crowd out new ones; and every other domain once a day, so a
+ * verification SES withdrew later (DKIM records removed) or a failure fixed since shows.
+ */
+export async function checkPendingDomains(now = Date.now(), limit = 10, settled = 5) {
+	const d = schema.domains;
+	const cols = { id: d.id, organization_id: d.organization_id };
+	const leastRecent = sql`${d.checked_at} IS NOT NULL, ${d.checked_at}`;
+	const [fresh, others] = await Promise.all([
+		db
+			.select(cols)
+			.from(d)
+			.where(and(eq(d.status, "pending"), gt(d.created_at, iso(now - 3 * 86_400_000))))
+			.orderBy(leastRecent)
+			.limit(limit),
+		db
+			.select(cols)
+			.from(d)
+			.where(
+				and(
+					or(sql`${d.status} <> 'pending'`, lte(d.created_at, iso(now - 3 * 86_400_000))),
+					or(isNull(d.checked_at), lt(d.checked_at, iso(now - 86_400_000))),
+				),
+			)
+			.orderBy(leastRecent)
+			.limit(settled),
+	]);
+	for (const r of [...fresh, ...others])
+		await verifyDomain(r.organization_id, r.id).catch(async (error) => {
+			console.error("domains: check failed", error);
+			// Looked at anyway, so one SES won't answer for doesn't hold up the others.
+			await db
+				.update(d)
+				.set({ checked_at: iso(now) })
+				.where(eq(d.id, r.id));
+		});
 }
 
 // ── Brand logo (BIMI) ──────────────────────────────────────────────────────

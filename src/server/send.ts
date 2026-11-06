@@ -598,7 +598,8 @@ export async function markRefused(
 				send_at: iso(now + CREDENTIALS_RETRY_MS),
 				locked_until: null,
 			})
-			.where(eq(e.id, row.id));
+			// Only from sending: a run that took it over meanwhile (and sent it) keeps its word.
+			.where(and(eq(e.id, row.id), eq(e.status, "sending")));
 		return "retry";
 	}
 	const attempts = row.attempts + 1;
@@ -612,7 +613,7 @@ export async function markRefused(
 				send_at: iso(now + retryDelayMs(attempts)),
 				locked_until: null,
 			})
-			.where(eq(e.id, row.id));
+			.where(and(eq(e.id, row.id), eq(e.status, "sending")));
 		return "retry";
 	}
 	const [failed] = await db
@@ -626,9 +627,10 @@ export async function markRefused(
 			last_event: "failed",
 			last_event_at: iso(now),
 		})
-		.where(eq(e.id, row.id))
+		.where(and(eq(e.id, row.id), eq(e.status, "sending")))
 		.returning({ from: e.from });
-	if (failed) await batch(bump(row.organization_id, dayOf(now), failed.from, "failed"));
+	if (!failed) return "failed";
+	await batch(bump(row.organization_id, dayOf(now), failed.from, "failed"));
 	await emitEvent(
 		row.organization_id,
 		"email.failed",

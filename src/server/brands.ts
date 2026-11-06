@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { batch, db, raw, schema } from "./db";
 import { ApiError, notFound, validation } from "./errors";
 import { forgetOrg } from "./org";
@@ -247,6 +247,9 @@ export async function setBrandPaused(
 			"paused_by_mailroom",
 			"Mailroom paused this brand; ask this deployment's admins to resume it",
 		);
+	// A pause Mailroom placed stays Mailroom's: pausing again (by the brand) doesn't make it theirs to lift.
+	const mailroomHolds = !!row.paused_at && row.paused_by === "mailroom" && o.by !== "mailroom";
+	if (paused && mailroomHolds) return getBrand(organizationId, id);
 	await db
 		.update(s)
 		.set(
@@ -259,7 +262,15 @@ export async function setBrandPaused(
 					}
 				: { paused_at: null, paused_by: null, paused_reason: null, updated_at: iso() },
 		)
-		.where(eq(s.organization_id, id));
+		.where(
+			and(
+				eq(s.organization_id, id),
+				// Resuming by the brand: never a pause Mailroom placed in between.
+				!paused && !o.isAdmin
+					? or(isNull(s.paused_by), sql`${s.paused_by} <> 'mailroom'`)
+					: undefined,
+			),
+		);
 	forgetOrg(id);
 	return getBrand(organizationId, id);
 }

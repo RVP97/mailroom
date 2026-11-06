@@ -498,6 +498,25 @@ export async function importContacts(
 						.onConflictDoNothing(),
 				),
 			);
+		// New contacts imported as unsubscribed are out of every broadcast email too, the same
+		// as one who used the link (existing contacts keep what they chose).
+		const out = chunk.filter(
+			(r, k) => r.unsubscribed && results[k]?.results?.[0]?.created_at === now,
+		);
+		if (out.length)
+			await batch(
+				out.map((r) =>
+					db
+						.insert(u)
+						.values({
+							organization_id: brand,
+							group: ALL_BROADCASTS_GROUP,
+							address: r.email,
+							created_at: now,
+						})
+						.onConflictDoNothing(),
+				),
+			);
 	}
 	return { imported: list.length, added, updated: list.length - added, skipped };
 }

@@ -335,11 +335,13 @@ export async function updateBroadcast(
 		throw new ApiError(409, "not_draft", "Only a draft broadcast can be changed");
 	const v = broadcastInput.partial().parse(raw ?? {});
 	const fields = await fieldsOf(organizationId, brand, v);
+	// Only while it's still a draft: a send or schedule in between wins.
 	const [row] = await db
 		.update(b)
 		.set({ ...fields, updated_at: iso(now), ...(by ? { updated_by: by } : {}) })
-		.where(eq(b.id, id))
+		.where(and(eq(b.id, id), eq(b.status, "draft")))
 		.returning();
+	if (!row) throw new ApiError(409, "not_draft", "Only a draft broadcast can be changed");
 	const saved = row as Broadcast;
 	// An approval holds for what was approved: a change to what people get asks again.
 	const { contentHash } = await import("./reviews");
@@ -362,7 +364,17 @@ export async function deleteBroadcast(brand: string, id: string) {
 			"already_sent",
 			"Only a draft or scheduled broadcast can be deleted; cancel one that's sending",
 		);
-	await db.delete(b).where(eq(b.id, id));
+	// A scheduled one that started queueing in between is sending now: it stays.
+	const gone = await db
+		.delete(b)
+		.where(and(eq(b.id, id), inArray(b.status, ["draft", "scheduled"])))
+		.returning({ id: b.id });
+	if (!gone.length)
+		throw new ApiError(
+			409,
+			"already_sent",
+			"Only a draft or scheduled broadcast can be deleted; cancel one that's sending",
+		);
 	return x;
 }
 
@@ -408,6 +420,12 @@ export async function sendBroadcast(
 		throw new ApiError(409, "already_sent", "This broadcast was already sent");
 	const why = await notReady(x);
 	if (why) throw validation(why);
+	// Every way of sending (dashboard, API, MCP, a newsletter's RSS) passes the approval check.
+	const [{ assertApproved }, { orgOf }] = await Promise.all([
+		import("./reviews"),
+		import("./brands"),
+	]);
+	await assertApproved(await orgOf(x.organization_id), x);
 	const o = sendOptions.parse(options);
 	if (o.ab_test && o.local_time)
 		throw validation("An A/B test can't also go at each contact's local time");
@@ -438,8 +456,10 @@ export async function sendBroadcast(
 			local_time: o.local_time ?? null,
 			updated_at: iso(now),
 		})
-		.where(eq(b.id, id))
+		// Still a draft or not started: the cron may have begun queueing it in between.
+		.where(and(eq(b.id, id), inArray(b.status, ["draft", "scheduled"])))
 		.returning();
+	if (!row) throw new ApiError(409, "already_sent", "This broadcast was already sent");
 	return row as Broadcast;
 }
 
@@ -490,28 +510,48 @@ export async function resendBroadcast(
 
 /** Stops it: a scheduled one goes back to draft; one sending stops queueing and its queued emails are canceled. */
 export async function cancelBroadcast(brand: string, id: string, now = Date.now()) {
-	const x = await getBroadcast(brand, id);
+	let x = await getBroadcast(brand, id);
 	if (x.status === "scheduled") {
+		// Only if nothing was queued yet: the cron may have just started it (then it's stopped below).
 		const [row] = await db
 			.update(b)
 			.set({ status: "draft", scheduled_at: null, updated_at: iso(now) })
-			.where(eq(b.id, id))
+			.where(and(eq(b.id, id), eq(b.status, "scheduled")))
 			.returning();
-		return row as Broadcast;
+		if (row) return row as Broadcast;
+		x = await getBroadcast(brand, id);
 	}
 	if (x.status !== "sending" && x.status !== "sent" && x.status !== "testing")
 		throw new ApiError(409, "not_sending", "This broadcast isn't scheduled or sending");
 	const e = schema.emails;
-	await db
-		.update(e)
-		.set({ status: "canceled", send_at: null, last_event: "canceled", last_event_at: iso(now) })
-		.where(and(eq(e.broadcast_id, id), eq(e.status, "queued")));
+	// "sent" means every email is queued, not gone: one with none left waiting is done.
+	if (x.status === "sent") {
+		const waiting = await db
+			.select({ id: e.id })
+			.from(e)
+			.where(and(eq(e.broadcast_id, id), inArray(e.status, ["queued", "scheduled"])))
+			.get();
+		if (!waiting)
+			throw new ApiError(409, "already_sent", "Every email of this broadcast has gone out");
+	}
+	// The broadcast first, so a chunk being queued right now is refused by the Dispatcher.
 	const [row] = await db
 		.update(b)
 		.set({ status: "canceled", completed_at: iso(now), updated_at: iso(now) })
-		.where(eq(b.id, id))
+		.where(and(eq(b.id, id), inArray(b.status, ["sending", "sent", "testing"])))
 		.returning();
+	if (!row) throw new ApiError(409, "not_sending", "This broadcast isn't scheduled or sending");
+	await cancelQueued(id, now);
 	return row as Broadcast;
+}
+
+/** A canceled (or deleted) broadcast's emails still waiting: canceled. */
+async function cancelQueued(id: string, now: number) {
+	const e = schema.emails;
+	await db
+		.update(e)
+		.set({ status: "canceled", send_at: null, last_event: "canceled", last_event_at: iso(now) })
+		.where(and(eq(e.broadcast_id, id), inArray(e.status, ["queued", "scheduled"])));
 }
 
 /** The next contacts it goes to, after `cursor` in id order. */
@@ -649,21 +689,41 @@ async function advance(x: Broadcast, now: number) {
 	const statements = [];
 	for (let i = 0; i < rows.length; i += PER_INSERT)
 		statements.push(db.insert(schema.emails).values(rows.slice(i, i + PER_INSERT)));
+	let inserted = 0;
 	try {
-		for (let i = 0; i < statements.length; i += 50) await batch(statements.slice(i, i + 50));
+		for (let i = 0; i < statements.length; i += 50) {
+			await batch(statements.slice(i, i + 50));
+			inserted = Math.min(rows.length, (i + 50) * PER_INSERT);
+		}
 	} catch (error) {
 		console.error("broadcasts: queueing failed", x.id, error);
+		// The cursor goes back to the last contact queued, so the next run queues the rest
+		// instead of skipping them (each batch is all or nothing).
 		await db
 			.update(b)
 			.set({
+				cursor: inserted ? (contacts[inserted - 1]?.id ?? x.cursor) : x.cursor,
+				queued: sql`${b.queued} - ${contacts.length - inserted}`,
+				status: "sending",
+				test_ends_at: x.test_ends_at,
+				completed_at: null,
 				error: `Queueing stopped: ${error instanceof Error ? error.message : error}`.slice(
 					0,
 					500,
 				),
 			})
-			.where(eq(b.id, x.id));
+			.where(
+				and(
+					eq(b.id, x.id),
+					eq(b.cursor, last ?? ""),
+					inArray(b.status, ["sending", "sent", "testing"]),
+				),
+			);
 	}
-	return contacts.length;
+	// Canceled while this chunk went in: its emails are canceled too.
+	const after = await db.select({ status: b.status }).from(b).where(eq(b.id, x.id)).get();
+	if (!after || after.status === "canceled") await cancelQueued(x.id, now);
+	return inserted;
 }
 
 /** Each contact's subject (theirs, of an A/B test's versions), with their values in. */

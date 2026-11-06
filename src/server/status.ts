@@ -25,8 +25,16 @@ const rankCase = (column: string) =>
 		.map(([s, r]) => `WHEN '${s}' THEN ${r}`)
 		.join(" ")} ELSE 0 END`;
 
-/** SQL: the email's status, moved to `next` only if `next` ranks higher. */
+/**
+ * SQL: the email's status, moved to `next` only if `next` ranks higher. One exception: an email
+ * marked failed without SES's message id (the send was interrupted, or SES's answer was lost) was
+ * only a guess, so SES's own word about it (sent, delivered…) replaces it.
+ */
 export const advanceStatus = (next: EmailStatus) =>
 	sql.raw(
-		`CASE WHEN ${STATUS_RANK[next]} > ${rankCase("status")} THEN '${next}' ELSE status END`,
+		`CASE WHEN ${STATUS_RANK[next]} > ${rankCase("status")}${
+			next === "failed" || next === "canceled"
+				? ""
+				: " OR (status = 'failed' AND message_id IS NULL)"
+		} THEN '${next}' ELSE status END`,
 	);

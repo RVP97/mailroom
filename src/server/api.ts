@@ -1,5 +1,5 @@
 import { waitUntil } from "cloudflare:workers";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { checkContent } from "../lib/content-check";
 import { EMAIL_FILTERS, type EmailFilterValue } from "../lib/email-status";
@@ -1223,7 +1223,8 @@ const routes: [string, RegExp, Handler][] = [
 							schema.emails.organization_id,
 							auth.brandId ?? { org: auth.organizationId },
 						),
-						eq(schema.emails.status, "scheduled"),
+						// Queued too: a scheduled email held back (a paused brand) waits as queued.
+						inArray(schema.emails.status, ["scheduled", "queued"]),
 					),
 				)
 				.returning({ id: schema.emails.id });

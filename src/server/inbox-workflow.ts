@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { displayName, fillVariables, VARIABLES } from "@/lib/reply-variables";
 import { bareAddress } from "./aws/mime";
@@ -239,7 +239,7 @@ export async function claim(
 	const settings = settingsOf(await inboxOf(x.inbox_id));
 	const mins = Math.min(Math.max(o.minutes ?? settings.claim_minutes, 1), 240);
 	const until = actor.type === "agent" ? iso(now + mins * 60_000) : null;
-	await db
+	const taken = await db
 		.update(c)
 		.set({
 			assignee: actor.reader,
@@ -247,7 +247,30 @@ export async function claim(
 			claimed_until: until,
 			updated_at: iso(now),
 		})
-		.where(eq(c.id, x.id));
+		.where(
+			and(
+				eq(c.id, x.id),
+				// Whoever had it when this was read still has it (or nobody does now): two agents
+				// claiming at once can't both win. A person's takeover (force) needs no check.
+				o.force && actor.type === "person"
+					? undefined
+					: or(
+							isNull(c.assignee),
+							eq(c.assignee, actor.reader),
+							and(isNotNull(c.claimed_until), lte(c.claimed_until, iso(now))),
+						),
+			),
+		)
+		.returning({ id: c.id });
+	if (!taken.length) {
+		const fresh = await db.select().from(c).where(eq(c.id, x.id)).get();
+		const holder = fresh ? holderOf(fresh, now) : null;
+		throw new ApiError(
+			409,
+			"conversation_claimed",
+			`${holder?.name ?? "Someone"} already has this conversation${holder?.until ? ` until ${holder.until}` : ""}`,
+		);
+	}
 	if (h?.reader !== actor.reader) {
 		await logInbox(actor, {
 			brandId: x.organization_id,
@@ -532,7 +555,8 @@ export async function wakeSnoozed(now = Date.now()) {
 					resolved_at: null,
 					updated_at: iso(now),
 				})
-				.where(eq(c.id, x.id)),
+				// Not if it was snoozed again (or woken) meanwhile.
+				.where(and(eq(c.id, x.id), eq(c.snoozed_until, x.snoozed_until as string))),
 			db
 				.delete(schema.conversationReads)
 				.where(eq(schema.conversationReads.conversation_id, x.id)),
@@ -1012,20 +1036,36 @@ export function assess(m: {
 export const HOLD_SCORE = 50;
 
 /** Lets agents see a held conversation (and its held messages). */
-export async function releaseHeld(actor: InboxActor, x: Conversation, now = Date.now()) {
+export async function releaseHeld(
+	actor: InboxActor,
+	x: Conversation,
+	now = Date.now(),
+	/** The conversation's held_at as the person saw it: mail held after that isn't released. */
+	seen?: string | null,
+) {
 	if (actor.type === "agent")
 		throw new ApiError(403, "people_only", "Only a person can release held mail");
 	need(actor, "triage");
 	if (!x.held_at) return;
+	if (seen && seen !== x.held_at)
+		throw new ApiError(
+			409,
+			"conversation_changed",
+			"More mail was held since you looked: read it before releasing",
+		);
+	const re = schema.receivedEmails;
+	// Only what was held by then; a message held while this runs stays held, and so does the conversation.
 	await db.batch([
 		db
-			.update(schema.receivedEmails)
+			.update(re)
 			.set({ held: false })
-			.where(eq(schema.receivedEmails.conversation_id, x.id)),
+			.where(
+				and(eq(re.conversation_id, x.id), eq(re.held, true), lte(re.created_at, x.held_at)),
+			),
 		db
 			.update(c)
 			.set({ held_at: null, updated_at: iso(now) })
-			.where(eq(c.id, x.id)),
+			.where(and(eq(c.id, x.id), eq(c.held_at, x.held_at))),
 	]);
 	await logInbox(actor, {
 		brandId: x.organization_id,
@@ -1976,6 +2016,22 @@ export async function once<T>(
 				"idempotency_key_reused",
 				"This Idempotency-Key was used for another request",
 			);
+		// One left "running" by a request that died (no answer in 5 minutes) is taken over.
+		if (!seen?.status && seen && seen.created_at < iso(now - 5 * 60_000)) {
+			const taken = await db
+				.update(ik)
+				.set({ created_at: iso(now) })
+				.where(
+					and(
+						eq(ik.actor, actor),
+						eq(ik.key, key),
+						isNull(ik.status),
+						eq(ik.created_at, seen.created_at),
+					),
+				)
+				.returning({ key: ik.key });
+			if (taken.length) return run();
+		}
 		if (!seen?.status)
 			throw new ApiError(
 				409,
@@ -1988,16 +2044,20 @@ export async function once<T>(
 			replayed: true,
 		};
 	}
-	try {
-		const out = await fn();
-		await db
-			.update(ik)
-			.set({ status: out.status, response: JSON.stringify(out.body) })
-			.where(and(eq(ik.actor, actor), eq(ik.key, key)));
-		return out;
-	} catch (error) {
-		await db.delete(ik).where(and(eq(ik.actor, actor), eq(ik.key, key)));
-		throw error;
+	return run();
+	async function run() {
+		const k = key as string;
+		try {
+			const out = await fn();
+			await db
+				.update(ik)
+				.set({ status: out.status, response: JSON.stringify(out.body) })
+				.where(and(eq(ik.actor, actor), eq(ik.key, k)));
+			return out;
+		} catch (error) {
+			await db.delete(ik).where(and(eq(ik.actor, actor), eq(ik.key, k)));
+			throw error;
+		}
 	}
 }
 

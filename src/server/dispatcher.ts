@@ -54,8 +54,14 @@ export class Dispatcher extends DurableObject {
 		const now = Date.now();
 		const claimed = await claimDue(now, PER_RUN);
 		const bodies = await storedContents(claimed.map((r) => r.id));
+		const stopped = await stoppedBroadcasts(claimed);
 		for (const row of claimed) {
 			try {
+				// A broadcast canceled (or deleted) after this email was queued: it doesn't go.
+				if (row.broadcast_id && stopped.has(row.broadcast_id)) {
+					await cancelClaimed(row.id, now);
+					continue;
+				}
 				const ctx = await orgContext(row.organization_id);
 				// A paused brand or domain: its queue waits, looked at again every 15 minutes.
 				if (ctx.paused || domainFor(ctx, bareAddress(row.from))?.paused) {
@@ -91,13 +97,41 @@ export class Dispatcher extends DurableObject {
 
 const HOLD_MS = 15 * 60_000;
 
-/** Puts a claimed email back in the queue for later, unchanged. */
+/**
+ * Puts a claimed email back in the queue for later, unchanged (cancel and unsend take queued
+ * emails too, so one scheduled for later can still be called back while it waits here).
+ */
 async function hold(emailId: string, until: number) {
 	const e = schema.emails;
 	await db
 		.update(e)
 		.set({ status: "queued", send_at: iso(until), locked_until: null })
-		.where(eq(e.id, emailId));
+		.where(and(eq(e.id, emailId), eq(e.status, "sending")));
+}
+
+/** A claimed email of a stopped broadcast: canceled instead of sent. */
+async function cancelClaimed(emailId: string, now: number) {
+	const e = schema.emails;
+	await db
+		.update(e)
+		.set({
+			status: "canceled",
+			send_at: null,
+			locked_until: null,
+			last_event: "canceled",
+			last_event_at: iso(now),
+		})
+		.where(and(eq(e.id, emailId), eq(e.status, "sending")));
+}
+
+/** Of the claimed emails' broadcasts, those canceled or deleted since (read fresh, not cached). */
+async function stoppedBroadcasts(rows: { broadcast_id: string | null }[]): Promise<Set<string>> {
+	const ids = [...new Set(rows.flatMap((r) => (r.broadcast_id ? [r.broadcast_id] : [])))];
+	if (!ids.length) return new Set();
+	const b = schema.broadcasts;
+	const live = await db.select({ id: b.id, status: b.status }).from(b).where(inArray(b.id, ids));
+	const going = new Set(live.filter((x) => x.status !== "canceled").map((x) => x.id));
+	return new Set(ids.filter((id) => !going.has(id)));
 }
 
 /** Claims due emails (queued or scheduled, or left claimed by a dead run) in one statement. */

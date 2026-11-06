@@ -285,6 +285,8 @@ export async function applySesEvent(
 		last_event_at: sql`CASE WHEN ${em.last_event_at} IS NULL OR ${at} >= ${em.last_event_at} THEN ${at} ELSE ${em.last_event_at} END`,
 	};
 	if (status) set.status = advanceStatus(status);
+	// SES's id for an email whose send we never heard back from (it went after all).
+	if (e.mail?.messageId) set.message_id = sql`COALESCE(${em.message_id}, ${e.mail.messageId})`;
 	const queries: Parameters<typeof batch>[0] = [];
 	switch (kind) {
 		case "Send":

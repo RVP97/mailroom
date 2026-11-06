@@ -54,6 +54,8 @@ const PER_RUN = 200;
 export const DOWN_AFTER = 8;
 /** While Down, a new event's first try waits this long (the retries probe the endpoint). */
 const DOWN_WAIT_MS = 5 * 60_000;
+/** A try under way (10 seconds' timeout at most): nobody else takes the delivery meanwhile. */
+const IN_FLIGHT_MS = 60_000;
 
 export function newSecret() {
 	const bytes = crypto.getRandomValues(new Uint8Array(24));
@@ -241,8 +243,9 @@ async function queue(
 		event_type: type,
 		payload,
 		status: "pending",
-		// A Down endpoint isn't hammered: its events queue for the retries.
-		next_attempt_at: iso(h.down_since ? now + DOWN_WAIT_MS : now),
+		// A Down endpoint isn't hammered: its events queue for the retries. A healthy one's first
+		// try is the one below; the cron only takes it if that never answered (a Worker that died).
+		next_attempt_at: iso(h.down_since ? now + DOWN_WAIT_MS : now + IN_FLIGHT_MS),
 		created_at: iso(now),
 	}));
 	await db.insert(schema.webhookDeliveries).values(rows);
@@ -311,7 +314,13 @@ export async function deliverOne(
 							next_attempt_at: iso(now + wait * 1000),
 						},
 		)
-		.where(eq(schema.webhookDeliveries.id, d.id));
+		// A delivery that already went (another try answered first) stays delivered.
+		.where(
+			and(
+				eq(schema.webhookDeliveries.id, d.id),
+				sql`${schema.webhookDeliveries.status} <> 'delivered'`,
+			),
+		);
 	if (hook.id) await recordHealth(hook.id, ok, now);
 	return ok;
 }
@@ -395,9 +404,27 @@ export async function retryDueDeliveries(now = Date.now(), fetcher: typeof fetch
 		.where(and(eq(w.status, "pending"), lte(w.next_attempt_at, iso(now))))
 		.orderBy(asc(w.next_attempt_at))
 		.limit(PER_RUN);
+	// Claimed first (moved past this run), so two crons overlapping never try one twice.
+	const claimed = new Set<string>();
+	const ids = due.map((x) => x.d.id);
+	// 90 at a time: D1 takes 100 parameters a statement.
+	for (let i = 0; i < ids.length; i += 90)
+		for (const r of await db
+			.update(w)
+			.set({ next_attempt_at: iso(now + IN_FLIGHT_MS) })
+			.where(
+				and(
+					inArray(w.id, ids.slice(i, i + 90)),
+					eq(w.status, "pending"),
+					lte(w.next_attempt_at, iso(now)),
+				),
+			)
+			.returning({ id: w.id }))
+			claimed.add(r.id);
 	let delivered = 0;
 	await Promise.all(
 		due.map(async ({ d, hookId, url, secret, enabled }) => {
+			if (!claimed.has(d.id)) return;
 			if (!enabled) {
 				await db
 					.update(w)

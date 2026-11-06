@@ -224,7 +224,7 @@ const unreadSql = (reader: string | null) =>
 		? sql<number>`(${C_INBOUND} IS NOT NULL AND EXISTS (SELECT 1 FROM ${re} m WHERE m.conversation_id = ${C_ID} AND m.created_at > coalesce((SELECT r.read_at FROM ${schema.conversationReads} r WHERE r.conversation_id = ${C_ID} AND r.reader = ${reader}), '') AND NOT EXISTS (SELECT 1 FROM ${schema.messageReads} mr WHERE mr.message_id = m.id AND mr.reader = ${reader})))`
 		: sql<number>`0`;
 
-const draftsSql = sql<number>`(SELECT count(*) FROM ${rp} d WHERE d.conversation_id = ${C_ID} AND d.status = 'draft')`;
+const draftsSql = sql<number>`(SELECT count(*) FROM ${rp} d WHERE d.conversation_id = ${C_ID} AND d.status IN ('draft', 'sending'))`;
 
 export interface ConversationFilter {
 	/** An inbox's id or address; "none": the brand's other addresses. */
@@ -366,6 +366,8 @@ export function conversationView(
 				: null,
 		/** Mail in it waits for a person before agents see it (never true for an agent). */
 		held: actor?.type === "agent" ? false : !!x.held_at,
+		/** When mail was last held (people only): releasing passes it back, so later mail stays held. */
+		held_at: actor?.type === "agent" ? null : x.held_at,
 		channel: (x.channel === "chat" ? "chat" : "email") as "chat" | "email",
 		...(x.channel === "chat"
 			? {
@@ -491,6 +493,7 @@ export async function getConversation(
 					id: schema.emails.id,
 					status: schema.emails.status,
 					last_event: schema.emails.last_event,
+					sent_at: schema.emails.sent_at,
 					from: schema.emails.from,
 					to: schema.emails.to,
 					subject: schema.emails.subject,
@@ -561,9 +564,14 @@ export async function getConversation(
 				text: dots(x.text) ?? "",
 			}));
 	const out = replies.map((r) => {
-		const e = emails.find((x) => x.id === r.email_id);
+		const found = emails.find((x) => x.id === r.email_id);
+		// Held back in the queue (a paused brand) is still waiting, and can still be called back.
+		const e =
+			found?.status === "queued" && !found.sent_at
+				? { ...found, status: "scheduled" as const }
+				: found;
 		return {
-			type: r.status === "draft" ? ("draft" as const) : ("reply" as const),
+			type: r.status === "sent" ? ("reply" as const) : ("draft" as const),
 			id: r.id,
 			at: r.sent_at ?? r.updated_at,
 			from: r.from,
@@ -755,6 +763,8 @@ export const conversationUpdate = z.object({
 	assignee: z.string().nullable().optional(),
 	/** People: let agents see the mail held in it. */
 	release_held: z.literal(true).optional(),
+	/** With release_held: the held_at the person saw (mail held after it stays held). */
+	held_seen: z.string().optional(),
 });
 
 export async function updateConversation(
@@ -775,11 +785,11 @@ export async function updateConversation(
 		);
 	if (v.priority) await setPriority(actor, x, v.priority, now);
 	if (v.assignee !== undefined) await assign(actor, x, v.assignee, now);
-	if (v.release_held) await releaseHeld(actor, x, now);
+	if (v.release_held) await releaseHeld(actor, x, now, v.held_seen);
 	if (v.snooze_until !== undefined) await snooze(actor, x, v.snooze_until, now);
 	if (v.status && v.status !== x.status) {
 		need(actor, "triage");
-		await db
+		const changed = await db
 			.update(c)
 			.set({
 				status: v.status,
@@ -787,7 +797,23 @@ export async function updateConversation(
 				...(v.status === "resolved" ? { snoozed_until: null } : {}),
 				updated_at: iso(now),
 			})
-			.where(eq(c.id, id));
+			.where(
+				and(
+					eq(c.id, id),
+					eq(c.status, x.status),
+					// Resolving: not if a message came in since this was read (it reopened it).
+					v.status === "resolved"
+						? sql`coalesce(${c.last_inbound_at}, '') = ${x.last_inbound_at ?? ""}`
+						: undefined,
+				),
+			)
+			.returning({ id: c.id });
+		if (!changed.length)
+			throw new ApiError(
+				409,
+				"conversation_changed",
+				"A new message came in or it changed meanwhile: look at it again",
+			);
 		if (v.status === "resolved") await slaResolved(x, now);
 		else await planSla({ ...x, status: "open", sla_resolve_due_at: null }, now);
 		await logInbox(actor, {
@@ -1335,6 +1361,36 @@ export async function saveDraft(
 	return replyView(row as Reply);
 }
 
+/** A stuck "sending" draft (its send's Worker died) is a draft again after this. */
+const DRAFT_LOCK_MS = 2 * 60_000;
+
+/** Takes a draft for one send: draft → sending, or 409 if another send has it. */
+async function lockDraft(id: string, now: number) {
+	const took = await db
+		.update(rp)
+		.set({ status: "sending", updated_at: iso(now) })
+		.where(
+			and(
+				eq(rp.id, id),
+				or(
+					eq(rp.status, "draft"),
+					and(eq(rp.status, "sending"), lt(rp.updated_at, iso(now - DRAFT_LOCK_MS))),
+				),
+			),
+		)
+		.returning({ id: rp.id });
+	if (!took.length)
+		throw new ApiError(409, "draft_being_sent", "This draft is already being sent");
+}
+
+/** A send that failed: its draft is a draft again. */
+async function unlockDraft(id: string) {
+	await db
+		.update(rp)
+		.set({ status: "draft" })
+		.where(and(eq(rp.id, id), eq(rp.status, "sending")));
+}
+
 export async function draftFor(actor: InboxActor, id: string) {
 	const row = await db
 		.select({ r: rp })
@@ -1342,7 +1398,12 @@ export async function draftFor(actor: InboxActor, id: string) {
 		.innerJoin(c, eq(c.id, rp.conversation_id))
 		.where(and(eq(rp.id, id), visible(actor)))
 		.get();
-	if (!row || row.r.status !== "draft") throw notFound("Draft");
+	if (!row) throw notFound("Draft");
+	// One left "sending" by a send that died is a draft again after a while.
+	const stuck = row.r.status === "sending" && row.r.updated_at < iso(Date.now() - DRAFT_LOCK_MS);
+	if (row.r.status === "sending" && !stuck)
+		throw new ApiError(409, "draft_being_sent", "This draft is already being sent");
+	if (row.r.status !== "draft" && !stuck) throw notFound("Draft");
 	return row.r;
 }
 
@@ -1361,7 +1422,7 @@ export async function deleteDraft(actor: InboxActor, id: string) {
 }
 
 export const replyView = (r: Reply) => ({
-	object: r.status === "draft" ? "draft" : "reply",
+	object: r.status === "sent" ? "reply" : "draft",
 	id: r.id,
 	conversation_id: r.conversation_id,
 	inbox_id: r.inbox_id,
@@ -1434,18 +1495,24 @@ export async function sendReply(
 	// A website chat: the line goes to the chat (src/server/chat.ts).
 	if (x.channel === "chat") {
 		const { lineAsReply, teamSays } = await import("./chat");
-		const line = await teamSays(
-			actor,
-			x,
-			{
-				text: v.text ?? draft?.text ?? "",
-				via: actor.type === "person" && sender.dashboard ? "dashboard" : "api",
-				draft,
-				client_id: o.clientId ?? null,
-			},
-			now,
-		);
-		return lineAsReply(line, x);
+		if (draft) await lockDraft(draft.id, now);
+		try {
+			const line = await teamSays(
+				actor,
+				x,
+				{
+					text: v.text ?? draft?.text ?? "",
+					via: actor.type === "person" && sender.dashboard ? "dashboard" : "api",
+					draft,
+					client_id: o.clientId ?? null,
+				},
+				now,
+			);
+			return lineAsReply(line, x);
+		} catch (error) {
+			if (draft) await unlockDraft(draft.id);
+			throw error;
+		}
 	}
 	const inbox = await inboxOfConversation(x);
 	const d = await replyDefaults(x, inbox);
@@ -1504,6 +1571,9 @@ export async function sendReply(
 	const quoted = last
 		? `\n\nOn ${new Date(last.created_at).toUTCString()}, ${last.from} wrote: "${last.subject}"`
 		: "";
+	// The draft is this send's alone from here: a second Send on it (another person, a double
+	// click) is refused instead of emailing it twice.
+	if (draft) await lockDraft(draft.id, now);
 	let emailId: string;
 	try {
 		emailId = await sender.send(x.organization_id, {
@@ -1534,6 +1604,7 @@ export async function sendReply(
 		});
 	} catch (error) {
 		await dropFiles(added);
+		if (draft) await unlockDraft(draft.id);
 		throw error;
 	}
 	// The email keeps its own copy of the files.
@@ -1675,7 +1746,11 @@ export async function unsendReply(actor: InboxActor, replyId: string, now = Date
 		.update(schema.emails)
 		.set({ status: "canceled", send_at: null, last_event: "canceled", last_event_at: iso(now) })
 		.where(
-			and(eq(schema.emails.id, r.email_id as string), eq(schema.emails.status, "scheduled")),
+			and(
+				eq(schema.emails.id, r.email_id as string),
+				// Queued: held back (a paused brand) but not gone yet.
+				inArray(schema.emails.status, ["scheduled", "queued"]),
+			),
 		)
 		.returning({ id: schema.emails.id });
 	if (!canceled)
@@ -1797,7 +1872,7 @@ async function purgeWhere(where: ReturnType<typeof and>, rounds: number) {
 						rp.conversation_id,
 						rows.map((r) => r.id),
 					),
-					eq(rp.status, "draft"),
+					inArray(rp.status, ["draft", "sending"]),
 				),
 			);
 		await dropFiles(drafts.flatMap((d) => d.a ?? []));

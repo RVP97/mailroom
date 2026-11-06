@@ -157,6 +157,7 @@ function ConversationSketch() {
 			sla: { reply_due_at: null, resolve_due_at: null, breached: [] },
 			csat: null,
 			held: false,
+			held_at: null,
 			has_more: false,
 			before: null,
 			timeline: [
@@ -818,7 +819,10 @@ function ConversationPage() {
 										disabled={busy !== null}
 										onClick={() =>
 											update(
-												{ release_held: true },
+												{
+													release_held: true,
+													held_seen: c.held_at ?? undefined,
+												},
 												"release",
 												"Agents can see it now",
 											)

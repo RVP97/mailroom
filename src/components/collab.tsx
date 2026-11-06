@@ -443,11 +443,14 @@ export function RequestReviewDialog({
 /** Approving, or asking for changes (with what should change). */
 export function ReviewDialog({
 	id,
+	seen,
 	open,
 	onOpenChange,
 	onDone,
 }: {
 	id: string;
+	/** The version on screen (its updated_at): approving holds only for it. */
+	seen?: string;
 	open: boolean;
 	onOpenChange: (o: boolean) => void;
 	onDone: () => void;
@@ -457,7 +460,7 @@ export function ReviewDialog({
 	const decide = async (approve: boolean) => {
 		setBusy(approve ? "approve" : "changes");
 		try {
-			await decideReviewFn({ data: { id, approve, note: note.trim() || undefined } });
+			await decideReviewFn({ data: { id, approve, note: note.trim() || undefined, seen } });
 			toast.success(approve ? "Approved" : "Changes asked");
 			setNote("");
 			onOpenChange(false);

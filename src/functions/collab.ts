@@ -136,7 +136,13 @@ export const requestReviewFn = createServerFn({ method: "POST" })
 export const decideReviewFn = createServerFn({ method: "POST" })
 	.middleware([can("broadcasts:approve")])
 	.validator(
-		z.object({ id: z.string(), approve: z.boolean(), note: z.string().max(2000).optional() }),
+		z.object({
+			id: z.string(),
+			approve: z.boolean(),
+			note: z.string().max(2000).optional(),
+			/** The version the reviewer looked at (its updated_at). */
+			seen: z.string().optional(),
+		}),
 	)
 	.handler(({ data, context }) =>
 		call(async () => {
@@ -149,6 +155,7 @@ export const decideReviewFn = createServerFn({ method: "POST" })
 				access: context.access,
 				approve: data.approve,
 				note: data.note,
+				seen: data.seen,
 			});
 			return { ok: true };
 		}),

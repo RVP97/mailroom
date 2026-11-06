@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { findBimi } from "../../lib/bimi";
 import { explainBounce } from "../../lib/bounces";
@@ -584,7 +584,7 @@ export const SETTINGS_TOOLS: Tool[] = [
 					and(
 						eq(schema.emails.id, a.id as string),
 						inScope(schema.emails.organization_id, { org: org.id }),
-						eq(schema.emails.status, "scheduled"),
+						inArray(schema.emails.status, ["scheduled", "queued"]),
 					),
 				)
 				.returning({ id: schema.emails.id });

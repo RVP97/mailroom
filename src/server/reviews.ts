@@ -1,5 +1,5 @@
 import { waitUntil } from "cloudflare:workers";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Access } from "../lib/permissions";
 import { membersWith } from "./access";
 import { logActivity } from "./activity";
@@ -159,25 +159,48 @@ export async function decideReview(o: {
 	access: Access;
 	approve: boolean;
 	note?: string;
+	/** The broadcast's updated_at as the reviewer saw it: an edit since then asks them to look again. */
+	seen?: string | null;
 	now?: number;
 }) {
 	if (!o.access.can("broadcasts:approve"))
 		throw new ApiError(403, "forbidden", "You can't approve broadcasts here");
 	const x = await getBroadcast(o.brand, o.id);
 	if (x.status !== "draft") throw new ApiError(409, "not_draft", "Only a draft is reviewed");
+	if (o.seen && o.seen !== x.updated_at)
+		throw new ApiError(
+			409,
+			"broadcast_changed",
+			"It was changed since you opened it: look at the new version first",
+		);
 	if (x.review_requested_by === o.userId && !o.access.owner)
 		throw new ApiError(403, "forbidden", "Someone else approves what you asked for");
 	if (!o.approve && !o.note?.trim())
 		throw new ApiError(422, "validation_error", "Say what should change");
-	await db
+	const hash = o.approve ? await contentHash(x) : null;
+	// The decision holds for the version read here: an edit or a send in between refuses it.
+	const decided = await db
 		.update(schema.broadcasts)
 		.set({
 			review: o.approve ? "approved" : "changes",
 			reviewed_by: o.userId,
 			reviewed_at: iso(o.now),
-			review_hash: o.approve ? await contentHash(x) : null,
+			review_hash: hash,
 		})
-		.where(eq(schema.broadcasts.id, x.id));
+		.where(
+			and(
+				eq(schema.broadcasts.id, x.id),
+				eq(schema.broadcasts.status, "draft"),
+				eq(schema.broadcasts.updated_at, x.updated_at),
+			),
+		)
+		.returning({ id: schema.broadcasts.id });
+	if (!decided.length)
+		throw new ApiError(
+			409,
+			"broadcast_changed",
+			"It was changed since you opened it: look at the new version first",
+		);
 	await addComment({
 		organizationId: o.organizationId,
 		type: "broadcast",

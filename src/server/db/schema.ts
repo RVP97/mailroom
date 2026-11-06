@@ -192,7 +192,8 @@ export const domains = sqliteTable(
 		purpose: text("purpose").notNull().default("transactional"),
 		/** Sends from a paused domain are refused. */
 		paused_at: text("paused_at"),
-		/** "you" | "unknown_recipients" (Mailroom: too many emails to addresses that don't exist). */
+		/** "you" | "unknown_recipients" (Mailroom: too many emails to addresses that don't exist) |
+		 * "sending_limits" (Mailroom: over the brand's limits; only the deployment's admins lift it). */
 		paused_reason: text("paused_reason"),
 		/** When it was last resumed: Mailroom's auto-pause only counts bounces after it. */
 		resumed_at: text("resumed_at"),
@@ -757,7 +758,7 @@ export const conversationReplies = sqliteTable(
 		inbox_id: text("inbox_id"),
 		/** The received email it answers. */
 		in_reply_to: text("in_reply_to"),
-		/** "draft" | "sent". */
+		/** "draft" | "sending" (one send has it; a draft again if that send fails) | "sent". */
 		status: text("status").notNull().default("draft"),
 		from: text("from"),
 		to: text("to", { mode: "json" }).$type<string[]>().notNull(),

@@ -494,6 +494,7 @@ function BroadcastPage() {
 			/>
 			<ReviewDialog
 				id={saved.id}
+				seen={saved.updated_at}
 				open={reviewing}
 				onOpenChange={setReviewing}
 				onDone={refresh}

@@ -364,6 +364,7 @@ export const updateConversationFn = createServerFn({ method: "POST" })
 			snooze_until: z.string().nullable().optional(),
 			assignee: z.string().nullable().optional(),
 			release_held: z.literal(true).optional(),
+			held_seen: z.string().optional(),
 		}),
 	)
 	.handler(({ data: { id, ...rest }, context }) =>

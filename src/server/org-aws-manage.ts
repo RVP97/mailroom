@@ -587,14 +587,16 @@ export async function checkMove(move: Move) {
 	const domains = await db
 		.select()
 		.from(schema.domains)
-		.where(
-			and(
-				inArray(schema.domains.organization_id, brands),
-				isNotNull(schema.domains.move_dkim_tokens),
-			),
-		);
+		.where(inArray(schema.domains.organization_id, brands));
 	let all = true;
 	for (const d of domains) {
+		// One without its identity there yet (it wasn't made when the move started): made now,
+		// and the move waits for it like the rest, never switching without it.
+		if (!d.move_dkim_tokens) {
+			await prepareDomain(target, d);
+			all = false;
+			continue;
+		}
 		if (d.move_status === "verified") continue;
 		const identity = await getIdentity(target.aws, d.name);
 		if (identity.VerifiedForSendingStatus)
