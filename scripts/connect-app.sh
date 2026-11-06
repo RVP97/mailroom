@@ -13,6 +13,8 @@
 # sending domains through the API.
 #
 # Needs: wrangler signed in to both accounts (Mailroom's D1 and the app's Worker), jq, openssl.
+# Mailroom's D1 is in MAILROOM_ACCOUNT_ID (default: the Rovapin account), so wrangler doesn't stop to ask
+# which account when it's signed in to several; the app's Worker uses its own wrangler.jsonc account_id.
 set -euo pipefail
 trap 'echo "connect-app: stopped at line $LINENO (exit $?)" >&2' ERR
 
@@ -32,7 +34,7 @@ if [[ -n "$hook_url" && ! "$hook_url" =~ ^https://[^\'\ ]+$ ]]; then
 	exit 1
 fi
 
-d1() { (cd "$here" && bunx wrangler d1 execute DB --remote --json --command "$1"); }
+d1() { (cd "$here" && CLOUDFLARE_ACCOUNT_ID="${MAILROOM_ACCOUNT_ID:-0a386cbd8884cf2b1dbdb84125d4a364}" bunx wrangler d1 execute DB --remote --json --command "$1"); }
 secret_put() { (cd "$app_dir" && bunx wrangler secret put "$1" >/dev/null); }
 now() { date -u +%Y-%m-%dT%H:%M:%S.000Z; }
 uuid() { uuidgen | tr '[:upper:]' '[:lower:]'; }

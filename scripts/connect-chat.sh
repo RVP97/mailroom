@@ -9,6 +9,8 @@
 #   scripts/connect-chat.sh acme soporte@acme.com ~/code/acme
 #
 # Needs: wrangler signed in to both accounts (Mailroom's D1 and the app's Worker), jq, openssl.
+# Mailroom's D1 is in MAILROOM_ACCOUNT_ID (default: the Rovapin account), so wrangler doesn't stop to ask
+# which account when it's signed in to several; the app's Worker uses its own wrangler.jsonc account_id.
 set -euo pipefail
 trap 'echo "connect-chat: stopped at line $LINENO (exit $?)" >&2' ERR
 
@@ -20,7 +22,7 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 [[ "$org_slug" =~ ^[a-z0-9-]+$ ]] || { echo "Invalid organization slug" >&2; exit 1; }
 [[ "$inbox_ref" =~ ^[A-Za-z0-9@._+-]+$ ]] || { echo "Invalid inbox" >&2; exit 1; }
 
-d1() { (cd "$here" && bunx wrangler d1 execute DB --remote --json --command "$1"); }
+d1() { (cd "$here" && CLOUDFLARE_ACCOUNT_ID="${MAILROOM_ACCOUNT_ID:-0a386cbd8884cf2b1dbdb84125d4a364}" bunx wrangler d1 execute DB --remote --json --command "$1"); }
 now() { date -u +%Y-%m-%dT%H:%M:%S.000Z; }
 
 org_id="$(d1 "SELECT id FROM organization WHERE slug = '$org_slug'" | jq -r '.[0].results[0].id // empty')"
