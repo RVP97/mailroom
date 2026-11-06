@@ -57,8 +57,6 @@ function mailroomChat(c) {
 			"La verificación tardó demasiado; intente de nuevo",
 		"We couldn't check you're not a robot; try again":
 			"No pudimos verificar que no es un robot; intente de nuevo",
-		"Write a message first, then send files.":
-			"Escriba un mensaje primero y luego envíe archivos.",
 		"Files up to 10 MB, please.": "Archivos de hasta 10 MB, por favor.",
 		"Reconnecting…": "Reconectando…",
 		"You're offline": "Está sin conexión",
@@ -1112,8 +1110,7 @@ function mailroomChat(c) {
 	function setComposer() {
 		var blocked = needEmail();
 		input.disabled = blocked;
-		if (attachBtn) attachBtn.disabled = blocked || !state.conversation;
-		if (attachBtn) attachBtn.style.display = state.conversation || cfg.preview ? "" : "none";
+		if (attachBtn) attachBtn.disabled = blocked;
 		sendBtn.disabled = blocked || !input.value.trim() || state.sending;
 	}
 
@@ -1524,6 +1521,8 @@ function mailroomChat(c) {
 				merge(r.messages);
 				connect();
 				afterFirst();
+				// Files picked before there was a chat go now.
+				waiting.splice(0).forEach(sendFile);
 			} else {
 				add(r.message);
 				save({ last: Date.now() });
@@ -1566,19 +1565,11 @@ function mailroomChat(c) {
 		}, 1500);
 	}
 
+	/** Files picked before the chat started: sent once it has (it starts with their names). */
+	var waiting = [];
+
 	function sendFile(file) {
-		if (!file || cfg.preview) return;
-		if (!stored.token) {
-			add({
-				id: "local-" + uuid(),
-				local: true,
-				author: "system",
-				text: T("Write a message first, then send files."),
-				files: [],
-				at: new Date().toISOString(),
-			});
-			return;
-		}
+		if (!file || cfg.preview || needEmail()) return;
 		if (file.size > 10 * 1024 * 1024) {
 			add({
 				id: "local-" + uuid(),
@@ -1588,6 +1579,11 @@ function mailroomChat(c) {
 				files: [],
 				at: new Date().toISOString(),
 			});
+			return;
+		}
+		if (!stored.token) {
+			waiting.push(file);
+			if (!state.sending) send(file.name);
 			return;
 		}
 		var m = {
@@ -1646,7 +1642,7 @@ function mailroomChat(c) {
 	});
 	input.addEventListener("paste", (e) => {
 		var items = (e.clipboardData && e.clipboardData.files) || [];
-		if (items.length && state.conversation) {
+		if (items.length) {
 			e.preventDefault();
 			for (var i = 0; i < items.length; i++) sendFile(items[i]);
 		}
@@ -1658,7 +1654,6 @@ function mailroomChat(c) {
 	var dragDepth = 0;
 	panel.addEventListener("dragenter", (e) => {
 		if (
-			!state.conversation ||
 			!e.dataTransfer ||
 			[].indexOf.call(e.dataTransfer.types, "Files") < 0
 		)
@@ -1671,7 +1666,7 @@ function mailroomChat(c) {
 		if (!dragDepth) drop.classList.remove("on");
 	});
 	panel.addEventListener("dragover", (e) => {
-		if (state.conversation) e.preventDefault();
+		e.preventDefault();
 	});
 	panel.addEventListener("drop", (e) => {
 		e.preventDefault();
