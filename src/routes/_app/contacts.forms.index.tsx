@@ -106,12 +106,12 @@ function FormsSketch() {
 }
 
 function Forms() {
-	const { data } = usePage(Route);
+	// usePage, not Route.useSearch(): the skeleton renders this outside the route, where that throws.
+	const { data, search } = usePage(Route);
 	const me = useMe();
 	const canManage = allows(me.active?.access, "forms:edit");
 	const router = useRouter();
 	// A form just made opens its code (?code=), since putting it on the website is next.
-	const search = Route.useSearch();
 	const navigate = Route.useNavigate();
 	const code = data.forms.find((f) => f.id === search.code) ?? null;
 	const setCode = (f: SignupForm | null) =>
