@@ -5,6 +5,8 @@ import {
 	chatLines,
 	chatState,
 	designOf,
+	identifyVisitor,
+	identityOf,
 	linesFor,
 	markVisitorSeen,
 	originAllowed,
@@ -34,7 +36,8 @@ import { ApiError } from "./errors";
  *   GET  /chat/<key>/messages      the chat (?after=<line id>)
  *   POST /chat/<key>/messages      a message
  *   POST /chat/<key>/files         a file (multipart "file")
- *   POST /chat/<key>/profile       name and email
+ *   POST /chat/<key>/profile       name and email (or the website's signed identity)
+ *   POST /chat/<key>/identify      the website's signed identity → the person's chat, any browser
  *   POST /chat/<key>/seen          the visitor has it in front of them
  *   GET  /chat/<key>/live          WebSocket (the ChatRoom)
  *   GET  /chat/files/…             a file, by its signed link
@@ -128,9 +131,16 @@ export async function handleChat(request: Request, now = Date.now()): Promise<Re
 			case "POST start": {
 				const body = await readJson(request);
 				const ip = request.headers.get("cf-connecting-ip");
+				// A visitor the website signed in needs no robot check (and one that must be
+				// signed in but isn't is refused here).
+				const who = await identityOf(
+					w.widget,
+					typeof body.identity === "string" ? body.identity : null,
+					now,
+				);
 				const { verifyTurnstile } = await import("./turnstile");
 				const token = typeof body.turnstile === "string" ? body.turnstile : "";
-				if (!(await verifyTurnstile(w.inbox.organization_id, token, ip)))
+				if (!who && !(await verifyTurnstile(w.inbox.organization_id, token, ip)))
 					return fail(
 						403,
 						"turnstile_failed",
@@ -198,6 +208,26 @@ export async function handleChat(request: Request, now = Date.now()): Promise<Re
 				const chat = await need(key, request);
 				const fresh = await visitorProfile(chat, await readJson(request), now);
 				return json({ conversation: await chatState(fresh) }, { headers });
+			}
+			case "POST identify": {
+				// Bearer optional: the chat this browser has, if any.
+				const current = bearer(request) ? await visitorChat(key, bearer(request)) : null;
+				const r = await identifyVisitor(w, current, await readJson(request), {
+					ip: request.headers.get("cf-connecting-ip"),
+					now,
+				});
+				if (r.status === "none" || r.status === "other_person")
+					return json({ status: r.status }, { headers });
+				const lines = await chatLines(r.conversation.id);
+				return json(
+					{
+						status: r.status,
+						...(r.status === "resumed" ? { token: r.token } : {}),
+						conversation: await chatState(r.conversation),
+						messages: await linesFor("visitor", lines, now),
+					},
+					{ headers },
+				);
 			}
 			case "POST seen": {
 				const chat = await need(key, request);
@@ -375,6 +405,8 @@ export async function publicConfig(w: NonNullable<Awaited<ReturnType<typeof widg
 		nudge_after: d.nudge_after,
 		z_index: d.z_index,
 		custom_css: d.custom_css,
+		language: d.language,
+		identity_required: w.widget.identity_required,
 		retention: d.show_retention && days > 0 ? days : null,
 		turnstile: turnstile?.sitekey ?? null,
 		address: w.inbox.address.includes("+") ? null : w.inbox.address,

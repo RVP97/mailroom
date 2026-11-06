@@ -464,6 +464,10 @@ export function conversationView(
 						email: x.visitor_email,
 						page_url: x.page_url,
 						seen_at: x.visitor_seen_at,
+						/** Signed by the website: their id there and what it told us. */
+						verified: !!x.visitor_user_id,
+						user_id: x.visitor_user_id,
+						attributes: x.visitor_attributes ?? null,
 					},
 				}
 			: {}),

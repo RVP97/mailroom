@@ -42,6 +42,7 @@ import {
 	getChatSettingsFn,
 	rotateChatKeyFn,
 	saveChatSettingsFn,
+	setChatIdentitySecretFn,
 } from "@/functions/chat";
 import { errorMessage } from "@/lib/errors";
 import { useMe } from "@/lib/me";
@@ -73,6 +74,7 @@ type Fields = {
 	notify: string;
 	daily_limit: string;
 	retention: string;
+	identity_required: boolean;
 	design: Design;
 };
 
@@ -83,6 +85,7 @@ const fieldsOf = (d: Data): Fields => ({
 	notify: (d.widget?.notify ?? []).join("\n"),
 	daily_limit: String(d.widget?.daily_limit ?? 100),
 	retention: d.retention_days == null ? "default" : String(d.retention_days),
+	identity_required: d.widget?.identity.required ?? false,
 	design: d.widget?.design ?? d.defaults,
 });
 
@@ -258,6 +261,7 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 						notify: lines(v.notify),
 						daily_limit: Number.isFinite(daily) && daily > 0 ? Math.round(daily) : 100,
 						retention_days: v.retention === "default" ? null : Number(v.retention),
+						identity_required: v.identity_required,
 						design: v.design,
 					},
 				},
@@ -804,6 +808,21 @@ function DesignPanel({
 						]}
 					/>
 				</Labeled>
+				<Field>
+					<FieldLabel>Language</FieldLabel>
+					<Choice
+						value={d.language ?? "en"}
+						onChange={(language) => look({ language })}
+						options={[
+							["en", "English"],
+							["es", "Español"],
+						]}
+					/>
+					<FieldDescription>
+						The chat's own words: buttons, notices and errors. Your greeting and texts
+						stay as you write them.
+					</FieldDescription>
+				</Field>
 			</Group>
 			<Group title="Launcher">
 				<Labeled label="Shape">
@@ -1418,6 +1437,136 @@ function TurnstileState({ data }: { data: Data }) {
 	);
 }
 
+const IDENTITY_SAMPLE = `// On your server, for the person signed in (Node, with jose):
+import { SignJWT } from "jose";
+
+const token = await new SignJWT({
+  email: user.email,
+  name: user.name,
+  attributes: { plan: "Pro", company: "Acme" },
+})
+  .setProtectedHeader({ alg: "HS256" })
+  .setSubject(user.id)
+  .setExpirationTime("12h")
+  .sign(new TextEncoder().encode(process.env.MAILROOM_CHAT_SECRET));
+
+// In the page, before the chat's script (or later: MailroomChat.identify({ token })):
+window.MailroomChatSettings = { identity: token };
+// When they sign out: MailroomChat.reset();`;
+
+/**
+ * Identity verification: the website signs who its signed-in visitor is, so the team knows it's
+ * them and their chats follow them to any browser.
+ */
+function IdentityGroup({
+	v,
+	set,
+	data,
+	widget,
+	canManage,
+}: {
+	v: Fields;
+	set: <K extends keyof Fields>(k: K, x: Fields[K]) => void;
+	data: Data;
+	widget: Widget;
+	canManage: boolean;
+}) {
+	const router = useRouter();
+	const [secret, setSecret] = useState<string | null>(null);
+	const configured = widget.identity.configured;
+	const make = async (on: boolean) => {
+		try {
+			const out = await setChatIdentitySecretFn({ data: { inbox: data.inbox.id, make: on } });
+			setSecret(out.secret);
+			if (!on) set("identity_required", false);
+			toast.success(on ? "New identity secret: copy it now" : "Identity verification off");
+			await router.invalidate();
+		} catch (error) {
+			toast.error(await errorMessage(error));
+		}
+	};
+	return (
+		<Group title="Identity verification">
+			<p className="text-sm text-muted-foreground">
+				For a site people sign in to (your app's dashboard): your server signs who they are,
+				so your team sees a verified person with the details you send, nobody is asked for
+				their email, and their chats follow them to any browser.
+			</p>
+			{secret && (
+				<div className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3">
+					<p className="text-sm font-medium">Your identity secret (shown this once)</p>
+					<CodeBlock
+						code={secret}
+						lang="text"
+					/>
+					<p className="text-xs text-muted-foreground">
+						Keep it on your server only (MAILROOM_CHAT_SECRET). For a Cloudflare Worker,{" "}
+						<code className="font-mono">scripts/connect-chat.sh</code> makes it and puts
+						it in the Worker without showing it.
+					</p>
+				</div>
+			)}
+			{configured ? (
+				<>
+					<Badge
+						variant="secondary"
+						className="w-fit"
+					>
+						<ShieldCheck />
+						Secret set
+					</Badge>
+					<SwitchRow
+						label="Only people signed in to your site"
+						hint="Visitors without your signed token can't start a chat (and get no robot check)."
+						checked={v.identity_required}
+						onChange={(x) => set("identity_required", x)}
+					/>
+				</>
+			) : null}
+			<CodeBlock
+				code={IDENTITY_SAMPLE}
+				lang="text"
+			/>
+			{canManage && (
+				<div className="flex flex-wrap gap-2">
+					<Confirm
+						trigger={
+							<Button variant="outline">
+								<KeyRound />
+								{configured ? "New secret" : "Make the secret"}
+							</Button>
+						}
+						title={
+							configured ? "Make a new identity secret?" : "Make the identity secret?"
+						}
+						description={
+							configured
+								? "Tokens signed with the current secret stop working at once: put the new one on your server."
+								: "It's shown once. Put it on your server, where you sign your visitors' tokens."
+						}
+						action={configured ? "Make a new secret" : "Make it"}
+						onConfirm={() => make(true)}
+					/>
+					{configured && (
+						<Confirm
+							trigger={
+								<Button variant="ghost">
+									<ShieldOff />
+									Turn off
+								</Button>
+							}
+							title="Turn identity verification off?"
+							description="Signed tokens stop counting and anyone on your sites can chat again, unverified."
+							action="Turn off"
+							onConfirm={() => make(false)}
+						/>
+					)}
+				</div>
+			)}
+		</Group>
+	);
+}
+
 function InstallPanel({
 	v,
 	set,
@@ -1498,7 +1647,21 @@ function InstallPanel({
 					code={api}
 					lang="text"
 				/>
+				<p className="text-xs text-muted-foreground">
+					Your page hears <code className="font-mono">mailroom-chat:unread</code> (
+					<code className="font-mono">detail.count</code>),{" "}
+					<code className="font-mono">mailroom-chat:open</code> and{" "}
+					<code className="font-mono">mailroom-chat:close</code> on{" "}
+					<code className="font-mono">window</code>, to show its own badge.
+				</p>
 			</Group>
+			<IdentityGroup
+				v={v}
+				set={set}
+				data={data}
+				widget={widget}
+				canManage={canManage}
+			/>
 			{canManage && (
 				<Group title="Key">
 					<p className="text-sm text-muted-foreground">

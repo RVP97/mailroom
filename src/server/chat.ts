@@ -141,6 +141,8 @@ export const chatDesign = z.object({
 	z_index: z.number().int().min(1).max(2147483647).nullish(),
 	/** The brand's own CSS, inside the widget only (the page can't be reached from it). */
 	custom_css: z.string().max(10_000).nullish(),
+	/** The widget's own words (buttons, notices, errors): English or Spanish. */
+	language: z.enum(["en", "es"]).optional(),
 });
 export type ChatDesign = z.infer<typeof chatDesign>;
 
@@ -178,6 +180,7 @@ export const DESIGN_DEFAULTS: Required<{
 	nudge_after: 0,
 	z_index: null,
 	custom_css: null,
+	language: "en",
 };
 
 export const designOf = (w: Pick<ChatWidget, "design">) => {
@@ -225,6 +228,8 @@ export const settingsInput = z.object({
 	daily_limit: z.number().int().min(1).max(10_000).optional(),
 	/** The inbox's retention: days, 0 always, null the deployment's. */
 	retention_days: z.number().int().min(0).max(3650).nullish(),
+	/** Only visitors the website signed in may chat (needs the identity secret). */
+	identity_required: z.boolean().optional(),
 });
 
 export async function getChatWidget(inboxId: string) {
@@ -286,10 +291,16 @@ export async function saveChatWidget(
 		ask_email: v.ask_email ?? existing?.ask_email ?? "optional",
 		notify,
 		daily_limit: v.daily_limit ?? existing?.daily_limit ?? 100,
+		identity_secret: existing?.identity_secret ?? null,
+		identity_required: v.identity_required ?? existing?.identity_required ?? false,
 		created_by: existing?.created_by ?? by.userId ?? null,
 		created_at: existing?.created_at ?? iso(now),
 		updated_at: iso(now),
 	};
+	if (row.identity_required && !row.identity_secret)
+		throw validation(
+			"identity_required: make the identity secret first (the chat's Identity verification)",
+		);
 	await db.insert(cw).values(row).onConflictDoUpdate({ target: cw.inbox_id, set: row });
 	if (v.retention_days !== undefined)
 		await db
@@ -324,6 +335,29 @@ export async function rotateChatKey(inbox: Inbox, now = Date.now()) {
 	return row as ChatWidget;
 }
 
+/**
+ * A new identity secret (mrcs_…), returned this once: the website signs its visitors with it
+ * (src/server/chat-identity.ts). The old one stops at once; null removes it (and the rule that
+ * only signed-in visitors may chat).
+ */
+export async function setIdentitySecret(inbox: Inbox, make: boolean, now = Date.now()) {
+	const w = await getChatWidget(inbox.id);
+	if (!w) throw notFound("Chat");
+	const { newIdentitySecret } = await import("./chat-identity");
+	const secret = make ? newIdentitySecret() : null;
+	const [row] = await db
+		.update(cw)
+		.set({
+			identity_secret: secret,
+			...(make ? {} : { identity_required: false }),
+			updated_at: iso(now),
+		})
+		.where(eq(cw.inbox_id, inbox.id))
+		.returning();
+	forgetWidgets();
+	return { widget: row as ChatWidget, secret };
+}
+
 export async function deleteChatWidget(inbox: Inbox) {
 	await db.delete(cw).where(eq(cw.inbox_id, inbox.id));
 	forgetWidgets();
@@ -343,6 +377,8 @@ export const chatWidgetView = (w: ChatWidget) => ({
 	ask_email: w.ask_email as "off" | "optional" | "required",
 	notify: w.notify,
 	daily_limit: w.daily_limit,
+	/** Identity verification: whether the secret exists (never its value) and is required. */
+	identity: { configured: !!w.identity_secret, required: w.identity_required },
 	snippet: snippetFor(w),
 	test_page: `${baseUrl()}/chat/${w.public_key}/try#mailroom-chat`,
 	created_at: w.created_at,
@@ -436,6 +472,8 @@ const startInput = z.object({
 	email: z.string().trim().max(320).nullish(),
 	page: z.string().trim().max(2000).nullish(),
 	client_id: z.string().max(100).nullish(),
+	/** The website's signed identity token (src/server/chat-identity.ts). */
+	identity: z.string().max(8000).nullish(),
 });
 
 const cleanEmail = (raw: string | null | undefined) => {
@@ -476,7 +514,8 @@ export async function startChat(
 	const v = startInput.parse(raw ?? {});
 	const text = (v.text ?? "").trim();
 	if (!text) throw validation("text: write a message");
-	const email = cleanEmail(v.email);
+	const who = await identityOf(w.widget, v.identity, now);
+	const email = who?.email ?? cleanEmail(v.email);
 	if (w.widget.ask_email === "required" && !email)
 		throw validation("email: leave your email so we can reply");
 	const hash = await ipHash(o.ip ?? null);
@@ -508,7 +547,7 @@ export async function startChat(
 		);
 	const id = crypto.randomUUID();
 	const token = `mrv_${random(40)}`;
-	const name = v.name?.trim() || null;
+	const name = who?.name ?? (v.name?.trim() || null);
 	const page = cleanPage(v.page);
 	const contact = email ?? name ?? "Website visitor";
 	const at = iso(now);
@@ -532,6 +571,8 @@ export async function startChat(
 			page_url: page,
 			chat_key: newChatKey(),
 			visitor_seen_at: at,
+			visitor_user_id: who?.userId ?? null,
+			visitor_attributes: who && Object.keys(who.attributes).length ? who.attributes : null,
 		}),
 		db.insert(cv).values({
 			token_hash: await sha256Hex(token),
@@ -548,7 +589,7 @@ export async function startChat(
 		inboxId: w.inbox.id,
 		conversationId: id,
 		action: "chat.started",
-		detail: page ? { page } : {},
+		detail: { ...(page ? { page } : {}), ...(who ? { verified: true } : {}) },
 		now,
 	});
 	const line = await postVisitorLine(
@@ -707,26 +748,116 @@ async function postVisitorLine(
 const profileInput = z.object({
 	name: z.string().trim().max(100).nullish(),
 	email: z.string().trim().max(320).nullish(),
+	identity: z.string().max(8000).nullish(),
 });
+
+/**
+ * Who a start or identify call says the visitor is: verified when it carries a token the widget's
+ * secret signed; null when it carries none. A chat that requires it refuses visitors without one.
+ */
+export async function identityOf(
+	widget: Pick<ChatWidget, "identity_secret" | "identity_required">,
+	token: string | null | undefined,
+	now = Date.now(),
+) {
+	if (!token) {
+		if (widget.identity_required)
+			throw new ApiError(401, "identity_required", "Sign in to chat with us");
+		return null;
+	}
+	const { verifyIdentity } = await import("./chat-identity");
+	return verifyIdentity(widget.identity_secret, token, now);
+}
+
+/** The person's details on their chat, from a verified identity. */
+const identitySet = (who: NonNullable<Awaited<ReturnType<typeof identityOf>>>) => ({
+	visitor_user_id: who.userId,
+	visitor_attributes: Object.keys(who.attributes).length ? who.attributes : null,
+	...(who.email ? { visitor_email: who.email } : {}),
+	...(who.name ? { visitor_name: who.name } : {}),
+});
+
+/**
+ * The website says who its signed-in visitor is (MailroomChat.identify with a token). With the
+ * visitor's chat: its details are updated, or, when the chat is someone else's (another person
+ * signed in on the same browser), the widget must forget it. Without one: the person's latest
+ * chat in this inbox, from any browser, with a new visitor token for this one.
+ */
+export async function identifyVisitor(
+	w: { widget: ChatWidget; inbox: Inbox },
+	chat: VisitorChat | null,
+	raw: unknown,
+	o: { ip?: string | null; now?: number } = {},
+) {
+	const now = o.now ?? Date.now();
+	const v = z.object({ identity: z.string().max(8000) }).parse(raw ?? {});
+	const who = await identityOf(w.widget, v.identity, now);
+	if (!who) throw validation("identity: the website's signed token");
+	if (chat) {
+		const owner = chat.conversation.visitor_user_id;
+		if (owner && owner !== who.userId) return { status: "other_person" as const };
+		const fresh = await updateVisitor(chat.conversation, identitySet(who), now);
+		return { status: "updated" as const, conversation: fresh };
+	}
+	const latest = await db
+		.select()
+		.from(c)
+		.where(
+			and(
+				eq(c.inbox_id, w.inbox.id),
+				eq(c.visitor_user_id, who.userId),
+				eq(c.channel, "chat"),
+			),
+		)
+		.orderBy(desc(c.last_message_at))
+		.limit(1)
+		.get();
+	if (!latest) return { status: "none" as const };
+	const token = `mrv_${random(40)}`;
+	const at = iso(now);
+	await db.insert(cv).values({
+		token_hash: await sha256Hex(token),
+		conversation_id: latest.id,
+		inbox_id: w.inbox.id,
+		ip_hash: await ipHash(o.ip ?? null),
+		created_at: at,
+		last_seen_at: at,
+	});
+	const fresh = await updateVisitor(latest, identitySet(who), now);
+	return { status: "resumed" as const, token, conversation: fresh };
+}
+
+async function updateVisitor(x: Conversation, set: Partial<Conversation>, now: number) {
+	const email = set.visitor_email !== undefined ? set.visitor_email : x.visitor_email;
+	const name = set.visitor_name !== undefined ? set.visitor_name : x.visitor_name;
+	await db
+		.update(c)
+		.set({ ...set, contact: email ?? name ?? "Website visitor", updated_at: iso(now) })
+		.where(eq(c.id, x.id));
+	const fresh = (await db.select().from(c).where(eq(c.id, x.id)).get()) as Conversation;
+	await pushToRoom(x.id, { type: "visitor", visitor: visitorOf(fresh) });
+	return fresh;
+}
 
 /** The visitor tells us their name or email (or changes it). */
 export async function visitorProfile(chat: VisitorChat, raw: unknown, now = Date.now()) {
 	const v = profileInput.parse(raw ?? {});
-	const set: Partial<Conversation> = { updated_at: iso(now) };
+	if (v.identity) {
+		const who = await identityOf(chat.widget, v.identity, now);
+		if (
+			who &&
+			chat.conversation.visitor_user_id &&
+			chat.conversation.visitor_user_id !== who.userId
+		)
+			throw new ApiError(409, "other_person", "This chat is someone else's");
+		if (who) return updateVisitor(chat.conversation, identitySet(who), now);
+	}
+	// A verified person's name and email are the website's to say.
+	if (chat.conversation.visitor_user_id) return chat.conversation;
+	const set: Partial<Conversation> = {};
 	if (v.email !== undefined) set.visitor_email = cleanEmail(v.email);
 	if (v.name !== undefined) set.visitor_name = v.name?.trim() || null;
-	const email =
-		set.visitor_email !== undefined ? set.visitor_email : chat.conversation.visitor_email;
-	const name = set.visitor_name !== undefined ? set.visitor_name : chat.conversation.visitor_name;
-	set.contact = email ?? name ?? "Website visitor";
-	await db.update(c).set(set).where(eq(c.id, chat.conversation.id));
-	const fresh = (await db
-		.select()
-		.from(c)
-		.where(eq(c.id, chat.conversation.id))
-		.get()) as Conversation;
-	await pushToRoom(chat.conversation.id, { type: "visitor", visitor: visitorOf(fresh) });
-	return fresh;
+	return updateVisitor(chat.conversation, set, now);
 }
 
 export const visitorOf = (x: Conversation) => ({
@@ -734,6 +865,10 @@ export const visitorOf = (x: Conversation) => ({
 	email: x.visitor_email,
 	page_url: x.page_url,
 	seen_at: x.visitor_seen_at,
+	/** Signed by the website (identity verification): their id there and what it told us. */
+	verified: !!x.visitor_user_id,
+	user_id: x.visitor_user_id,
+	attributes: x.visitor_attributes ?? null,
 });
 
 /** The visitor has the chat in front of them (the widget open, the page visible). */

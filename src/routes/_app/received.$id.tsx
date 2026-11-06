@@ -1106,6 +1106,34 @@ function ContactCard({ data, live }: { data: Data; live: Live | null }) {
 			</div>
 			{chat && (
 				<dl className="flex flex-col gap-1">
+					{c.visitor?.verified && (
+						<Detail label="Signed in">
+							<span
+								className="text-sm"
+								title="The website signed who this is (identity verification)"
+							>
+								<StatusBadge
+									status="success"
+									label="Verified"
+								/>
+								{c.visitor.user_id && (
+									<span className="ml-2 font-mono text-xs text-muted-foreground">
+										<Ph>{c.visitor.user_id}</Ph>
+									</span>
+								)}
+							</span>
+						</Detail>
+					)}
+					{Object.entries(c.visitor?.attributes ?? {}).map(([k, x]) => (
+						<Detail
+							key={k}
+							label={k}
+						>
+							<span className="block truncate text-sm">
+								<Ph>{String(x)}</Ph>
+							</span>
+						</Detail>
+					))}
 					{c.visitor?.page_url && (
 						<Detail label="Wrote from">
 							<a

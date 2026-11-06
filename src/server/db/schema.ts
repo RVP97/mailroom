@@ -543,6 +543,12 @@ export const conversations = sqliteTable(
 		chat_key: text("chat_key"),
 		/** Chat only: when the visitor last had the chat in front of them, and last wrote. */
 		visitor_seen_at: text("visitor_seen_at"),
+		/** Chat only: who the visitor is in the website's own accounts, when the site signed it
+		 * (identity verification, src/server/chat-identity.ts); with the site's signed details. */
+		visitor_user_id: text("visitor_user_id"),
+		visitor_attributes: text("visitor_attributes", { mode: "json" }).$type<
+			Record<string, string | number | boolean>
+		>(),
 		/** Who has it (src/server/inbox-workflow.ts): "user:<id>" | "cred:<id>"; null: nobody. */
 		assignee: text("assignee"),
 		assignee_name: text("assignee_name"),
@@ -577,6 +583,7 @@ export const conversations = sqliteTable(
 		index("conversations_inbox_last_idx").on(t.inbox_id, t.last_message_at),
 		index("conversations_last_idx").on(t.last_message_at),
 		uniqueIndex("conversations_chat_key_uidx").on(t.chat_key),
+		index("conversations_chat_user_idx").on(t.inbox_id, t.visitor_user_id, t.last_message_at),
 	],
 );
 
@@ -606,6 +613,13 @@ export const chatWidgets = sqliteTable(
 		notify: text("notify", { mode: "json" }).$type<string[]>().notNull(),
 		/** New chats a day, at most (past it the widget offers the inbox's address). */
 		daily_limit: integer("daily_limit").notNull().default(100),
+		/** Identity verification (src/server/chat-identity.ts): the secret the website signs who
+		 * its signed-in visitor is with (mrcs_…; null: not set up). */
+		identity_secret: text("identity_secret"),
+		/** Only visitors the website signed in may chat (an app's dashboard, not a public site). */
+		identity_required: integer("identity_required", { mode: "boolean" })
+			.notNull()
+			.default(false),
 		created_by: text("created_by"),
 		created_at: text("created_at").notNull(),
 		updated_at: text("updated_at").notNull(),

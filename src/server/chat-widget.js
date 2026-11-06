@@ -9,6 +9,77 @@ function mailroomChat(c) {
 	if (registry[KEY]) return;
 	registry[KEY] = true;
 
+	// ── Language ───────────────────────────────────────────────────────────────
+
+	var LANG = c.language === "es" ? "es" : "en";
+	var ES = {
+		Today: "Hoy",
+		Yesterday: "Ayer",
+		"Open chat": "Abrir chat",
+		"Close chat": "Cerrar chat",
+		Dismiss: "Descartar",
+		"Drop to send": "Suelte para enviar",
+		"Write a message…": "Escriba un mensaje…",
+		Message: "Mensaje",
+		"Attach a file": "Adjuntar un archivo",
+		"Chats are deleted {x} after the last message.":
+			"Los chats se borran {x} después del último mensaje.",
+		"a year": "un año",
+		" years": " años",
+		"a month": "un mes",
+		" months": " meses",
+		" days": " días",
+		"Uploading…": "Subiendo…",
+		"Not sent": "No se envió",
+		Retry: "Reintentar",
+		"Sending…": "Enviando…",
+		"Your name": "Su nombre",
+		"Your email": "Su correo",
+		"you@example.com": "usted@ejemplo.com",
+		Start: "Empezar",
+		Save: "Guardar",
+		"Leave your email so we can reply even if you leave this page.":
+			"Déjenos su correo para responderle aunque salga de esta página.",
+		"Get our reply by email too, in case you leave:":
+			"Reciba también nuestra respuesta por correo, por si sale:",
+		"No thanks": "No, gracias",
+		"That doesn't look like an email address.": "Ese correo no parece válido.",
+		"We'll email you at ": "Le escribiremos a ",
+		" if you leave.": " si sale.",
+		"Start a new conversation": "Empezar otra conversación",
+		"Change my email": "Cambiar mi correo",
+		"Get replies by email": "Recibir respuestas por correo",
+		"Email ": "Escribir a ",
+		"Nothing to do here yet": "Nada por aquí todavía",
+		"Sent a file": "Envió un archivo",
+		"Something went wrong": "Algo falló; intente de nuevo",
+		"Couldn't load the robot check": "No se pudo cargar la verificación",
+		"The robot check took too long; try again":
+			"La verificación tardó demasiado; intente de nuevo",
+		"We couldn't check you're not a robot; try again":
+			"No pudimos verificar que no es un robot; intente de nuevo",
+		"Write a message first, then send files.":
+			"Escriba un mensaje primero y luego envíe archivos.",
+		"Files up to 10 MB, please.": "Archivos de hasta 10 MB, por favor.",
+		"Reconnecting…": "Reconectando…",
+		"You're offline": "Está sin conexión",
+	};
+	/** The server's errors, by code (its messages are in English). */
+	var ES_ERRORS = {
+		rate_limit_exceeded: "Va muy rápido; espere un momento.",
+		chat_busy: "Ahora no podemos tomar más chats; intente más tarde.",
+		unknown_chat: "Este chat terminó; empiece otro.",
+		identity_required: "Inicie sesión para chatear con nosotros.",
+		invalid_identity: "No pudimos confirmar su sesión; recargue la página.",
+		turnstile_failed: "No pudimos verificar que no es un robot; intente de nuevo",
+		origin_not_allowed: "Este sitio no puede usar este chat.",
+		chat_off: "El chat está apagado.",
+		too_large: "Archivos de hasta 10 MB, por favor.",
+	};
+	function T(s) {
+		return (LANG === "es" && ES[s]) || s;
+	}
+
 	// ── Small helpers ──────────────────────────────────────────────────────────
 
 	var STORE = "mailroom-chat:" + KEY;
@@ -95,9 +166,13 @@ function mailroomChat(c) {
 		var today = new Date();
 		var y = new Date();
 		y.setDate(today.getDate() - 1);
-		if (d.toDateString() === today.toDateString()) return "Today";
-		if (d.toDateString() === y.toDateString()) return "Yesterday";
-		return d.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
+		if (d.toDateString() === today.toDateString()) return T("Today");
+		if (d.toDateString() === y.toDateString()) return T("Yesterday");
+		return d.toLocaleDateString(LANG === "es" ? "es-MX" : [], {
+			weekday: "long",
+			month: "short",
+			day: "numeric",
+		});
 	}
 	function fmtSize(n) {
 		if (n < 1024) return n + " B";
@@ -468,6 +543,13 @@ function mailroomChat(c) {
 		awayShown: false,
 	};
 	var stored = load();
+	/** The website's signed identity token (identity verification), when it gave one. */
+	var preset = window.MailroomChatSettings || {};
+	var identity = typeof preset.identity === "string" ? preset.identity : null;
+	var verified = () =>
+		!!identity ||
+		!!(state.conversation && state.conversation.visitor && state.conversation.visitor.verified);
+	var opener = null;
 	var dark =
 		cfg.theme === "dark" ||
 		(cfg.theme !== "light" &&
@@ -500,7 +582,7 @@ function mailroomChat(c) {
 		{
 			class: "launcher" + (cfg.launcher === "label" ? " label" : ""),
 			type: "button",
-			"aria-label": "Open chat",
+			"aria-label": T("Open chat"),
 			"aria-expanded": "false",
 			onclick: () => {
 				toggle();
@@ -535,7 +617,7 @@ function mailroomChat(c) {
 		h("button", {
 			class: "x",
 			type: "button",
-			"aria-label": "Dismiss",
+			"aria-label": T("Dismiss"),
 			html: svg(ICON.close, 14),
 			onclick: () => {
 				nudge.classList.remove("on");
@@ -574,7 +656,7 @@ function mailroomChat(c) {
 		h("button", {
 			class: "hb",
 			type: "button",
-			"aria-label": "Close chat",
+			"aria-label": T("Close chat"),
 			html: svg(ICON.down, 22),
 			onclick: () => {
 				closePanel();
@@ -588,11 +670,11 @@ function mailroomChat(c) {
 	var cards = h("div");
 	var tsBox = h("div", { class: "ts" });
 	var body = h("div", { class: "body" }, [banner, list, typingRow, cards, tsBox]);
-	var drop = h("div", { class: "drop", text: "Drop to send" });
+	var drop = h("div", { class: "drop", text: T("Drop to send") });
 	var input = h("textarea", {
 		rows: "1",
-		placeholder: cfg.placeholder || "Write a message…",
-		"aria-label": "Message",
+		placeholder: cfg.placeholder || T("Write a message…"),
+		"aria-label": T("Message"),
 		maxlength: "4000",
 	});
 	var fileInput = h("input", {
@@ -611,7 +693,7 @@ function mailroomChat(c) {
 		? h("button", {
 				class: "tool",
 				type: "button",
-				"aria-label": "Attach a file",
+				"aria-label": T("Attach a file"),
 				html: svg(ICON.clip),
 				onclick: () => {
 					fileInput.click();
@@ -636,12 +718,14 @@ function mailroomChat(c) {
 	root.appendChild(launcher);
 
 	if (cfg.retention)
-		note.textContent =
-			"Chats are deleted " + retentionText(cfg.retention) + " after the last message.";
+		note.textContent = T("Chats are deleted {x} after the last message.").replace(
+			"{x}",
+			retentionText(cfg.retention),
+		);
 	function retentionText(days) {
-		if (days % 365 === 0) return days / 365 === 1 ? "a year" : days / 365 + " years";
-		if (days % 30 === 0) return days / 30 === 1 ? "a month" : days / 30 + " months";
-		return days + " days";
+		if (days % 365 === 0) return days / 365 === 1 ? T("a year") : days / 365 + T(" years");
+		if (days % 30 === 0) return days / 30 === 1 ? T("a month") : days / 30 + T(" months");
+		return days + T(" days");
 	}
 
 	// ── Rendering ──────────────────────────────────────────────────────────────
@@ -748,7 +832,7 @@ function mailroomChat(c) {
 				h("span", { class: "fi", html: svg(ICON.file, 18) }),
 				h("span", { style: "min-width:0" }, [
 					h("b", { text: f.filename }),
-					h("small", { text: m.pending ? "Uploading…" : fmtSize(f.size || 0) }),
+					h("small", { text: m.pending ? T("Uploading…") : fmtSize(f.size || 0) }),
 				]),
 			],
 		);
@@ -758,16 +842,16 @@ function mailroomChat(c) {
 		if (m.greeting) return null;
 		if (m.failed)
 			return h("div", { class: "meta" }, [
-				h("span", { text: m.error || "Not sent" }),
+				h("span", { text: m.error || T("Not sent") }),
 				h("button", {
 					type: "button",
-					html: svg(ICON.retry, 12) + "Retry",
+					html: svg(ICON.retry, 12) + T("Retry"),
 					onclick: () => {
 						retry(m);
 					},
 				}),
 			]);
-		if (m.pending) return h("div", { class: "meta", text: "Sending…" });
+		if (m.pending) return h("div", { class: "meta", text: T("Sending…") });
 		return m.at ? h("div", { class: "meta", text: fmtTime(m.at) }) : null;
 	}
 
@@ -786,11 +870,12 @@ function mailroomChat(c) {
 		);
 	}
 
-	var needEmail = () => cfg.ask_email === "required" && !state.conversation && !stored.email;
+	var needEmail = () =>
+		cfg.ask_email === "required" && !state.conversation && !stored.email && !verified();
 
 	function renderCards() {
 		cards.textContent = "";
-		if (cfg.preview) return;
+		if (cfg.preview || verified()) return;
 		if (needEmail()) {
 			cards.appendChild(emailCard(true));
 			return;
@@ -808,26 +893,30 @@ function mailroomChat(c) {
 			? h("input", {
 					class: "in",
 					type: "text",
-					placeholder: "Your name",
+					placeholder: T("Your name"),
 					autocomplete: "name",
-					"aria-label": "Your name",
+					"aria-label": T("Your name"),
 				})
 			: null;
 		var email = h("input", {
 			class: "in",
 			type: "email",
-			placeholder: "you@example.com",
+			placeholder: T("you@example.com"),
 			autocomplete: "email",
 			required: true,
-			"aria-label": "Your email",
+			"aria-label": T("Your email"),
 		});
 		var err = h("div", { class: "err" });
-		var btn = h("button", { class: "btn", type: "submit", text: before ? "Start" : "Save" });
+		var btn = h("button", {
+			class: "btn",
+			type: "submit",
+			text: before ? T("Start") : T("Save"),
+		});
 		var f = h("form", { class: "card" }, [
 			h("p", {
 				text: before
-					? "Leave your email so we can reply even if you leave this page."
-					: "Get our reply by email too, in case you leave:",
+					? T("Leave your email so we can reply even if you leave this page.")
+					: T("Get our reply by email too, in case you leave:"),
 			}),
 			h("div", { class: "stack" }, [name, h("div", { class: "row" }, [email, btn])]),
 			err,
@@ -836,7 +925,7 @@ function mailroomChat(c) {
 						type: "button",
 						class: "link",
 						style: "margin-top:8px",
-						text: "No thanks",
+						text: T("No thanks"),
 						onclick: () => {
 							stored = save({ emailDismissed: true });
 							renderCards();
@@ -848,7 +937,7 @@ function mailroomChat(c) {
 			e.preventDefault();
 			var v = email.value.trim();
 			if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
-				err.textContent = "That doesn't look like an email address.";
+				err.textContent = T("That doesn't look like an email address.");
 				err.classList.add("on");
 				return;
 			}
@@ -880,7 +969,11 @@ function mailroomChat(c) {
 		return h("div", { class: "card" }, [
 			h("div", { class: "done" }, [
 				h("span", { html: svg(ICON.mail, 18) }),
-				h("span", null, ["We'll email you at ", h("b", { text: email }), " if you leave."]),
+				h("span", null, [
+					T("We'll email you at "),
+					h("b", { text: email }),
+					T(" if you leave."),
+				]),
 			]),
 		]);
 	}
@@ -891,18 +984,18 @@ function mailroomChat(c) {
 		if (state.conversation)
 			items.push({
 				icon: ICON.plus,
-				text: "Start a new conversation",
+				text: T("Start a new conversation"),
 				run: () => {
 					newConversation();
 				},
 			});
-		if (state.conversation && cfg.ask_email !== "off")
+		if (state.conversation && cfg.ask_email !== "off" && !verified())
 			items.push({
 				icon: ICON.mail,
 				text:
 					state.conversation.visitor && state.conversation.visitor.email
-						? "Change my email"
-						: "Get replies by email",
+						? T("Change my email")
+						: T("Get replies by email"),
 				run: () => {
 					stored = save({ emailDismissed: false, emailJustSaved: false });
 					if (state.conversation.visitor) state.conversation.visitor.email = null;
@@ -913,13 +1006,13 @@ function mailroomChat(c) {
 		if (cfg.address)
 			items.push({
 				icon: ICON.mail,
-				text: "Email " + cfg.address,
+				text: T("Email ") + cfg.address,
 				run: () => {
 					window.open("mailto:" + cfg.address, "_blank");
 				},
 			});
 		if (!items.length)
-			items.push({ icon: ICON.check, text: "Nothing to do here yet", run: () => {} });
+			items.push({ icon: ICON.check, text: T("Nothing to do here yet"), run: () => {} });
 		for (var i = 0; i < items.length; i++)
 			((it) => {
 				menu.appendChild(
@@ -969,9 +1062,10 @@ function mailroomChat(c) {
 	function openPanel() {
 		if (state.open) return;
 		state.open = true;
+		opener = document.activeElement;
 		root.classList.add("open");
 		launcher.setAttribute("aria-expanded", "true");
-		launcher.setAttribute("aria-label", "Close chat");
+		launcher.setAttribute("aria-label", T("Close chat"));
 		nudge.classList.remove("on");
 		setUnread(0);
 		render();
@@ -985,17 +1079,22 @@ function mailroomChat(c) {
 		}, 120);
 		markSeen();
 		if (window.innerWidth <= 480) lockScroll(true);
+		emit("open");
 	}
 	function closePanel() {
 		if (!state.open) return;
 		state.open = false;
 		root.classList.remove("open");
 		launcher.setAttribute("aria-expanded", "false");
-		launcher.setAttribute("aria-label", "Open chat");
+		launcher.setAttribute("aria-label", T("Open chat"));
 		menu.classList.remove("on");
 		lockScroll(false);
 		stopTyping();
-		launcher.focus();
+		// Back to what opened it: the launcher, or the page's own button when there's none.
+		if (cfg.launcher === "hidden" && opener && opener.focus && document.contains(opener))
+			opener.focus();
+		else launcher.focus();
+		emit("close");
 	}
 	function toggle() {
 		if (state.open) closePanel();
@@ -1019,9 +1118,19 @@ function mailroomChat(c) {
 	});
 
 	function setUnread(n) {
+		var was = state.unread;
 		state.unread = n;
 		badge.textContent = n > 9 ? "9+" : String(n);
 		badge.classList.toggle("on", n > 0);
+		if (was !== n) emit("unread", { count: n });
+	}
+	/** Tells the page: mailroom-chat:open, :close, :unread ({ count }) on window. */
+	function emit(name, detail) {
+		try {
+			window.dispatchEvent(
+				new CustomEvent("mailroom-chat:" + name, { detail: detail || {} }),
+			);
+		} catch (_) {}
 	}
 
 	function showNudge(m) {
@@ -1033,7 +1142,7 @@ function mailroomChat(c) {
 			nudgeAv.appendChild(l.firstChild || document.createTextNode(initial(cfg.title)));
 		}
 		nudgeWho.textContent = m.name || cfg.title;
-		nudgeWhat.textContent = m.text || (m.files && m.files.length ? "Sent a file" : "");
+		nudgeWhat.textContent = m.text || (m.files && m.files.length ? T("Sent a file") : "");
 		nudge.classList.add("on");
 	}
 
@@ -1055,7 +1164,12 @@ function mailroomChat(c) {
 				.catch(() => ({}))
 				.then((j) => {
 					if (!r.ok) {
-						var e = new Error((j.error && j.error.message) || "Something went wrong");
+						var code = j.error && j.error.code;
+						var e = new Error(
+							(LANG === "es" && code && ES_ERRORS[code]) ||
+								(j.error && j.error.message) ||
+								T("Something went wrong"),
+						);
 						e.status = r.status;
 						e.code = j.error && j.error.code;
 						throw e;
@@ -1138,6 +1252,41 @@ function mailroomChat(c) {
 	function newConversation() {
 		endChat();
 		input.focus();
+	}
+
+	/**
+	 * Identity verification: the website says who is signed in. Their chat on this browser gets
+	 * their details; someone else's is forgotten (another person signed in here); with none, their
+	 * latest chat from any browser comes back.
+	 */
+	var identifying = null;
+	function identifyNow() {
+		if (!identity || cfg.preview) return Promise.resolve();
+		var mine = identity;
+		identifying = api("POST", "/identify", { identity: mine })
+			.then((r) => {
+				if (mine !== identity) return;
+				if (r.status === "other_person") {
+					endChat();
+					return identifyNow();
+				}
+				if (r.status === "none") {
+					if (stored.token) endChat();
+					return;
+				}
+				if (r.token) stored = save({ token: r.token, last: Date.now() });
+				state.conversation = r.conversation;
+				merge(r.messages || []);
+				save({ last: Date.now() });
+				connect();
+				renderCards();
+				setComposer();
+			})
+			.catch(() => {})
+			.then(() => {
+				identifying = null;
+			});
+		return identifying;
 	}
 
 	// Typing: the team sees "typing…" (and the words, Intercom-style) as the visitor writes.
@@ -1285,18 +1434,22 @@ function mailroomChat(c) {
 		render();
 		state.sending = !stored.token;
 		setComposer();
-		var p = stored.token
-			? api("POST", "/messages", { text: m.text, client_id: m.client_id })
-			: turnstileToken().then((t) =>
-					api("POST", "/start", {
-						text: m.text,
-						client_id: m.client_id,
-						turnstile: t,
-						email: stored.email || undefined,
-						name: stored.name || undefined,
-						page: location.href,
-					}),
-				);
+		// A signed-in person's earlier chat may be coming back: write in it, not a new one.
+		var p = (identifying || Promise.resolve()).then(() =>
+			stored.token
+				? api("POST", "/messages", { text: m.text, client_id: m.client_id })
+				: (identity ? Promise.resolve("") : turnstileToken()).then((t) =>
+						api("POST", "/start", {
+							text: m.text,
+							client_id: m.client_id,
+							turnstile: t,
+							email: stored.email || undefined,
+							name: stored.name || undefined,
+							identity: identity || undefined,
+							page: location.href,
+						}),
+					),
+		);
 		p.then((r) => {
 			state.sending = false;
 			if (r.token) {
@@ -1354,7 +1507,7 @@ function mailroomChat(c) {
 				id: "local-" + uuid(),
 				local: true,
 				author: "system",
-				text: "Write a message first, then send files.",
+				text: T("Write a message first, then send files."),
 				files: [],
 				at: new Date().toISOString(),
 			});
@@ -1365,7 +1518,7 @@ function mailroomChat(c) {
 				id: "local-" + uuid(),
 				local: true,
 				author: "system",
-				text: "Files up to 10 MB, please.",
+				text: T("Files up to 10 MB, please."),
 				files: [],
 				at: new Date().toISOString(),
 			});
@@ -1608,6 +1761,7 @@ function mailroomChat(c) {
 	}
 	function applyDesign(next) {
 		for (var k in next) cfg[k] = next[k];
+		LANG = cfg.language === "es" ? "es" : "en";
 		dark =
 			cfg.theme === "dark" ||
 			(cfg.theme !== "light" &&
@@ -1622,7 +1776,7 @@ function mailroomChat(c) {
 		if (hs) hs.style.display = cfg.subtitle ? "" : "none";
 		var lg = head.querySelector(".logo");
 		if (lg) lg.replaceWith(logoEl("logo"));
-		input.placeholder = cfg.placeholder || "Write a message…";
+		input.placeholder = cfg.placeholder || T("Write a message…");
 		launcher.className = "launcher" + (cfg.launcher === "label" ? " label" : "");
 		launcher.querySelector(".ic").innerHTML = launcherIcon();
 		var lt = launcher.querySelector(".lt");
@@ -1635,7 +1789,10 @@ function mailroomChat(c) {
 			else lt.textContent = cfg.launcher_text || "Chat";
 		} else if (lt) lt.remove();
 		note.textContent = cfg.retention
-			? "Chats are deleted " + retentionText(cfg.retention) + " after the last message."
+			? T("Chats are deleted {x} after the last message.").replace(
+					"{x}",
+					retentionText(cfg.retention),
+				)
 			: "";
 		render();
 	}
@@ -1687,7 +1844,8 @@ function mailroomChat(c) {
 			openPanel();
 			return;
 		}
-		if (stored.token && recent()) {
+		if (identity) identifyNow();
+		else if (stored.token && recent()) {
 			refresh();
 			connect();
 		}
@@ -1715,9 +1873,16 @@ function mailroomChat(c) {
 		open: openPanel,
 		close: closePanel,
 		toggle: toggle,
-		/** Fills in who the visitor is (unverified), so they're not asked. */
+		/** Who the visitor is: { token } signed by the website's server (verified), or
+		 * { email, name } (unverified), so they're not asked. */
 		identify: (who) => {
 			who = who || {};
+			if (typeof who.token === "string") {
+				var changed = who.token !== identity;
+				identity = who.token;
+				if (changed) identifyNow();
+				return;
+			}
 			var patch = {};
 			if (who.email) patch.email = String(who.email).trim();
 			if (who.name) patch.name = String(who.name).trim();
@@ -1726,5 +1891,15 @@ function mailroomChat(c) {
 			renderCards();
 			setComposer();
 		},
+		/** The person signed out: forget their chat on this browser (it stays theirs). */
+		reset: () => {
+			identity = null;
+			closePanel();
+			endChat();
+			stored = save({ email: null, name: null });
+			setUnread(0);
+		},
+		unread: () => state.unread,
 	};
+	emit("ready");
 }

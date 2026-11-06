@@ -122,6 +122,27 @@ export const rotateChatKeyFn = createServerFn({ method: "POST" })
 		}),
 	);
 
+/**
+ * Identity verification: a new secret (shown this once; the old one stops at once), or none
+ * (which also lets visitors chat without signing in again).
+ */
+export const setChatIdentitySecretFn = createServerFn({ method: "POST" })
+	.middleware([can("inbox:agents")])
+	.validator(z.object({ inbox: z.string(), make: z.boolean() }))
+	.handler(({ data, context }) =>
+		call(async () => {
+			const { actor, inbox } = await managed(context, data.inbox);
+			const { chatWidgetView, setIdentitySecret } = await import("@/server/chat");
+			const { widget, secret } = await setIdentitySecret(inbox, data.make);
+			await logInbox(actor, {
+				brandId: inbox.organization_id,
+				inboxId: inbox.id,
+				action: data.make ? "chat.identity_secret_made" : "chat.identity_secret_removed",
+			});
+			return { widget: chatWidgetView(widget), secret };
+		}),
+	);
+
 /** Removes the chat from the inbox (its conversations stay, as they are). */
 export const deleteChatWidgetFn = createServerFn({ method: "POST" })
 	.middleware([can("inbox:agents")])
