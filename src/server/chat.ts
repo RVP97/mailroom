@@ -239,6 +239,12 @@ export const settingsInput = z.object({
 	ask_email: z.enum(["off", "optional", "required"]).optional(),
 	notify: z.array(z.string().trim().max(320)).max(10).optional(),
 	daily_limit: z.number().int().min(1).max(10_000).optional(),
+	/** Email the team (notify) about visitors' new lines nobody read, after this many minutes. */
+	email_team: z.boolean().optional(),
+	email_team_after: z.number().int().min(1).max(1440).optional(),
+	/** Email a visitor who left their email the team's lines they didn't see, after this many minutes. */
+	email_visitor: z.boolean().optional(),
+	email_visitor_after: z.number().int().min(1).max(1440).optional(),
 	/** The inbox's retention: days, 0 always, null the deployment's. */
 	retention_days: z.number().int().min(0).max(3650).nullish(),
 	/** Only visitors the website signed in may chat (needs the identity secret). */
@@ -304,6 +310,10 @@ export async function saveChatWidget(
 		ask_email: v.ask_email ?? existing?.ask_email ?? "optional",
 		notify,
 		daily_limit: v.daily_limit ?? existing?.daily_limit ?? 100,
+		email_team: v.email_team ?? existing?.email_team ?? true,
+		email_team_after: v.email_team_after ?? existing?.email_team_after ?? 1,
+		email_visitor: v.email_visitor ?? existing?.email_visitor ?? true,
+		email_visitor_after: v.email_visitor_after ?? existing?.email_visitor_after ?? 3,
 		identity_secret: existing?.identity_secret ?? null,
 		identity_required: v.identity_required ?? existing?.identity_required ?? false,
 		created_by: existing?.created_by ?? by.userId ?? null,
@@ -390,6 +400,11 @@ export const chatWidgetView = (w: ChatWidget) => ({
 	ask_email: w.ask_email as "off" | "optional" | "required",
 	notify: w.notify,
 	daily_limit: w.daily_limit,
+	/** Emails about the chat: the team about new visitor lines, the visitor about unseen answers. */
+	email_team: w.email_team,
+	email_team_after: w.email_team_after,
+	email_visitor: w.email_visitor,
+	email_visitor_after: w.email_visitor_after,
 	/** Identity verification: whether the secret exists (never its value) and is required. */
 	identity: { configured: !!w.identity_secret, required: w.identity_required },
 	snippet: snippetFor(w),
@@ -1562,10 +1577,13 @@ export async function notifyTeam(now = Date.now(), sender?: ChatSender) {
 			? await db.select().from(schema.inboxes).where(eq(schema.inboxes.id, x.inbox_id)).get()
 			: null;
 		const widget = inbox ? await getChatWidget(inbox.id) : null;
-		if (!x || !inbox || !widget?.notify.length) {
+		if (!x || !inbox || !widget?.notify.length || !widget.email_team) {
 			await done();
 			continue;
 		}
+		// Each chat's own wait (a minute by default: the cron's minute plus half of one).
+		const wait = Math.max(30_000, widget.email_team_after * 60_000 - 30_000);
+		if ((lines[0]?.created_at ?? "") > iso(now - wait)) continue;
 		const newest = lines.at(-1)?.created_at ?? "";
 		const read = await db
 			.select({ n: sql<number>`count(*)` })
@@ -1652,8 +1670,9 @@ export async function notifyTeam(now = Date.now(), sender?: ChatSender) {
 	return sent;
 }
 
-/** The visitor didn't see the team's lines in this long: they go by email (when they left one). */
-const VISITOR_AWAY_MS = 3 * 60_000;
+/** The soonest a visitor's unseen lines can go by email; each chat sets its own wait
+ * (email_visitor_after, 3 minutes by default). */
+const VISITOR_AWAY_MS = 60_000;
 
 /** Cron (every minute): the team's lines a visitor who left hasn't seen, to their email. */
 export async function emailVisitors(now = Date.now(), sender?: ChatSender) {
@@ -1675,7 +1694,7 @@ export async function emailVisitors(now = Date.now(), sender?: ChatSender) {
 		byChat.set(l.conversation_id, [...(byChat.get(l.conversation_id) ?? []), l]);
 	let sent = 0;
 	const send = sender ?? (await defaultSender());
-	for (const [id, all] of byChat) {
+	for (const [id, waiting] of byChat) {
 		const mark = (ids: string[]) =>
 			ids.length
 				? db
@@ -1687,6 +1706,15 @@ export async function emailVisitors(now = Date.now(), sender?: ChatSender) {
 		const inbox = x?.inbox_id
 			? await db.select().from(schema.inboxes).where(eq(schema.inboxes.id, x.inbox_id)).get()
 			: null;
+		const settings = inbox ? await getChatWidget(inbox.id) : null;
+		// Turned off: these lines are never emailed.
+		if (settings && !settings.email_visitor) {
+			await mark(waiting.map((l) => l.id));
+			continue;
+		}
+		const wait = (settings?.email_visitor_after ?? 3) * 60_000;
+		const all = waiting.filter((l) => l.created_at <= iso(now - wait));
+		if (!all.length) continue;
 		const from = inbox ? fromOf(inbox) : null;
 		// Seen in the widget since: nothing to email.
 		const lines = all.filter((l) => !x?.visitor_seen_at || x.visitor_seen_at < l.created_at);

@@ -421,6 +421,40 @@ describe("website chat: the team", () => {
 	});
 });
 
+describe("website chat: its email settings", () => {
+	it("waits as long as each chat says, and sends nothing when its emails are off", async () => {
+		const { org, widget, inbox } = await setUp();
+		await saveChatWidget(inbox, { email_team_after: 10, email_visitor: false });
+		const t0 = Date.parse("2025-03-03T09:00:00Z");
+		vi.setSystemTime(t0);
+		const chat = await start(widget.public_key, "Hello?", { email: "ana@guest.test" });
+		vi.useRealTimers();
+		const { s, sent } = sender();
+		// The team: not after a minute, after ten.
+		expect(await notifyTeam(t0 + 2 * 60_000, s)).toBe(0);
+		expect(await notifyTeam(t0 + 10 * 60_000, s)).toBe(1);
+		// The visitor: never.
+		vi.setSystemTime(t0 + 11 * 60_000);
+		await sendReply(person(org.id), chat.conversation.id, { text: "Hi!" }, noEmail);
+		vi.useRealTimers();
+		expect(await emailVisitors(t0 + 30 * 60_000, s)).toBe(0);
+		expect(sent.map((m) => m.to)).toEqual([["owner@acme-hotel.test"]]);
+
+		// The team's emails off: nothing, and the lines aren't kept for later.
+		await saveChatWidget(inbox, { email_team: false });
+		vi.setSystemTime(t0 + 40 * 60_000);
+		await call(widget.public_key, "messages", {
+			body: { text: "Still there?" },
+			token: chat.token,
+		});
+		vi.useRealTimers();
+		expect(await notifyTeam(t0 + 50 * 60_000, s)).toBe(0);
+		await saveChatWidget(inbox, { email_team: true });
+		expect(await notifyTeam(t0 + 51 * 60_000, s)).toBe(0);
+		expect(sent).toHaveLength(1);
+	});
+});
+
 describe("website chat: answering by email", () => {
 	function fakeS3(objects: Map<string, string>) {
 		return fakeOutside({

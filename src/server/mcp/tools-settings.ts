@@ -883,7 +883,7 @@ export const SETTINGS_TOOLS: Tool[] = [
 		name: "save_chat_widget",
 		title: "Turn on or change an inbox's website chat",
 		description:
-			'Turns on the website chat for an inbox (visitors chat on the site, the team answers from Mailroom or by email), or changes it. settings: enabled, origins (the sites it may run on), retention_days, identity_required (only visitors the site signed in; needs the identity secret, made in the dashboard or with scripts/connect-chat.sh, never shown here), and its design and texts (keys as get_chat_widget shows them, language "en" or "es" among them; left out keep their value). Returns the snippet to paste.',
+			'Turns on the website chat for an inbox (visitors chat on the site, the team answers from Mailroom or by email), or changes it. settings: enabled, origins (the sites it may run on), ask_email ("off" | "optional" | "required": asking visitors for their email), notify (who of the team gets the emails), email_team (true: email notify about visitor messages nobody read) with email_team_after (minutes, 1 by default), email_visitor (true: a visitor who left their email gets the team\'s answers they didn\'t see) with email_visitor_after (minutes, 3 by default), daily_limit, retention_days, identity_required (only visitors the site signed in; needs the identity secret, made in the dashboard or with scripts/connect-chat.sh, never shown here), and its design and texts (keys as get_chat_widget shows them, language "en" or "es" among them; left out keep their value). Returns the snippet to paste.',
 		input: {
 			organization,
 			inbox: z.string(),

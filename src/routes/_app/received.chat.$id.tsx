@@ -77,6 +77,10 @@ type Fields = {
 	ask_email: AskEmail;
 	notify: string;
 	daily_limit: string;
+	email_team: boolean;
+	email_team_after: string;
+	email_visitor: boolean;
+	email_visitor_after: string;
 	retention: string;
 	identity_required: boolean;
 	design: Design;
@@ -88,10 +92,20 @@ const fieldsOf = (d: Data): Fields => ({
 	ask_email: d.widget?.ask_email ?? "optional",
 	notify: (d.widget?.notify ?? []).join("\n"),
 	daily_limit: String(d.widget?.daily_limit ?? 100),
+	email_team: d.widget?.email_team ?? true,
+	email_team_after: String(d.widget?.email_team_after ?? 1),
+	email_visitor: d.widget?.email_visitor ?? true,
+	email_visitor_after: String(d.widget?.email_visitor_after ?? 3),
 	retention: d.retention_days == null ? "default" : String(d.retention_days),
 	identity_required: d.widget?.identity.required ?? false,
 	design: d.widget?.design ?? d.defaults,
 });
+
+/** A wait in whole minutes, 1 to 1440 (a day); anything else is the default. */
+const minutes = (s: string, fallback: number) => {
+	const n = Math.round(Number(s));
+	return Number.isFinite(n) && n >= 1 ? Math.min(n, 1440) : fallback;
+};
 
 const lines = (s: string) =>
 	s
@@ -298,6 +312,10 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 						ask_email: v.ask_email,
 						notify: lines(v.notify),
 						daily_limit: Number.isFinite(daily) && daily > 0 ? Math.round(daily) : 100,
+						email_team: v.email_team,
+						email_team_after: minutes(v.email_team_after, 1),
+						email_visitor: v.email_visitor,
+						email_visitor_after: minutes(v.email_visitor_after, 3),
 						retention_days: v.retention === "default" ? null : Number(v.retention),
 						identity_required: v.identity_required,
 						design: v.design,
@@ -1370,30 +1388,66 @@ function SettingsPanel({
 					</FieldDescription>
 				</Field>
 				{v.ask_email !== "off" && (
-					<SwitchRow
-						label="Ask for their name too"
-						checked={!!v.design.ask_name}
-						onChange={(ask_name) => look({ ask_name })}
-					/>
+					<>
+						<SwitchRow
+							label="Ask for their name too"
+							checked={!!v.design.ask_name}
+							onChange={(ask_name) => look({ ask_name })}
+						/>
+						<SwitchRow
+							label="Email them answers they missed"
+							hint="When they left the page before seeing your answer. Their reply to it comes back into the chat."
+							checked={v.email_visitor}
+							onChange={(x) => set("email_visitor", x)}
+						/>
+						{v.email_visitor && (
+							<WaitPick
+								label="After"
+								value={v.email_visitor_after}
+								onChange={(x) => set("email_visitor_after", x)}
+								unseen="unseen"
+							/>
+						)}
+					</>
 				)}
 			</Group>
 			<Group title="Your team">
-				<Field>
-					<FieldLabel htmlFor="chat-notify">Email the chats to</FieldLabel>
-					<Textarea
-						id="chat-notify"
-						rows={3}
-						spellCheck={false}
-						placeholder={data.me}
-						value={v.notify}
-						onChange={(e) => set("notify", e.target.value)}
-					/>
-					<FieldDescription>
-						One address per line. A minute's messages come in one email; reply to it and
-						the visitor sees your answer in the chat. Skipped when someone already read
-						them here.
-					</FieldDescription>
-				</Field>
+				<SwitchRow
+					label="Email us new messages"
+					hint="Skipped when someone already read them here. Reply to the email and the visitor sees your answer in the chat."
+					checked={v.email_team}
+					onChange={(x) => set("email_team", x)}
+				/>
+				{v.email_team && (
+					<>
+						<WaitPick
+							label="After"
+							value={v.email_team_after}
+							onChange={(x) => set("email_team_after", x)}
+							unseen="unread"
+						/>
+						<Field>
+							<FieldLabel htmlFor="chat-notify">Send them to</FieldLabel>
+							<Textarea
+								id="chat-notify"
+								rows={3}
+								spellCheck={false}
+								placeholder={data.me}
+								value={v.notify}
+								onChange={(e) => set("notify", e.target.value)}
+							/>
+							<FieldDescription>
+								One address per line. Messages that come in together arrive in one
+								email.
+							</FieldDescription>
+						</Field>
+					</>
+				)}
+				{!v.email_team && (
+					<p className="text-xs text-muted-foreground">
+						New chats only show up here, in Mailroom.
+					</p>
+				)}
 			</Group>
 			<Group title="Keeping chats">
 				<Field>
@@ -1449,6 +1503,51 @@ function SettingsPanel({
 				<TurnstileState data={data} />
 			</Group>
 		</>
+	);
+}
+
+const WAITS = ["1", "3", "5", "10", "15", "30", "60", "120", "240", "1440"];
+const waitText = (m: string) => {
+	const n = Number(m);
+	if (n >= 60 && n % 60 === 0)
+		return n === 60 ? "1 hour" : n === 1440 ? "1 day" : `${n / 60} hours`;
+	return n === 1 ? "1 minute" : `${n} minutes`;
+};
+
+/** How long an email waits for someone to read the messages here first. */
+function WaitPick({
+	label,
+	value,
+	onChange,
+	unseen,
+}: {
+	label: string;
+	value: string;
+	onChange: (x: string) => void;
+	unseen: string;
+}) {
+	const options = WAITS.includes(value) ? WAITS : [...WAITS, value].sort((a, b) => +a - +b);
+	return (
+		<Labeled label={label}>
+			<Select
+				value={value}
+				onValueChange={onChange}
+			>
+				<SelectTrigger className="w-full">
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					{options.map((m) => (
+						<SelectItem
+							key={m}
+							value={m}
+						>
+							{waitText(m)} {unseen}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</Labeled>
 	);
 }
 

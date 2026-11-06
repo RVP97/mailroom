@@ -613,6 +613,14 @@ export const chatWidgets = sqliteTable(
 		notify: text("notify", { mode: "json" }).$type<string[]>().notNull(),
 		/** New chats a day, at most (past it the widget offers the inbox's address). */
 		daily_limit: integer("daily_limit").notNull().default(100),
+		/** The team (notify) gets an email about visitors' new lines nobody read yet... */
+		email_team: integer("email_team", { mode: "boolean" }).notNull().default(true),
+		/** ...this many minutes after them. */
+		email_team_after: integer("email_team_after").notNull().default(1),
+		/** A visitor who left their email gets the team's lines they didn't see... */
+		email_visitor: integer("email_visitor", { mode: "boolean" }).notNull().default(true),
+		/** ...this many minutes after them. */
+		email_visitor_after: integer("email_visitor_after").notNull().default(3),
 		/** Identity verification (src/server/chat-identity.ts): the secret the website signs who
 		 * its signed-in visitor is with (mrcs_…; null: not set up). */
 		identity_secret: text("identity_secret"),
