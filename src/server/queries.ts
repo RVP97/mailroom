@@ -13,6 +13,7 @@ import {
 	sql,
 } from "drizzle-orm";
 import { type EmailFilterValue, NOT_DELIVERED } from "../lib/email-status";
+import { maskedSearch } from "../lib/permissions";
 import { domainsOf, KNOWN_DOMAINS, type Provider } from "../lib/providers";
 import { db, schema } from "./db";
 import type { EmailStatus } from "./db/schema";
@@ -39,6 +40,8 @@ export function inScope(column: AnyColumn, scope: Scope): SQL {
 }
 
 export interface EmailFilter {
+	/** The caller sees digits dotted: the subject isn't searched for runs of 4+ digits. */
+	masked?: boolean;
 	/** A status, opened/clicked, or not_delivered (bounced, soft bounced, failed, suppressed). */
 	status?: EmailFilterValue | EmailStatus | null;
 	/** One day (YYYY-MM-DD in TIMEZONE), by when the status's event happened. */
@@ -134,7 +137,7 @@ function emailConditions(scope: Scope, f: EmailFilter): SQL[] {
 			conds.push(
 				or(
 					like(e.to, `%${q.replace(/[%_"]/g, "")}%`),
-					like(e.subject, `${q.replace(/[%_]/g, "")}%`),
+					like(e.subject, `${(f.masked ? maskedSearch(q) : q).replace(/[%_]/g, "")}%`),
 				) as never,
 			);
 	}

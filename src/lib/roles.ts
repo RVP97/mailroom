@@ -32,4 +32,4 @@ export const ROLE_LABEL: Record<string, string> = Object.fromEntries([
 	...STARTER_ROLES.map((r) => [r.slug, r.name]),
 ]);
 
-export { maskDigits } from "./permissions";
+export { maskDigits, maskedSearch, maskHeaders } from "./permissions";

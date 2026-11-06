@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { maskDigits } from "../lib/permissions";
+import { maskDigits, maskedSearch, maskHeaders } from "../lib/permissions";
 import { bareAddress } from "./aws/mime";
 import { db, schema } from "./db";
 import type { ReplyAttachment } from "./db/schema";
@@ -94,6 +94,8 @@ export interface Threadable {
 	subject: string;
 	from: string;
 	created_at: string;
+	/** Held as suspicious: its conversation is held from the start (agents never see it). */
+	held?: boolean;
 }
 
 /**
@@ -154,6 +156,7 @@ export async function threadReceived(
 			snippet,
 			last_message_at: row.created_at,
 			last_inbound_at: row.created_at,
+			held_at: row.held ? iso(now) : null,
 			created_at: iso(now),
 			updated_at: iso(now),
 		});
@@ -239,6 +242,7 @@ export async function threadReceived(
 				snippet: sql`CASE WHEN ${c.last_inbound_at} IS NULL OR ${c.last_inbound_at} <= ${row.created_at} THEN ${snippet} ELSE ${c.snippet} END`,
 				last_message_at: sql`max(${c.last_message_at}, ${row.created_at})`,
 				last_inbound_at: sql`max(coalesce(${c.last_inbound_at}, ''), ${row.created_at})`,
+				...(row.held ? { held_at: sql`coalesce(${c.held_at}, ${iso(now)})` } : {}),
 				updated_at: iso(now),
 			})
 			.where(eq(c.id, conversationId)),
@@ -372,12 +376,17 @@ export async function listConversations(actor: InboxActor, f: ConversationFilter
 	const search = f.search?.trim().toLowerCase();
 	if (search) {
 		const p = `%${search.replace(/[%_\\]/g, "\\$&")}%`;
+		// Subjects hold the digits a masked member sees dotted: their search can't test for them.
+		const inSubject = actor.masked ? maskedSearch(search) : search;
+		const ps = inSubject ? `%${inSubject.replace(/[%_\\]/g, "\\$&")}%` : null;
 		conds.push(
 			or(
 				eq(c.id, search),
-				sql`lower(${c.subject}) LIKE ${p} ESCAPE '\\'`,
+				...(ps ? [sql`lower(${c.subject}) LIKE ${ps} ESCAPE '\\'`] : []),
 				sql`lower(${c.contact}) LIKE ${p} ESCAPE '\\'`,
-				sql`EXISTS (SELECT 1 FROM ${re} m WHERE m.conversation_id = ${C_ID} AND (lower(m."from") LIKE ${p} ESCAPE '\\' OR lower(m.subject) LIKE ${p} ESCAPE '\\'))`,
+				ps
+					? sql`EXISTS (SELECT 1 FROM ${re} m WHERE m.conversation_id = ${C_ID} AND (lower(m."from") LIKE ${p} ESCAPE '\\' OR lower(m.subject) LIKE ${ps} ESCAPE '\\'))`
+					: sql`EXISTS (SELECT 1 FROM ${re} m WHERE m.conversation_id = ${C_ID} AND lower(m."from") LIKE ${p} ESCAPE '\\')`,
 			) as never,
 		);
 	}
@@ -1060,6 +1069,7 @@ export async function getMessage(
 		...v,
 		inbox_id: row.inbox_id,
 		conversation_id: row.conversation_id,
+		headers: m ? maskHeaders(v.headers) : v.headers,
 		subject: m ? maskDigits(v.subject) : v.subject,
 		text: m && v.text ? maskDigits(v.text) : v.text,
 		html:
@@ -1347,8 +1357,17 @@ export async function composeDefaults(actor: InboxActor, conversationId: string)
 	const { c: x } = await conversationFor(actor, conversationId);
 	const inbox = await inboxOfConversation(x);
 	const d = await replyDefaults(x, inbox);
-	return { from: d.from, to: d.to, subject: d.subject, fixed_from: !!inbox };
+	return {
+		from: d.from,
+		to: d.to,
+		subject: actor.masked ? maskDigits(d.subject) : d.subject,
+		fixed_from: !!inbox,
+	};
 }
+
+/** A subject as written: the dotted default a masked member was shown is the real one. */
+const realSubject = (actor: InboxActor, given: string | null | undefined, real: string) =>
+	given && actor.masked && given === maskDigits(real) ? real : given;
 
 export async function saveDraft(
 	actor: InboxActor,
@@ -1422,7 +1441,7 @@ export async function saveDraft(
 		from,
 		to: v.to?.length ? v.to : d.to,
 		cc: v.cc?.length ? v.cc : null,
-		subject: v.subject || d.subject,
+		subject: realSubject(actor, v.subject, d.subject) || d.subject,
 		text: v.text,
 		html: v.html ?? null,
 		author_type: actor.type,
@@ -1624,7 +1643,10 @@ export async function sendReply(
 		sendAt = now + undo * 1000;
 	const to = v.to?.length ? v.to : (draft?.to ?? d.to);
 	const cc = v.cc ?? draft?.cc ?? [];
-	const subject = v.subject || draft?.subject || d.subject;
+	const subject =
+		realSubject(actor, v.subject, d.subject) ||
+		realSubject(actor, draft?.subject, d.subject) ||
+		d.subject;
 	const html = v.html !== undefined ? v.html : (draft?.html ?? null);
 	// An agent sends from the inbox's address; a person may pick another of the brand's.
 	const from = actor.type === "agent" ? d.from : (v.from ?? draft?.from ?? d.from);

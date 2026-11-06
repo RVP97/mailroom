@@ -149,7 +149,14 @@ function createAuth() {
 		databaseHooks: {
 			user: {
 				create: {
-					before: async (user) => {
+					before: async (user, ctx) => {
+						// From Google: only an address Google says its owner proved (anyone can put
+						// someone else's address, even an admin's, on a Google account).
+						if (ctx?.path?.startsWith("/callback") && !user.emailVerified)
+							throw new APIError("FORBIDDEN", {
+								message:
+									"Google hasn't verified this address: sign in with an emailed code instead.",
+							});
 						if (isAdminEmail(user.email) || (await invited(user.email)))
 							return { data: user };
 						throw new APIError("FORBIDDEN", {

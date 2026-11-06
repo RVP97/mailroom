@@ -186,8 +186,9 @@ export const setContactSegmentFn = createServerFn({ method: "POST" })
 	.handler(({ data, context }) =>
 		call(async () => {
 			const brand = await brandOf(context.organizationId, data.brand);
-			if (data.member) await addToSegment(brand, data.id, data.segment);
-			else await removeFromSegment(brand, data.id, data.segment);
+			const contact = await getContact(brand, data.id);
+			if (data.member) await addToSegment(brand, contact.id, data.segment);
+			else await removeFromSegment(brand, contact.id, data.segment);
 			return { ok: true };
 		}),
 	);

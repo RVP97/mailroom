@@ -524,7 +524,14 @@ export const SETTINGS_TOOLS: Tool[] = [
 					"not_found",
 					"This log doesn't exist, or is past its retention",
 				);
-			return log;
+			if (!org.masked) return log;
+			return {
+				...log,
+				request_body:
+					log.request_body == null ? log.request_body : maskDigits(log.request_body),
+				response_body:
+					log.response_body == null ? log.response_body : maskDigits(log.response_body),
+			};
 		},
 	},
 	{
@@ -666,6 +673,13 @@ export const SETTINGS_TOOLS: Tool[] = [
 		run: async (a, ctx) => {
 			const org = orgAt(ctx, a.organization);
 			if (!archiveBucket()) return { available: false, files: [] };
+			// The files are the emails as sent and received, digits and all.
+			if (org.masked)
+				throw new ApiError(
+					403,
+					"forbidden",
+					"Archive files show codes and card numbers: that needs the «See codes and card numbers» permission",
+				);
 			const ids = a.brand
 				? [await brandIn(org.id, a.brand as string)]
 				: await brandIds(org.id);

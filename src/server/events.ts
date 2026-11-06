@@ -296,7 +296,24 @@ export async function applySesEvent(
 		case "Delivery":
 			set.delivered_at = sql`COALESCE(${em.delivered_at}, ${at})`;
 			queries.push(...bump(org, day, from, "delivered"));
-			queries.push(...markDelivered(e.delivery?.recipients ?? [], at));
+			// The shared mailbox-check cache is everyone's: only the deployment's own SES account
+			// writes to it (an organization's own account's topic is theirs to send to), and only
+			// for addresses this email went to.
+			if (!o.brands) {
+				const sentTo = new Set(
+					[email.to, email.cc, email.bcc]
+						.flatMap((l) => (Array.isArray(l) ? (l as string[]) : []))
+						.map((a) => (a.match(/<([^>]+)>/)?.[1] ?? a).trim().toLowerCase()),
+				);
+				queries.push(
+					...markDelivered(
+						(e.delivery?.recipients ?? []).filter((a) =>
+							sentTo.has(a.trim().toLowerCase()),
+						),
+						at,
+					),
+				);
+			}
 			break;
 		case "DeliveryDelay":
 			queries.push(...bump(org, day, from, "delayed"));

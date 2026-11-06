@@ -641,7 +641,12 @@ async function advance(x: Automation, run: AutomationRun, now: number) {
 		const contact = await db
 			.select()
 			.from(schema.contacts)
-			.where(eq(schema.contacts.id, run.contact_id))
+			.where(
+				and(
+					eq(schema.contacts.id, run.contact_id),
+					eq(schema.contacts.organization_id, run.organization_id),
+				),
+			)
 			.get();
 		let status: AutomationRun["status"] = "active";
 		let nextAt: string | null = iso(now);
@@ -779,7 +784,13 @@ export async function automationRuns(id: string, limit = 50) {
 				email: schema.contacts.email,
 			})
 			.from(r)
-			.leftJoin(schema.contacts, eq(schema.contacts.id, r.contact_id))
+			.leftJoin(
+				schema.contacts,
+				and(
+					eq(schema.contacts.id, r.contact_id),
+					eq(schema.contacts.organization_id, r.organization_id),
+				),
+			)
 			.where(eq(r.automation_id, id))
 			.orderBy(desc(r.created_at))
 			.limit(limit),

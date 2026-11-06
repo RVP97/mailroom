@@ -22,11 +22,19 @@ type Broadcast = typeof schema.broadcasts.$inferSelect;
 
 /** What people get, as one string's SHA-256 (an approval holds for it). */
 export async function contentHash(x: Broadcast) {
+	// Who gets it (segment, topic, campaign dedupe), what they get, and where replies go: changing
+	// any of them after the approval asks again.
 	const s = JSON.stringify([
 		x.subject,
 		x.preview_text,
 		x.from,
+		x.reply_to ?? null,
 		x.segment_id,
+		x.topic_id ?? null,
+		x.campaign_id ?? null,
+		x.campaign_dedupe,
+		x.newsletter_id ?? null,
+		x.web,
 		x.html,
 		x.text,
 		x.ab_test?.subjects ?? null,
@@ -173,8 +181,15 @@ export async function decideReview(o: {
 			"broadcast_changed",
 			"It was changed since you opened it: look at the new version first",
 		);
-	if (x.review_requested_by === o.userId && !o.access.owner)
-		throw new ApiError(403, "forbidden", "Someone else approves what you asked for");
+	if (o.approve && x.review !== "requested")
+		throw new ApiError(
+			409,
+			"not_requested",
+			"Only a broadcast someone asked to review is approved",
+		);
+	// Four eyes: never the one who asked, wrote it or last changed it (owners may).
+	if (!o.access.owner && [x.review_requested_by, x.created_by, x.updated_by].includes(o.userId))
+		throw new ApiError(403, "forbidden", "Someone else approves what you wrote or asked for");
 	if (!o.approve && !o.note?.trim())
 		throw new ApiError(422, "validation_error", "Say what should change");
 	const hash = o.approve ? await contentHash(x) : null;

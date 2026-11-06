@@ -15,6 +15,25 @@ interface Attached {
 	/** Who it is, for "Ana is typing…" (a team member's first name; the visitor's own name). */
 	name: string;
 	conversation: string;
+	/** A team member without emails:unmasked: runs of 4+ digits in text arrive as dots. */
+	masked?: boolean;
+}
+
+const dots = (s: string) => s.replace(/\d{4,}/g, (m) => "•".repeat(m.length));
+
+/** The event as a masked member gets it: the message's and the typing preview's text dotted. */
+function maskedEvent(event: unknown): unknown {
+	if (!event || typeof event !== "object") return event;
+	const e = event as Record<string, unknown>;
+	const out: Record<string, unknown> = { ...e };
+	if (typeof e.text === "string") out.text = dots(e.text);
+	if (e.message && typeof e.message === "object") {
+		const m = { ...(e.message as Record<string, unknown>) };
+		if (typeof m.text === "string") m.text = dots(m.text);
+		if (typeof m.html === "string") m.html = null;
+		out.message = m;
+	}
+	return out;
 }
 
 export type RoomEvent =
@@ -41,9 +60,14 @@ export class ChatRoom extends DurableObject {
 
 	private send(list: WebSocket[], event: unknown) {
 		const data = JSON.stringify(event);
+		let dotted: string | undefined;
 		for (const ws of list) {
 			try {
-				ws.send(data);
+				const me = ws.deserializeAttachment() as Attached | null;
+				if (me?.masked) {
+					dotted ??= JSON.stringify(maskedEvent(event));
+					ws.send(dotted);
+				} else ws.send(data);
 			} catch {}
 		}
 	}
@@ -57,6 +81,7 @@ export class ChatRoom extends DurableObject {
 			role,
 			name: (request.headers.get("x-chat-name") ?? "").slice(0, 80),
 			conversation: request.headers.get("x-chat-conversation") ?? "",
+			masked: role === "team" && request.headers.get("x-chat-masked") !== "0",
 		};
 		const pair = new WebSocketPair();
 		const [client, server] = Object.values(pair) as [WebSocket, WebSocket];

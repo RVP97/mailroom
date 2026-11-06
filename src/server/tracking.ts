@@ -340,6 +340,14 @@ export async function addTrackingHost(organizationId: string, id: string, prefix
 		);
 	const d = await domainRow(organizationId, id);
 	if (d.tracking_host) return checkTrackingHost(organizationId, id);
+	// The host serves this organization's public pages: only on a domain it has proven is its own
+	// (a CNAME a previous owner left behind would otherwise hand the name to whoever adds it).
+	if (d.status !== "verified")
+		throw new ApiError(
+			409,
+			"domain_not_verified",
+			"Verify the domain first, then add its tracking host",
+		);
 	const hostname = `${prefix}.${d.name}`;
 	if (hostname.length > 253) throw validation("This domain is too long for a tracking host");
 	let ch: CustomHostname;
@@ -366,8 +374,14 @@ export async function addTrackingHost(organizationId: string, id: string, prefix
 			})
 		).id;
 	} catch (error) {
-		const routes = await cf<{ id: string; pattern: string }[]>("GET", "/workers/routes");
-		routeId = routes.find((r) => r.pattern === `${hostname}/*`)?.id ?? null;
+		const routes = await cf<{ id: string; pattern: string; script?: string }[]>(
+			"GET",
+			"/workers/routes",
+		);
+		// Only Mailroom's own route: removing the host later deletes it.
+		routeId =
+			routes.find((r) => r.pattern === `${hostname}/*` && r.script === "mailroom")?.id ??
+			null;
 		if (!routeId) throw error;
 	}
 	await db

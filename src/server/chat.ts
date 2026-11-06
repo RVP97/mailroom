@@ -1387,7 +1387,13 @@ export async function chatEmailIn(e: ChatEmail): Promise<boolean> {
 		.get();
 	if (!x || x.channel !== "chat") return false;
 	const from = lowerBare(e.from);
-	const authentic = e.dkim === "PASS" || e.dmarc === "PASS";
+	// DMARC passing is what ties the From address to the domain that signed or sent it; a DKIM or
+	// SPF pass alone may be for any domain. The team posts as the team, so only an aligned pass will
+	// do; a visitor whose domain publishes no DMARC policy still gets a DKIM or SPF pass, but never
+	// past a DMARC failure.
+	const authentic = e.dmarc === "PASS";
+	const visitorAuthentic =
+		authentic || (e.dmarc !== "FAIL" && (e.dkim === "PASS" || e.spf === "PASS"));
 	const now = e.now ?? Date.now();
 	const content = e.parsed?.text?.trim() ? e.parsed.text : htmlText(e.parsed?.html ?? "");
 	const text = replyText(content);
@@ -1427,7 +1433,7 @@ export async function chatEmailIn(e: ChatEmail): Promise<boolean> {
 		return true;
 	}
 	if (!x.visitor_email || from !== x.visitor_email) return false;
-	if (!(authentic || e.spf === "PASS")) return false;
+	if (!visitorAuthentic) return false;
 	if (!text && !files.length) return true;
 	const inbox = await db
 		.select()

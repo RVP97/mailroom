@@ -375,3 +375,19 @@ export const NO_PERMISSION_MESSAGE = "You don't have permission for this in this
 
 /** Runs of 4 or more digits (codes, card and phone numbers) as dots. */
 export const maskDigits = (s: string) => s.replace(/\d{4,}/g, (m) => "•".repeat(m.length));
+
+/** An email's headers with digits dotted (Subject repeats the subject; others may hold codes). */
+export const maskHeaders = <T extends Record<string, unknown> | null | undefined>(h: T): T =>
+	(h
+		? Object.fromEntries(
+				Object.entries(h).map(([k, v]) => [k, typeof v === "string" ? maskDigits(v) : v]),
+			)
+		: h) as T;
+
+/** A search term for someone who sees digits dotted: runs of 4+ digits can't be searched for
+ * (hit or miss would tell the hidden digits one by one). */
+export const maskedSearch = (q: string) =>
+	q
+		.replace(/\d{4,}/g, "")
+		.replace(/\s+/g, " ")
+		.trim();

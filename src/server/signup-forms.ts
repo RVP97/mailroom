@@ -253,6 +253,8 @@ function page(title: string, body: string, status = 200) {
 				"content-type": "text/html; charset=utf-8",
 				"cache-control": "no-store",
 				"x-frame-options": "DENY",
+				"content-security-policy":
+					"default-src 'none'; img-src * data:; style-src 'unsafe-inline'; script-src https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
 			},
 		},
 	);
@@ -354,7 +356,12 @@ const CORS = {
 /** /subscribe/<form> (GET: the hosted page; POST: a sign-up) and /subscribe/confirm. */
 export async function handleSubscribe(request: Request, now = Date.now()): Promise<Response> {
 	const u = new URL(request.url);
-	if (u.pathname === "/subscribe/confirm") return confirm(u.searchParams.get("t") ?? "", now);
+	if (u.pathname === "/subscribe/confirm") {
+		// Opening the link only asks: mail scanners open every link, and a sign-up is the person's.
+		if (request.method !== "POST") return confirmPage(u.searchParams.get("t") ?? "", now);
+		const form = await request.formData().catch(() => null);
+		return confirm(String(form?.get("t") ?? ""), now);
+	}
 	const m = /^\/subscribe\/(frm_[A-Za-z0-9]{1,40})(\.js)?$/.exec(u.pathname);
 	const id = m?.[1];
 	if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
@@ -389,11 +396,15 @@ export async function handleSubscribe(request: Request, now = Date.now()): Promi
 					"access-control-allow-origin": "*",
 				},
 			});
-		return new Response(hostedPage(input, design, { sitekey }), {
+		const nonce = crypto.randomUUID().replace(/-/g, "");
+		return new Response(hostedPage(input, design, { sitekey, nonce }), {
 			headers: {
 				"content-type": "text/html; charset=utf-8",
 				"cache-control": "no-store",
 				"x-frame-options": "DENY",
+				// Served from Mailroom's own origin with a tenant's design in it: only the page's own
+				// script (and Turnstile) may run.
+				"content-security-policy": `default-src 'none'; img-src * data:; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; script-src 'nonce-${nonce}' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`,
 			},
 		});
 	}
@@ -543,6 +554,22 @@ async function alreadySubscribed(f: SignupForm, email: string) {
 	return !f.topic_id;
 }
 
+/** GET /subscribe/confirm: a button that confirms (POST), so only the person subscribes. */
+async function confirmPage(token: string, now: number) {
+	const p = await readToken(token, now);
+	const f = p ? await liveForm(p.f) : null;
+	if (!p || !f)
+		return page(
+			"Link expired",
+			"<h1>This link has expired</h1><p>Sign up again and use the link in the new email.</p>",
+			400,
+		);
+	return page(
+		"Confirm your subscription",
+		`<h1>Confirm your subscription</h1><p>Get ${esc(f.title)} at ${esc(p.e)}.</p><form method="post" action="/subscribe/confirm"><input type="hidden" name="t" value="${esc(token)}"><button type="submit">Confirm</button></form>`,
+	);
+}
+
 async function confirm(token: string, now: number) {
 	const p = await readToken(token, now);
 	const bad = page(
@@ -553,13 +580,15 @@ async function confirm(token: string, now: number) {
 	if (!p) return bad;
 	const f = await liveForm(p.f);
 	if (!f) return bad;
-	const { upsertContact } = await import("./contacts");
+	const { getContact, upsertContact } = await import("./contacts");
+	// The names typed on the form are for a new contact; a known one keeps theirs.
+	const known = await getContact(f.organization_id, p.e).catch(() => null);
 	const { created, contact } = await upsertContact(
 		f.organization_id,
 		{
 			email: p.e,
-			...(p.n ? { first_name: p.n } : {}),
-			...(p.l ? { last_name: p.l } : {}),
+			...(p.n && !known ? { first_name: p.n } : {}),
+			...(p.l && !known ? { last_name: p.l } : {}),
 			unsubscribed: false,
 			...(f.segment_id ? { segments: [f.segment_id] } : {}),
 			...(f.topic_id ? { topics: [{ id: f.topic_id, subscription: "opt_in" }] } : {}),

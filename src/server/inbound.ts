@@ -1,5 +1,6 @@
-import { and, desc, eq, inArray, like, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, like, lt, ne, or, sql } from "drizzle-orm";
 import PostalMime, { type Address, type Email } from "postal-mime";
+import { maskedSearch } from "../lib/permissions";
 import { archiveBucket, archiveReceived, archivingBrands } from "./archive";
 import {
 	activateRuleSet,
@@ -37,7 +38,13 @@ import {
 } from "./env";
 import { ApiError, notFound, validation } from "./errors";
 import { answers, forward, rulesFor } from "./inbound-rules";
-import { assess, onInbound } from "./inbox-workflow";
+import {
+	assess,
+	HOLD_SCORE,
+	onInbound,
+	settingsOf,
+	inboxOf as workflowInbox,
+} from "./inbox-workflow";
 import { brandInboxes, inboxOf, purgeInboxActivity } from "./inboxes";
 
 /** A brand's own domain names (a sender's that looks like one of them is suspicious). */
@@ -461,6 +468,24 @@ export async function setDomainReceiving(
 		if (prefix && !RECEIVING_PREFIX_RE.test(prefix))
 			throw validation("The prefix is one word: letters, digits and dashes (reply, inbox…)");
 		const host = receivingHostFor(d.name, prefix);
+		// One receiving host, one brand: its receipt rule and the mail to it are shared otherwise.
+		const clash = await db
+			.select({ id: schema.domains.id })
+			.from(schema.domains)
+			.where(
+				and(
+					ne(schema.domains.id, id),
+					or(eq(schema.domains.name, host), eq(schema.domains.receiving_host, host)),
+				),
+			)
+			.get();
+		const inbound = inboundDomain();
+		if (clash || (inbound && (host === inbound || host.endsWith(`.${inbound}`))))
+			throw new ApiError(
+				409,
+				"receiving_host_taken",
+				"Another domain already receives at this address",
+			);
 		const hosts = await checkReceivingMx(host, d.region, o.replaceMx);
 		await createReceiptRule(w.aws, rule(w.ruleSet, w.bucket, w.topicArn, host));
 		// Moved to another host: the old one's rule goes.
@@ -496,8 +521,16 @@ export async function dropReceiving(
 	if (!d.receiving) return;
 	const place =
 		o.place !== undefined ? o.place : brandId ? await placeFor(brandId) : await where();
-	if (place)
-		await deleteReceiptRule(place.aws, place.ruleSet, ruleName(d.receiving_host ?? d.name));
+	if (!place) return;
+	const host = d.receiving_host ?? d.name;
+	// Rows from before hosts were kept unique may share one: the rule stays while another uses it.
+	const others = await db
+		.select({ id: schema.domains.id })
+		.from(schema.domains)
+		.where(and(eq(schema.domains.receiving, true), eq(schema.domains.receiving_host, host)))
+		.limit(2);
+	if (others.length > 1) return;
+	await deleteReceiptRule(place.aws, place.ruleSet, ruleName(host));
 }
 
 /** A receiving domain's rule in the account its brand now receives in (after a move). */
@@ -831,7 +864,11 @@ export async function receiveSes(
 			conversation_id: null as string | null,
 			references,
 			flags,
-			held: false,
+			// Decided before anything can see it: held mail never reaches agents, events or rules.
+			held:
+				!!o.inboxId &&
+				(flags?.score ?? 0) >= HOLD_SCORE &&
+				settingsOf(await workflowInbox(o.inboxId)).hold_suspicious,
 			created_at: at,
 		};
 		const inserted = await db
@@ -904,7 +941,8 @@ export async function receiveSes(
 				from: row.from,
 				to: row.to,
 				received_at: row.created_at,
-				snippet,
+				// Held mail is for people to look at first: no preview goes out with it.
+				snippet: row.held ? null : snippet,
 				attachments: attachments.length,
 				spam: row.spam === "FAIL",
 			};
@@ -952,6 +990,8 @@ const re = schema.receivedEmails;
 export interface ReceivedFilter {
 	/** An address (or part of one) in From or To, the subject's start, or an id. */
 	search?: string | null;
+	/** The caller sees digits dotted: the subject isn't searched for runs of 4+ digits. */
+	masked?: boolean;
 	/** Sent to this domain of the brand's (its name); "mailroom" for its Mailroom address. */
 	domain?: string | null;
 	/** Cursor: the last id of the previous page. */
@@ -970,7 +1010,10 @@ export async function listReceived(scope: Scope, f: ReceivedFilter = {}, max = 1
 				eq(re.id, search),
 				sql`lower(${re.from}) LIKE ${pattern} ESCAPE '\\'`,
 				sql`lower(${re.to}) LIKE ${pattern} ESCAPE '\\'`,
-				like(re.subject, `${search.replace(/[%_\\]/g, "\\$&")}%`),
+				like(
+					re.subject,
+					`${(f.masked ? maskedSearch(search) : search).replace(/[%_\\]/g, "\\$&")}%`,
+				),
 			) as never,
 		);
 	}

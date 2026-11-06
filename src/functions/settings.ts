@@ -720,14 +720,28 @@ export const restoreSuppressionFn = createServerFn({ method: "POST" })
 		}),
 	)
 	.handler(async ({ data: { brand, ...row }, context }) => {
+		const organization_id = await brandOr(context.organizationId, brand);
+		// The email it links to must be this brand's: the suppression page shows its events.
+		const email = row.email_id
+			? await db
+					.select({ id: schema.emails.id })
+					.from(schema.emails)
+					.where(
+						and(
+							eq(schema.emails.id, row.email_id),
+							eq(schema.emails.organization_id, organization_id),
+						),
+					)
+					.get()
+			: null;
 		await db
 			.insert(schema.suppressions)
 			.values({
 				...row,
-				organization_id: await brandOr(context.organizationId, brand),
+				organization_id,
 				address: row.address.trim().toLowerCase(),
 				detail: row.detail ?? null,
-				email_id: row.email_id ?? null,
+				email_id: email?.id ?? null,
 			})
 			.onConflictDoNothing();
 		return { ok: true };

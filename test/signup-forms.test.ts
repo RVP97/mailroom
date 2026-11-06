@@ -14,6 +14,13 @@ import {
 } from "@/server/signup-forms";
 import { fakeOutside, seedOrg, uid } from "./helpers";
 
+/** Confirming a sign-up: the link's page posts its token back. */
+const confirmPost = (token: string) =>
+	new Request("https://mailroom.test/subscribe/confirm", {
+		method: "POST",
+		body: new URLSearchParams({ t: token }),
+	});
+
 const vars = env as unknown as { CLOUDFLARE_ACCOUNT_ID?: string; CLOUDFLARE_API_TOKEN?: string };
 afterEach(() => {
 	vars.CLOUDFLARE_ACCOUNT_ID = undefined;
@@ -77,9 +84,24 @@ describe("sign-up forms", () => {
 		expect(before).toBeUndefined();
 
 		const token = await confirmToken({ f: form.id, e: email, n: "Ana" });
-		const ok = await handleSubscribe(
+		// Opening the link (a mail scanner does) only shows the button: nobody is subscribed yet.
+		const asked = await handleSubscribe(
 			new Request(`https://mailroom.test/subscribe/confirm?t=${token}`),
 		);
+		expect(await asked.text()).toContain('method="post"');
+		expect(
+			await db
+				.select()
+				.from(schema.contacts)
+				.where(
+					and(
+						eq(schema.contacts.organization_id, org.id),
+						eq(schema.contacts.email, email),
+					),
+				)
+				.get(),
+		).toBeUndefined();
+		const ok = await handleSubscribe(confirmPost(token));
 		expect(ok.status).toBe(200);
 		expect(await ok.text()).toContain("You're subscribed");
 		const c = await db
@@ -122,14 +144,9 @@ describe("sign-up forms", () => {
 
 		const token = await confirmToken({ f: form.id, e: "eve@cliente.test" });
 		const forged = `${token.split(".")[0]}x.${token.split(".")[1]}`;
-		const res = await handleSubscribe(
-			new Request(`https://mailroom.test/subscribe/confirm?t=${forged}`),
-		);
+		const res = await handleSubscribe(confirmPost(forged));
 		expect(res.status).toBe(400);
-		const expired = await handleSubscribe(
-			new Request(`https://mailroom.test/subscribe/confirm?t=${token}`),
-			Date.now() + 8 * 86_400_000,
-		);
+		const expired = await handleSubscribe(confirmPost(token), Date.now() + 8 * 86_400_000);
 		expect(expired.status).toBe(400);
 		expect(
 			(await handleSubscribe(new Request("https://mailroom.test/subscribe/frm_nope"))).status,

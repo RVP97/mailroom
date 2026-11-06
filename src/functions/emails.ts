@@ -154,7 +154,12 @@ export const listEmailsFn = createServerFn({ method: "GET" })
 				? summarizeEmails(scope, { ...data, status: null, apiKeyId: data.key })
 				: Promise.resolve(null);
 		const [page, keys, tags, template] = await Promise.all([
-			listEmails(scope, { ...data, apiKeyId: data.key, limit: 50 }).then((p) =>
+			listEmails(scope, {
+				...data,
+				apiKeyId: data.key,
+				limit: 50,
+				masked: context.masked,
+			}).then((p) =>
 				context.masked
 					? { ...p, data: p.data.map((e) => ({ ...e, subject: maskDigits(e.subject) })) }
 					: p,
@@ -194,7 +199,17 @@ export const exportEmailsFn = createServerFn({ method: "GET" })
 	.validator(z.object(filterInput))
 	.handler(async ({ data, context }) => {
 		const { scope, brands } = await viewScope(context.organizationId, data.brand);
-		const page = await listEmails(scope, { ...data, apiKeyId: data.key, limit: 5000 }, 5000);
+		const page = await listEmails(
+			scope,
+			{ ...data, apiKeyId: data.key, limit: 5000, masked: context.masked },
+			5000,
+		);
+		if (context.masked)
+			return {
+				...page,
+				data: page.data.map((e) => ({ ...e, subject: maskDigits(e.subject) })),
+				brands,
+			};
 		return { ...page, brands };
 	});
 

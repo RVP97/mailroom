@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import type { AwsConfig } from "./aws/ses";
 import { queryCall, tag } from "./aws/sns";
 import { db, schema } from "./db";
@@ -86,11 +86,27 @@ export async function smtpPolicy(organizationId: string) {
 	});
 }
 
-const userName = (slug: string) =>
-	`mailroom-smtp-${slug
-		.toLowerCase()
-		.replace(/[^a-z0-9_-]+/g, "-")
-		.replace(/^-+|-+$/g, "")}`.slice(0, 64);
+/**
+ * The brand's own IAM user, named from its id: a name from the slug (lowercased, cut to 64)
+ * could come out the same for two organizations, and the second would take over the first's.
+ */
+const userName = (organizationId: string) =>
+	`mailroom-smtp-${organizationId.replace(/[^a-zA-Z0-9_-]/g, "")}`.slice(0, 64);
+
+/** Another brand's credentials on the same IAM user (named from a slug, before ids were used). */
+async function sharedWith(organizationId: string, iamUser: string) {
+	const other = await db
+		.select({ id: schema.smtpCredentials.organization_id })
+		.from(schema.smtpCredentials)
+		.where(
+			and(
+				eq(schema.smtpCredentials.iam_user, iamUser),
+				ne(schema.smtpCredentials.organization_id, organizationId),
+			),
+		)
+		.get();
+	return !!other;
+}
 
 export async function smtpCredentials(organizationId: string) {
 	return (
@@ -115,13 +131,15 @@ export async function createSmtpCredentials(organizationId: string, userId?: str
 	const iam = iamFor(own?.aws ?? aws());
 	const smtpRegion = own?.region ?? region();
 	const org = await db
-		.select({ slug: schema.organization.slug })
+		.select({ id: schema.organization.id })
 		.from(schema.organization)
 		.where(eq(schema.organization.id, organizationId))
 		.get();
 	if (!org) throw new ApiError(404, "not_found", "Organization not found");
 	const old = await smtpCredentials(organizationId);
-	const user = old?.iam_user ?? userName(org.slug);
+	// An old user another brand also has moves to this brand's own (its old key goes below).
+	const oldShared = !!old && (await sharedWith(organizationId, old.iam_user));
+	const user = old && !oldShared ? old.iam_user : userName(organizationId);
 	try {
 		try {
 			await iam({
@@ -147,7 +165,7 @@ export async function createSmtpCredentials(organizationId: string, userId?: str
 		if (old && old.access_key_id !== id)
 			await iam({
 				Action: "DeleteAccessKey",
-				UserName: user,
+				UserName: old.iam_user,
 				AccessKeyId: old.access_key_id,
 			}).catch((error) => {
 				if (!missing(error)) throw error;
@@ -187,6 +205,18 @@ export async function deleteSmtpCredentials(organizationId: string) {
 		if (!missing(error)) throw error;
 	};
 	try {
+		// A user another brand also has (named from a slug): only this brand's key goes.
+		if (await sharedWith(organizationId, row.iam_user)) {
+			await iam({
+				Action: "DeleteAccessKey",
+				UserName: row.iam_user,
+				AccessKeyId: row.access_key_id,
+			}).catch(ignoreMissing);
+			await db
+				.delete(schema.smtpCredentials)
+				.where(eq(schema.smtpCredentials.organization_id, organizationId));
+			return;
+		}
 		const keys = await iam({ Action: "ListAccessKeys", UserName: row.iam_user }).catch(
 			(error) => {
 				ignoreMissing(error);
@@ -221,6 +251,8 @@ export async function deleteSmtpCredentials(organizationId: string) {
 export async function syncSmtpPolicy(organizationId: string) {
 	const row = await smtpCredentials(organizationId);
 	if (!row) return;
+	// Never this brand's domains on a user another brand also has: new credentials move it off.
+	if (await sharedWith(organizationId, row.iam_user)) return;
 	try {
 		await iamFor(await awsFor(organizationId))({
 			Action: "PutUserPolicy",

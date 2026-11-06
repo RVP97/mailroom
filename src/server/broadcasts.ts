@@ -425,8 +425,12 @@ export async function sendBroadcast(
 		import("./reviews"),
 		import("./brands"),
 	]);
-	await assertApproved(await orgOf(x.organization_id), x);
 	const o = sendOptions.parse(options);
+	// Checked as it will go: subject lines given only now for an A/B test were never approved.
+	await assertApproved(await orgOf(x.organization_id), {
+		...x,
+		ab_test: o.ab_test ? { ...o.ab_test, winner: null } : x.ab_test,
+	});
 	if (o.ab_test && o.local_time)
 		throw validation("An A/B test can't also go at each contact's local time");
 	if (o.ab_test && x.resend_of) throw validation("A resend can't be an A/B test");

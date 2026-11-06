@@ -20,10 +20,13 @@ export const listArchiveFn = createServerFn({ method: "GET" })
 		const lists = await Promise.all(
 			ids.slice(0, 20).map((id) => listArchive(id, { limit: 60 })),
 		);
-		const files = lists
-			.flatMap((l) => l.data)
-			.sort((a, b) => b.day.localeCompare(a.day) || a.key.localeCompare(b.key))
-			.slice(0, 100);
+		// The files are the emails as sent and received, digits and all: only for members who see them.
+		const files = context.masked
+			? []
+			: lists
+					.flatMap((l) => l.data)
+					.sort((a, b) => b.day.localeCompare(a.day) || a.key.localeCompare(b.key))
+					.slice(0, 100);
 		return {
 			/** An R2 bucket is bound (and ARCHIVE_EMAILS isn't false). */
 			available: !!archiveBucket(),

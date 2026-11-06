@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
+import { maskDigits } from "@/lib/roles";
 import { brandIn, viewScope } from "@/server/brands";
 import {
 	claimConversation,
@@ -204,7 +205,17 @@ export const getConversationFn = createServerFn({ method: "GET" })
 				composeDefaults(actor, id),
 				assignees(context.organizationId, inbox ?? null),
 				listSavedReplies(actor, { inbox: conversation.inbox_id }),
-				contactOf(conversation.brand_id, conversation.contact, id),
+				contactOf(conversation.brand_id, conversation.contact, id).then((c) =>
+					c && actor.masked
+						? {
+								...c,
+								others: c.others.map((o) => ({
+									...o,
+									subject: maskDigits(o.subject),
+								})),
+							}
+						: c,
+				),
 			]);
 			const settings = settingsOf(inbox);
 			return {

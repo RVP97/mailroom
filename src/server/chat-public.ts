@@ -300,11 +300,15 @@ export async function handleTeamLive(request: Request): Promise<Response> {
 		return new Response("Not found", { status: 404 });
 	const room = chatRoom(id);
 	if (!room) return new Response("Live updates aren't available", { status: 503 });
+	// A member without emails:unmasked sees the visitor's digits dotted here too.
+	const { memberAccess } = await import("./access");
+	const access = await memberAccess(org.organizationId, session.user.id);
 	return room.fetch(
 		new Request(request.url, {
 			headers: {
 				upgrade: "websocket",
 				"x-chat-role": "team",
+				"x-chat-masked": access.can("emails:unmasked") ? "0" : "1",
 				// The visitor sees "Ana is typing"; never an email address.
 				"x-chat-name": /@/.test(session.user.name ?? "")
 					? ""

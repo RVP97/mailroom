@@ -4,7 +4,7 @@ import { checkContent } from "../../lib/content-check";
 import { EMAIL_FILTERS } from "../../lib/email-status";
 import type { LogoChoice } from "../../lib/email-templates";
 import type { Access, Permission } from "../../lib/permissions";
-import { maskDigits } from "../../lib/roles";
+import { maskDigits, maskHeaders } from "../../lib/roles";
 import { accessColumns, accessFromRow, roleJoin } from "../access";
 import { logAccess } from "../access-log";
 import { deleteKey } from "../api-keys";
@@ -547,6 +547,7 @@ export const TOOLS: Tool[] = [
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization);
 			const page = await listEmails(await scopeOf(org.id, a.brand), {
+				masked: org.masked,
 				status: a.status as never,
 				day: a.day as string | undefined,
 				domain: a.domain as string | undefined,
@@ -628,6 +629,7 @@ export const TOOLS: Tool[] = [
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization);
 			const page = await listReceived(await scopeOf(org.id, a.brand), {
+				masked: org.masked,
 				domain: a.domain as string | undefined,
 				search: a.search as string | undefined,
 				after: a.after as string | undefined,
@@ -660,6 +662,7 @@ export const TOOLS: Tool[] = [
 			if (!org.masked) return v;
 			return {
 				...v,
+				headers: maskHeaders(v.headers),
 				subject: maskDigits(v.subject),
 				text: v.text ? maskDigits(v.text) : v.text,
 				html: v.html

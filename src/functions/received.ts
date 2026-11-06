@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { maskDigits } from "@/lib/roles";
+import { maskDigits, maskHeaders } from "@/lib/roles";
 import { brandIn, viewScope } from "@/server/brands";
 import { sendReply } from "@/server/conversations";
 import { db, schema } from "@/server/db";
@@ -51,7 +51,12 @@ export const listReceivedFn = createServerFn({ method: "GET" })
 		const { scope, brands } = await viewScope(context.organizationId, data.brand);
 		const own = typeof scope === "string" ? scope : context.organizationId;
 		const [page, addresses] = await Promise.all([
-			listReceived(scope, { search: data.search, after: data.after, limit: 50 }),
+			listReceived(scope, {
+				search: data.search,
+				masked: context.masked,
+				after: data.after,
+				limit: 50,
+			}),
 			inboundAddresses(own),
 		]);
 		const address = addresses.own ?? addresses.fallback;
@@ -110,6 +115,7 @@ export const getReceivedFn = createServerFn({ method: "GET" })
 		return {
 			email: {
 				...view,
+				headers: dots ? maskHeaders(view.headers) : view.headers,
 				subject: dots ? maskDigits(view.subject) : view.subject,
 				html: dots && view.html ? textOnly(view.html) : view.html,
 				text: dots && view.text ? maskDigits(view.text) : view.text,

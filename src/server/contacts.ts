@@ -579,6 +579,16 @@ export async function deleteSegment(brand: string, id: string) {
 	return s;
 }
 
+/** Refuses a contact id that isn't this brand's: a segment only ever holds its own brand's contacts. */
+async function ownContact(brand: string, contactId: string) {
+	const row = await db
+		.select({ id: ct.id })
+		.from(ct)
+		.where(and(eq(ct.id, contactId), eq(ct.organization_id, brand)))
+		.get();
+	if (!row) throw notFound("Contact");
+}
+
 export async function addToSegment(
 	brand: string,
 	contactId: string,
@@ -586,6 +596,7 @@ export async function addToSegment(
 	now = Date.now(),
 ) {
 	await segmentOf(brand, segmentId);
+	await ownContact(brand, contactId);
 	const [row] = await db
 		.insert(cs)
 		.values({ contact_id: contactId, segment_id: segmentId, created_at: iso(now) })
@@ -600,6 +611,7 @@ export async function addToSegment(
 
 export async function removeFromSegment(brand: string, contactId: string, segmentId: string) {
 	await segmentOf(brand, segmentId);
+	await ownContact(brand, contactId);
 	const r = await db
 		.delete(cs)
 		.where(and(eq(cs.contact_id, contactId), eq(cs.segment_id, segmentId)))

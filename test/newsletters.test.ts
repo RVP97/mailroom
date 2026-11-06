@@ -28,6 +28,13 @@ import {
 import { confirmToken, createForm, handleSubscribe } from "@/server/signup-forms";
 import { fakeOutside, seedOrg, uid } from "./helpers";
 
+/** Confirming a sign-up: the link's page posts its token back. */
+const confirmPost = (token: string) =>
+	new Request("https://mailroom.test/subscribe/confirm", {
+		method: "POST",
+		body: new URLSearchParams({ t: token }),
+	});
+
 const dispatcher = () => env.DISPATCHER.get(env.DISPATCHER.idFromName("dispatcher"));
 
 async function drain() {
@@ -372,7 +379,7 @@ describe("referrals", () => {
 
 		const friend = `friend-${uid()}@reader.test`;
 		const token = await confirmToken({ f: form.id, e: friend, r: code });
-		await handleSubscribe(new Request(`https://mailroom.test/subscribe/confirm?t=${token}`));
+		await handleSubscribe(confirmPost(token));
 		const referrer = await db
 			.select()
 			.from(schema.contacts)
@@ -387,9 +394,9 @@ describe("referrals", () => {
 		expect(added).toMatchObject({ referred_by: ana.id, source: "referral" });
 
 		// Confirming again (already a contact) doesn't count twice; nor does a code for oneself.
-		await handleSubscribe(new Request(`https://mailroom.test/subscribe/confirm?t=${token}`));
+		await handleSubscribe(confirmPost(token));
 		const self = await confirmToken({ f: form.id, e: ana.email, r: code });
-		await handleSubscribe(new Request(`https://mailroom.test/subscribe/confirm?t=${self}`));
+		await handleSubscribe(confirmPost(self));
 		const after = await db
 			.select()
 			.from(schema.contacts)

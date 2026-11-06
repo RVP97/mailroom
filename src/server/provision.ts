@@ -21,7 +21,7 @@ import {
 import { callerAccount, createTopic, subscribeHttps } from "./aws/sns";
 import { db, schema } from "./db";
 import { withReportsAddress } from "./dmarc-address";
-import { aws, awsConfigured, baseUrl, region } from "./env";
+import { aws, awsConfigured, baseUrl, inboundDomain, region } from "./env";
 import { ApiError, validation } from "./errors";
 import { forgetOrg } from "./org";
 import { awsFor, moveFor, ownAccount } from "./org-aws";
@@ -675,10 +675,14 @@ export async function addDomain(
 		await setUpOrganization(organizationId);
 		sending = (await sendingOf(organizationId)) ?? sending;
 	}
+	const inbound = inboundDomain();
+	if (inbound && (name === inbound || name.endsWith(`.${inbound}`)))
+		throw new ApiError(409, "domain_exists", "This domain is Mailroom's own receiving domain");
+	// Another brand's receiving host counts too: mail to it, and its receipt rule, are that brand's.
 	const taken = await db
 		.select({ organization_id: schema.domains.organization_id })
 		.from(schema.domains)
-		.where(eq(schema.domains.name, name))
+		.where(or(eq(schema.domains.name, name), eq(schema.domains.receiving_host, name)))
 		.get();
 	if (taken)
 		throw new ApiError(

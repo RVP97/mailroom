@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+import { maskDigits } from "@/lib/roles";
 import { db, schema } from "@/server/db";
 import { requestLogRetentionDays } from "@/server/env";
 import { orgMiddleware } from "@/server/middleware";
@@ -76,5 +77,16 @@ export const getLogFn = createServerFn({ method: "GET" })
 						.get()
 				: undefined,
 		]);
+		// The bodies hold what was sent (codes, card numbers): dotted like the email itself.
+		if (context.masked)
+			return {
+				...log,
+				request_body:
+					log.request_body == null ? log.request_body : maskDigits(log.request_body),
+				response_body:
+					log.response_body == null ? log.response_body : maskDigits(log.response_body),
+				key: key ?? null,
+				email: email ? { ...email, subject: maskDigits(email.subject) } : null,
+			};
 		return { ...log, key: key ?? null, email: email ?? null };
 	});

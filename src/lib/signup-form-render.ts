@@ -196,6 +196,28 @@ const num = (v: unknown, fallback: number, min: number, max: number) =>
 		: fallback;
 
 /** A stored or posted design, with anything missing or wrong set to the default. */
+/**
+ * An https image address, re-serialized by the URL parser so it can't carry `<`, `>`, quotes or
+ * spaces: the value goes into CSS inside a <style> element on pages served from Mailroom's own
+ * origin, where a "</style>" would end the element and let a form's design inject markup.
+ */
+function httpsImage(v: string) {
+	if (!/^https:\/\/\S+$/.test(v)) return "";
+	try {
+		const u = new URL(v);
+		return u.protocol === "https:" ? u.href : "";
+	} catch {
+		return "";
+	}
+}
+
+/** A URL made safe for `url("…")` inside a <style> element (also covers designs stored before httpsImage). */
+const cssUrl = (v: string) =>
+	v.replace(
+		/["'\\()<>\s]/g,
+		(c) => `%${c.charCodeAt(0).toString(16).padStart(2, "0").toUpperCase()}`,
+	);
+
 export function parseDesign(raw: unknown): FormDesign {
 	const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
 	const d = DEFAULT_DESIGN;
@@ -221,7 +243,7 @@ export function parseDesign(raw: unknown): FormDesign {
 		proof: str(r.proof, d.proof, 80),
 		success_title: str(r.success_title, d.success_title, 80),
 		success: str(r.success, d.success, 300) || d.success,
-		image_url: /^https:\/\/\S+$/.test(image) ? image : "",
+		image_url: httpsImage(image),
 		accent: color(r.accent, d.accent),
 		background: color(r.background, d.background),
 		text: color(r.text, d.text),
@@ -418,7 +440,7 @@ function styles(root: string, d: FormDesign, display: Display, preview = false) 
 		`${s} .mr-close:hover{background:${alpha(d.text, 0.12)};color:${d.text}}`,
 		// The split template's picture panel.
 		`${s} .mr-split{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr)}`,
-		`${s} .mr-media{position:relative;min-height:320px;background:${d.image_url ? `${d.background} url("${d.image_url.replace(/["\\()]/g, "")}") center/cover no-repeat` : `radial-gradient(120% 90% at 100% 0%,${alpha("#ffffff", 0.22)},transparent 55%),linear-gradient(150deg,${d.accent},${alpha(d.accent, 0.7)})`};display:flex;align-items:flex-end;padding:24px}`,
+		`${s} .mr-media{position:relative;min-height:320px;background:${d.image_url ? `${d.background} url("${cssUrl(d.image_url)}") center/cover no-repeat` : `radial-gradient(120% 90% at 100% 0%,${alpha("#ffffff", 0.22)},transparent 55%),linear-gradient(150deg,${d.accent},${alpha(d.accent, 0.7)})`};display:flex;align-items:flex-end;padding:24px}`,
 		`${s} .mr-media .mr-logo{margin:0;${d.image_url || d.logo_shape !== "original" ? "" : `filter:brightness(0) invert(${onColor(d.accent) === "#ffffff" ? 1 : 0});`}${d.logo_shape === "original" ? "" : `box-shadow:0 0 0 2px ${alpha("#ffffff", 0.5)};`}opacity:.95}`,
 		`${s} .mr-split .mr-body{justify-content:center}`,
 		// The banner template: the pitch beside the form.
@@ -653,11 +675,15 @@ export function embedScript(f: RenderInput, d: FormDesign, o: { sitekey?: string
 export const scriptTag = (src: string) => `<script src="${esc(src)}" async></script>`;
 
 /** The hosted page: the form centered, inline, on a page that suits its colors. */
-export function hostedPage(f: RenderInput, d: FormDesign, o: { sitekey?: string | null } = {}) {
+export function hostedPage(
+	f: RenderInput,
+	d: FormDesign,
+	o: { sitekey?: string | null; nonce?: string } = {},
+) {
 	const page = isDark(d.background) ? "#09090b" : "#f4f4f5";
 	const inline = { ...d, display: "inline" as const };
 	const markup = renderMarkup(f, inline, { sitekey: o.sitekey });
-	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(f.title)}</title><style>html,body{margin:0}body{min-height:100vh;min-height:100dvh;box-sizing:border-box;padding:clamp(24px,10vh,112px) 16px 48px;background:${page};display:flex;flex-direction:column;align-items:center}body>.mr-signup{max-width:${maxWidth(d)}px}</style></head><body>${markup}<script>${behaviorOf(f, inline)}</script>${o.sitekey ? turnstileTag : ""}</body></html>`;
+	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(f.title)}</title><style>html,body{margin:0}body{min-height:100vh;min-height:100dvh;box-sizing:border-box;padding:clamp(24px,10vh,112px) 16px 48px;background:${page};display:flex;flex-direction:column;align-items:center}body>.mr-signup{max-width:${maxWidth(d)}px}</style></head><body>${markup}<script${o.nonce ? ` nonce="${o.nonce}"` : ""}>${behaviorOf(f, inline)}</script>${o.sitekey ? turnstileTag : ""}</body></html>`;
 }
 
 /**
