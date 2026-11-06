@@ -621,6 +621,15 @@ export const chatWidgets = sqliteTable(
 		email_visitor: integer("email_visitor", { mode: "boolean" }).notNull().default(true),
 		/** ...this many minutes after them. */
 		email_visitor_after: integer("email_visitor_after").notNull().default(3),
+		/** Visitors may send files (src/lib/chat-files.ts)... */
+		files_enabled: integer("files_enabled", { mode: "boolean" }).notNull().default(true),
+		/** ...of these kinds (images, pdf, documents, archives)... */
+		file_kinds: text("file_kinds", { mode: "json" })
+			.$type<string[]>()
+			.notNull()
+			.default(sql`'["images","pdf","documents"]'`),
+		/** ...each up to this many MB (at most 10). */
+		file_max_mb: integer("file_max_mb").notNull().default(10),
 		/** Identity verification (src/server/chat-identity.ts): the secret the website signs who
 		 * its signed-in visitor is with (mrcs_…; null: not set up). */
 		identity_secret: text("identity_secret"),

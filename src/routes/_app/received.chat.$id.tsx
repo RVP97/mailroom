@@ -29,6 +29,7 @@ import { Page } from "@/components/page";
 import { RecordHeader } from "@/components/record";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -48,6 +49,7 @@ import {
 	saveChatSettingsFn,
 	setChatIdentitySecretFn,
 } from "@/functions/chat";
+import { acceptFor, DEFAULT_FILE_KINDS, type FileKind } from "@/lib/chat-files";
 import { errorMessage } from "@/lib/errors";
 import { useMe } from "@/lib/me";
 import { allows } from "@/lib/permissions";
@@ -81,6 +83,9 @@ type Fields = {
 	email_team_after: string;
 	email_visitor: boolean;
 	email_visitor_after: string;
+	files_enabled: boolean;
+	file_kinds: FileKind[];
+	file_max_mb: string;
 	retention: string;
 	identity_required: boolean;
 	design: Design;
@@ -96,10 +101,20 @@ const fieldsOf = (d: Data): Fields => ({
 	email_team_after: String(d.widget?.email_team_after ?? 1),
 	email_visitor: d.widget?.email_visitor ?? true,
 	email_visitor_after: String(d.widget?.email_visitor_after ?? 3),
+	files_enabled: d.widget?.files_enabled ?? true,
+	file_kinds: d.widget?.file_kinds ?? DEFAULT_FILE_KINDS,
+	file_max_mb: String(d.widget?.file_max_mb ?? 10),
 	retention: d.retention_days == null ? "default" : String(d.retention_days),
 	identity_required: d.widget?.identity.required ?? false,
 	design: d.widget?.design ?? d.defaults,
 });
+
+const FILE_KIND_OPTIONS: [FileKind, string, string][] = [
+	["images", "Images", "PNG, JPG, GIF, WebP, HEIC"],
+	["pdf", "PDFs", "Shown in the browser"],
+	["documents", "Documents", "Word, Excel, CSV, text, XML"],
+	["archives", "Archives", ".zip"],
+];
 
 /** A wait in whole minutes, 1 to 1440 (a day); anything else is the default. */
 const minutes = (s: string, fallback: number) => {
@@ -295,6 +310,14 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 				offset_x: v.design.offset_x,
 				offset_y: v.design.offset_y,
 				retention: v.design.show_retention && retentionDays > 0 ? retentionDays : null,
+				files:
+					v.files_enabled && v.file_kinds.length
+						? {
+								accept: acceptFor(v.file_kinds),
+								max_mb: Number(v.file_max_mb) || 10,
+								kinds: v.file_kinds,
+							}
+						: null,
 			},
 		[data, v, retentionDays],
 	);
@@ -316,6 +339,9 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 						email_team_after: minutes(v.email_team_after, 1),
 						email_visitor: v.email_visitor,
 						email_visitor_after: minutes(v.email_visitor_after, 3),
+						files_enabled: v.files_enabled,
+						file_kinds: v.file_kinds,
+						file_max_mb: Number(v.file_max_mb) || 10,
 						retention_days: v.retention === "default" ? null : Number(v.retention),
 						identity_required: v.identity_required,
 						design: v.design,
@@ -1482,6 +1508,86 @@ function SettingsPanel({
 					checked={!!v.design.show_retention}
 					onChange={(show_retention) => look({ show_retention })}
 				/>
+			</Group>
+			<Group title="Files">
+				<SwitchRow
+					label="Visitors can send files"
+					hint="Each file is checked to be what its name says. Programs, documents with macros and disguised files are refused. Big photos are made smaller before they're sent."
+					checked={v.files_enabled}
+					onChange={(x) => set("files_enabled", x)}
+				/>
+				{v.files_enabled && (
+					<>
+						<Field>
+							<FieldLabel>What they can send</FieldLabel>
+							<div className="grid grid-cols-2 gap-2">
+								{FILE_KIND_OPTIONS.map(([k, label, hint]) => {
+									const on = v.file_kinds.includes(k);
+									return (
+										// biome-ignore lint/a11y/noLabelWithoutControl: the checkbox inside is a button, which a label names
+										<label
+											key={k}
+											className={cn(
+												"flex cursor-pointer items-start gap-2.5 rounded-lg border border-border/70 px-3 py-2.5 text-sm transition-colors hover:bg-muted/50",
+												on && "border-foreground/25 bg-muted/40",
+											)}
+										>
+											<Checkbox
+												checked={on}
+												onCheckedChange={(c) =>
+													set(
+														"file_kinds",
+														c
+															? [...v.file_kinds, k]
+															: v.file_kinds.filter((x) => x !== k),
+													)
+												}
+												className="mt-0.5"
+											/>
+											<span className="min-w-0">
+												<span className="block font-medium">{label}</span>
+												<span className="block text-xs text-muted-foreground">
+													{hint}
+												</span>
+											</span>
+										</label>
+									);
+								})}
+							</div>
+							{!v.file_kinds.length && (
+								<FieldDescription>
+									Nothing picked: visitors can't send files.
+								</FieldDescription>
+							)}
+							{v.file_kinds.includes("archives") && (
+								<FieldDescription>
+									A .zip can hold anything: ones with programs or other archives
+									inside are refused, but open the rest with care.
+								</FieldDescription>
+							)}
+						</Field>
+						<Labeled label="Up to">
+							<Select
+								value={v.file_max_mb}
+								onValueChange={(x) => set("file_max_mb", x)}
+							>
+								<SelectTrigger className="w-full">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{["1", "2", "5", "10"].map((mb) => (
+										<SelectItem
+											key={mb}
+											value={mb}
+										>
+											{mb} MB a file
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</Labeled>
+					</>
+				)}
 			</Group>
 			<Group title="Limits">
 				<Field>

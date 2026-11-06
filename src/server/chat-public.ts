@@ -1,10 +1,12 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { acceptFor } from "@/lib/chat-files";
 import {
 	CHAT_LIMITS,
 	chatLines,
 	chatState,
 	designOf,
+	fileKindsOf,
 	identifyVisitor,
 	identityOf,
 	linesFor,
@@ -417,7 +419,14 @@ export async function publicConfig(w: NonNullable<Awaited<ReturnType<typeof widg
 		retention: d.show_retention && days > 0 ? days : null,
 		turnstile: turnstile?.sitekey ?? null,
 		address: w.inbox.address.includes("+") ? null : w.inbox.address,
-		files: true,
+		// What the visitor may send (checked again here: this only shapes the widget).
+		files: w.widget.files_enabled
+			? {
+					accept: acceptFor(fileKindsOf(w.widget)),
+					max_mb: w.widget.file_max_mb,
+					kinds: fileKindsOf(w.widget),
+				}
+			: null,
 	};
 }
 

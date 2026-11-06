@@ -57,7 +57,8 @@ function mailroomChat(c) {
 			"La verificación tardó demasiado; intente de nuevo",
 		"We couldn't check you're not a robot; try again":
 			"No pudimos verificar que no es un robot; intente de nuevo",
-		"Files up to 10 MB, please.": "Archivos de hasta 10 MB, por favor.",
+		"Files up to {x} MB, please.": "Archivos de hasta {x} MB, por favor.",
+		"This chat doesn't take files.": "Este chat no recibe archivos.",
 		"Reconnecting…": "Reconectando…",
 		"You're offline": "Está sin conexión",
 	};
@@ -71,7 +72,10 @@ function mailroomChat(c) {
 		turnstile_failed: "No pudimos verificar que no es un robot; intente de nuevo",
 		origin_not_allowed: "Este sitio no puede usar este chat.",
 		chat_off: "El chat está apagado.",
-		too_large: "Archivos de hasta 10 MB, por favor.",
+		too_large: "Ese archivo es muy grande.",
+		files_off: "Este chat no recibe archivos.",
+		file_kind: "Este chat no recibe ese tipo de archivo.",
+		file_refused: "Ese archivo no se puede enviar.",
 	};
 	function T(s) {
 		return (LANG === "es" && ES[s]) || s;
@@ -714,7 +718,7 @@ function mailroomChat(c) {
 	});
 	var fileInput = h("input", {
 		type: "file",
-		accept: "image/*,application/pdf,.xml,.doc,.docx,.xls,.xlsx,.csv,.txt,.zip",
+		accept: (cfg.files && cfg.files.accept) || "",
 		style: "display:none",
 	});
 	var sendBtn = h("button", {
@@ -724,17 +728,16 @@ function mailroomChat(c) {
 		html: svg(ICON.send, 18),
 		disabled: true,
 	});
-	var attachBtn = cfg.files
-		? h("button", {
-				class: "tool",
-				type: "button",
-				"aria-label": T("Attach a file"),
-				html: svg(ICON.clip),
-				onclick: () => {
-					fileInput.click();
-				},
-			})
-		: null;
+	// Shown when the chat takes files (setComposer); the settings page can turn them on and off.
+	var attachBtn = h("button", {
+		class: "tool",
+		type: "button",
+		"aria-label": T("Attach a file"),
+		html: svg(ICON.clip),
+		onclick: () => {
+			fileInput.click();
+		},
+	});
 	var form = h("form", { class: "box" }, [input, attachBtn, sendBtn]);
 	var note = h("div", { class: "note" });
 	var foot = h("div", { class: "foot" }, [form, note, fileInput]);
@@ -1110,7 +1113,9 @@ function mailroomChat(c) {
 	function setComposer() {
 		var blocked = needEmail();
 		input.disabled = blocked;
-		if (attachBtn) attachBtn.disabled = blocked;
+		fileInput.accept = (cfg.files && cfg.files.accept) || "";
+		attachBtn.disabled = blocked;
+		attachBtn.style.display = cfg.files ? "" : "none";
 		sendBtn.disabled = blocked || !input.value.trim() || state.sending;
 	}
 
@@ -1522,7 +1527,7 @@ function mailroomChat(c) {
 				connect();
 				afterFirst();
 				// Files picked before there was a chat go now.
-				waiting.splice(0).forEach(sendFile);
+				waiting.splice(0).forEach(upload);
 			} else {
 				add(r.message);
 				save({ last: Date.now() });
@@ -1544,6 +1549,12 @@ function mailroomChat(c) {
 		});
 	}
 	function retry(m) {
+		// A file that didn't go: sent again from the start (it's a new line).
+		if (m.retryFile) {
+			state.messages = state.messages.filter((x) => x !== m);
+			render();
+			return upload(m.retryFile);
+		}
 		deliver(m);
 	}
 
@@ -1568,19 +1579,67 @@ function mailroomChat(c) {
 	/** Files picked before the chat started: sent once it has (it starts with their names). */
 	var waiting = [];
 
+	function sayLocally(text) {
+		add({
+			id: "local-" + uuid(),
+			local: true,
+			author: "system",
+			text: text,
+			files: [],
+			at: new Date().toISOString(),
+		});
+	}
+
+	/**
+	 * A big photo, made smaller before it's sent: at most 2400px a side, re-encoded (JPEG stays
+	 * JPEG; PNG and WebP become WebP where the browser can write it). Kept only when smaller.
+	 * GIFs (maybe animated) and anything else go as they are.
+	 */
+	function shrink(file) {
+		var type = file.type;
+		var can =
+			(type === "image/jpeg" || type === "image/png" || type === "image/webp") &&
+			window.createImageBitmap &&
+			file.size > 300 * 1024;
+		if (!can) return Promise.resolve(file);
+		return createImageBitmap(file)
+			.then((bmp) => {
+				var max = 2400;
+				var scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+				var c = document.createElement("canvas");
+				c.width = Math.round(bmp.width * scale);
+				c.height = Math.round(bmp.height * scale);
+				c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+				if (bmp.close) bmp.close();
+				var out = type === "image/jpeg" ? "image/jpeg" : "image/webp";
+				return new Promise((resolve) => {
+					c.toBlob((b) => resolve(b), out, 0.85);
+				});
+			})
+			.then((b) => {
+				if (
+					!b ||
+					b.size >= file.size ||
+					(b.type !== "image/jpeg" && b.type !== "image/webp")
+				)
+					return file;
+				var ext = b.type === "image/jpeg" ? ".jpg" : ".webp";
+				var name = file.name.replace(/\.[^.]*$/, "") + ext;
+				return new File([b], name, { type: b.type });
+			})
+			.catch(() => file);
+	}
+
 	function sendFile(file) {
 		if (!file || cfg.preview || needEmail()) return;
-		if (file.size > 10 * 1024 * 1024) {
-			add({
-				id: "local-" + uuid(),
-				local: true,
-				author: "system",
-				text: T("Files up to 10 MB, please."),
-				files: [],
-				at: new Date().toISOString(),
-			});
-			return;
-		}
+		if (!cfg.files) return sayLocally(T("This chat doesn't take files."));
+		shrink(file).then(upload);
+	}
+
+	function upload(file) {
+		var maxMb = (cfg.files && cfg.files.max_mb) || 10;
+		if (file.size > maxMb * 1024 * 1024)
+			return sayLocally(T("Files up to {x} MB, please.").replace("{x}", maxMb));
 		if (!stored.token) {
 			waiting.push(file);
 			if (!state.sending) send(file.name);
@@ -1653,11 +1712,7 @@ function mailroomChat(c) {
 	});
 	var dragDepth = 0;
 	panel.addEventListener("dragenter", (e) => {
-		if (
-			!e.dataTransfer ||
-			[].indexOf.call(e.dataTransfer.types, "Files") < 0
-		)
-			return;
+		if (!e.dataTransfer || [].indexOf.call(e.dataTransfer.types, "Files") < 0) return;
 		dragDepth++;
 		drop.classList.add("on");
 	});

@@ -1,5 +1,13 @@
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, sql } from "drizzle-orm";
 import { z } from "zod";
+import {
+	DEFAULT_FILE_KINDS,
+	FILE_KIND_NAMES,
+	type FileKind,
+	kindsText,
+	refuseContent,
+	typesFor,
+} from "@/lib/chat-files";
 import { bareAddress } from "./aws/mime";
 import { sha256Hex } from "./aws/sigv4";
 import { orgOf } from "./brands";
@@ -75,6 +83,12 @@ export const FILE_TYPES: Record<string, string> = {
 	"application/vnd.ms-excel": "xls",
 	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
 };
+
+/** The kinds of files a chat takes (unknown names dropped). */
+export const fileKindsOf = (w: Pick<ChatWidget, "file_kinds">): FileKind[] =>
+	(w.file_kinds ?? DEFAULT_FILE_KINDS).filter((k): k is FileKind =>
+		FILE_KIND_NAMES.includes(k as FileKind),
+	);
 
 /** Shown in the page (an <img>): the rest are downloads. */
 export const INLINE_IMAGES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
@@ -248,6 +262,10 @@ export const settingsInput = z.object({
 	/** Email a visitor who left their email the team's lines they didn't see, after this many minutes. */
 	email_visitor: z.boolean().optional(),
 	email_visitor_after: z.number().int().min(0).max(1440).optional(),
+	/** Visitors may send files: on or off, which kinds, and how big (MB, 10 at most). */
+	files_enabled: z.boolean().optional(),
+	file_kinds: z.array(z.enum(FILE_KIND_NAMES as [FileKind, ...FileKind[]])).optional(),
+	file_max_mb: z.number().int().min(1).max(10).optional(),
 	/** The inbox's retention: days, 0 always, null the deployment's. */
 	retention_days: z.number().int().min(0).max(3650).nullish(),
 	/** Only visitors the website signed in may chat (needs the identity secret). */
@@ -317,6 +335,11 @@ export async function saveChatWidget(
 		email_team_after: v.email_team_after ?? existing?.email_team_after ?? 1,
 		email_visitor: v.email_visitor ?? existing?.email_visitor ?? true,
 		email_visitor_after: v.email_visitor_after ?? existing?.email_visitor_after ?? 3,
+		files_enabled: v.files_enabled ?? existing?.files_enabled ?? true,
+		file_kinds: v.file_kinds
+			? [...new Set(v.file_kinds)]
+			: (existing?.file_kinds ?? DEFAULT_FILE_KINDS),
+		file_max_mb: v.file_max_mb ?? existing?.file_max_mb ?? 10,
 		identity_secret: existing?.identity_secret ?? null,
 		identity_required: v.identity_required ?? existing?.identity_required ?? false,
 		created_by: existing?.created_by ?? by.userId ?? null,
@@ -408,6 +431,10 @@ export const chatWidgetView = (w: ChatWidget) => ({
 	email_team_after: w.email_team_after,
 	email_visitor: w.email_visitor,
 	email_visitor_after: w.email_visitor_after,
+	/** What visitors may send: files on or off, which kinds, each up to file_max_mb. */
+	files_enabled: w.files_enabled,
+	file_kinds: fileKindsOf(w),
+	file_max_mb: w.file_max_mb,
 	/** Identity verification: whether the secret exists (never its value) and is required. */
 	identity: { configured: !!w.identity_secret, required: w.identity_required },
 	snippet: snippetFor(w),
@@ -938,6 +965,9 @@ export async function storeChatFile(
 	const size = f.bytes.byteLength;
 	if (!size) throw validation("file: it's empty");
 	if (size > CHAT_LIMITS.fileBytes) throw validation("file: up to 10 MB");
+	// What it really is, not what its name says (a program called .pdf is refused).
+	const refused = refuseContent(type, f.bytes);
+	if (refused) throw new ApiError(422, "file_refused", refused);
 	const id = crypto.randomUUID();
 	const key = `chat/${x.organization_id}/${x.id}/${id}`;
 	await store.put(key, f.bytes, { httpMetadata: { contentType: type } });
@@ -956,6 +986,14 @@ export async function visitorSendsFile(
 	o: { client_id?: string | null; now?: number } = {},
 ) {
 	const now = o.now ?? Date.now();
+	const w = chat.widget;
+	if (!w.files_enabled) throw new ApiError(422, "files_off", "This chat doesn't take files.");
+	const type = fileType(f.content_type, f.filename);
+	const kinds = fileKindsOf(w);
+	if (!typesFor(kinds).has(type))
+		throw new ApiError(422, "file_kind", `This chat takes ${kindsText(kinds)}.`);
+	if (f.bytes.byteLength > w.file_max_mb * 1024 * 1024)
+		throw new ApiError(413, "too_large", `Files up to ${w.file_max_mb} MB, please.`);
 	await checkVisitorRate(chat.conversation.id, now);
 	const files = await db
 		.select({ n: sql<number>`coalesce(sum(json_array_length(${cm.attachments})), 0)` })
@@ -1016,6 +1054,8 @@ export async function serveChatFile(path: string, now = Date.now()): Promise<Res
 			"content-security-policy":
 				"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox",
 			"cross-origin-resource-policy": "cross-origin",
+			// Shown as what it was checked to be, never guessed as something else.
+			"x-content-type-options": "nosniff",
 		},
 	});
 }
@@ -1433,9 +1473,13 @@ export async function chatEmailIn(e: ChatEmail): Promise<boolean> {
 		const bytes =
 			typeof a.content === "string" ? new TextEncoder().encode(a.content) : a.content;
 		if (bytes.byteLength > CHAT_LIMITS.fileBytes) continue;
-		files.push(
-			await storeChatFile(x, { filename: a.filename ?? "file", content_type: type, bytes }),
-		);
+		// One that isn't what it says (or can run) is left out; the words still go in.
+		const stored = await storeChatFile(x, {
+			filename: a.filename ?? "file",
+			content_type: type,
+			bytes,
+		}).catch(() => null);
+		if (stored) files.push(stored);
 	}
 	const clientId = `ses:${e.sesId}`;
 	if (tag.team) {

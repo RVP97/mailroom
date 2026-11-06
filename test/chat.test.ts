@@ -278,7 +278,9 @@ describe("website chat: the visitor", () => {
 		const form = new FormData();
 		form.append(
 			"file",
-			new File([new Uint8Array([137, 80, 78, 71])], "photo.png", { type: "image/png" }),
+			new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], "photo.png", {
+				type: "image/png",
+			}),
 		);
 		const res = await handleChat(
 			new Request(`https://mailroom.test/chat/${widget.public_key}/files`, {
@@ -289,7 +291,7 @@ describe("website chat: the visitor", () => {
 		);
 		expect(res.status).toBe(201);
 		const { message } = (await res.json()) as Json;
-		expect(message.files[0]).toMatchObject({ filename: "photo.png", image: true, size: 4 });
+		expect(message.files[0]).toMatchObject({ filename: "photo.png", image: true, size: 8 });
 		const file = await handleChat(new Request(message.files[0].url));
 		expect(file.status).toBe(200);
 		expect(file.headers.get("content-type")).toBe("image/png");
@@ -322,6 +324,55 @@ describe("website chat: the visitor", () => {
 		const got = await handleChat(new Request(x.url));
 		expect(got.headers.get("content-type")).toBe("application/xml");
 		expect(got.headers.get("content-disposition")).toMatch(/^attachment/);
+	});
+
+	it("takes only the files its settings allow, and only what they say they are", async () => {
+		const { widget, inbox } = await setUp();
+		const chat = await start(widget.public_key);
+		const send = async (file: File) => {
+			const form = new FormData();
+			form.append("file", file);
+			const res = await handleChat(
+				new Request(`https://mailroom.test/chat/${widget.public_key}/files`, {
+					method: "POST",
+					headers: { origin: SITE, authorization: `Bearer ${chat.token}` },
+					body: form,
+				}),
+			);
+			return { status: res.status, code: ((await res.json()) as Json).error?.code };
+		};
+		const pdf = () =>
+			new File([new TextEncoder().encode("%PDF-1.7\n...")], "a.pdf", {
+				type: "application/pdf",
+			});
+		expect((await send(pdf())).status).toBe(201);
+		// A program named like a PDF.
+		const exe = new File([new Uint8Array([0x4d, 0x5a, 0x90, 0, 3, 0])], "invoice.pdf", {
+			type: "application/pdf",
+		});
+		expect(await send(exe)).toEqual({ status: 422, code: "file_refused" });
+		// Not a JPEG at all.
+		expect(await send(new File(["hello"], "photo.jpg", { type: "image/jpeg" }))).toEqual({
+			status: 422,
+			code: "file_refused",
+		});
+		// A .zip isn't taken unless archives are on.
+		const zip = new File([new Uint8Array([0x50, 0x4b, 0x05, 0x06, 0, 0, 0, 0])], "a.zip", {
+			type: "application/zip",
+		});
+		expect(await send(zip)).toEqual({ status: 422, code: "file_kind" });
+		// Only images, up to 1 MB.
+		await saveChatWidget(inbox, { file_kinds: ["images"], file_max_mb: 1 });
+		expect(await send(pdf())).toEqual({ status: 422, code: "file_kind" });
+		const big = new Uint8Array(1024 * 1024 + 10);
+		big.set([0xff, 0xd8, 0xff]);
+		expect(await send(new File([big], "big.jpg", { type: "image/jpeg" }))).toEqual({
+			status: 413,
+			code: "too_large",
+		});
+		// Files off.
+		await saveChatWidget(inbox, { files_enabled: false });
+		expect((await send(pdf())).code).toBe("files_off");
 	});
 
 	it("stops at once when the chat is turned off", async () => {
