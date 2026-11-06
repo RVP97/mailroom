@@ -832,13 +832,17 @@ function DesignPanel({
 						options={[
 							["bubble", "Bubble"],
 							["label", "With text"],
+							["auto", "After first use"],
 							["hidden", "None"],
 						]}
 					/>
 				</Labeled>
-				{d.launcher === "hidden" && (
+				{(d.launcher === "hidden" || d.launcher === "auto") && (
 					<p className="text-xs text-muted-foreground">
-						No button: open it from your own, with{" "}
+						{d.launcher === "auto"
+							? "No button until they open the chat from yours; then the bubble stays, so they can come back to it."
+							: "No button:"}{" "}
+						Open it from your own, with{" "}
 						<code className="font-mono">MailroomChat.open()</code> or a link to{" "}
 						<code className="font-mono">#mailroom-chat</code> (see Install).
 					</p>
@@ -1451,7 +1455,8 @@ const token = await new SignJWT({
   .sign(new TextEncoder().encode(process.env.MAILROOM_CHAT_SECRET));
 
 // In the page, before the chat's script (or later: MailroomChat.identify({ token })):
-window.MailroomChatSettings = { identity: token };
+window.MailroomChatSettings = { identity: token, theme: "light" };
+// Your page's theme ("light" | "dark"), if it has its own: MailroomChat.setTheme("dark");
 // When they sign out: MailroomChat.reset();`;
 
 /**

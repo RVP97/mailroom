@@ -79,7 +79,14 @@ export class ChatRoom extends DurableObject {
 		const role = request.headers.get("x-chat-role") === "team" ? "team" : "visitor";
 		const attached: Attached = {
 			role,
-			name: (request.headers.get("x-chat-name") ?? "").slice(0, 80),
+			name: (() => {
+				const raw = request.headers.get("x-chat-name") ?? "";
+				try {
+					return decodeURIComponent(raw).slice(0, 80);
+				} catch {
+					return raw.slice(0, 80);
+				}
+			})(),
 			conversation: request.headers.get("x-chat-conversation") ?? "",
 			masked: role === "team" && request.headers.get("x-chat-masked") !== "0",
 		};

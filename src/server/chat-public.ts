@@ -246,7 +246,8 @@ export async function handleChat(request: Request, now = Date.now()): Promise<Re
 					headers: {
 						upgrade: "websocket",
 						"x-chat-role": "visitor",
-						"x-chat-name": chat.conversation.visitor_name ?? "",
+						// Encoded: a header carries ASCII only («López»).
+						"x-chat-name": encodeURIComponent(chat.conversation.visitor_name ?? ""),
 						"x-chat-conversation": chat.conversation.id,
 					},
 				});
@@ -310,9 +311,11 @@ export async function handleTeamLive(request: Request): Promise<Response> {
 				"x-chat-role": "team",
 				"x-chat-masked": access.can("emails:unmasked") ? "0" : "1",
 				// The visitor sees "Ana is typing"; never an email address.
-				"x-chat-name": /@/.test(session.user.name ?? "")
-					? ""
-					: ((session.user.name ?? "").trim().split(/\s+/)[0] ?? ""),
+				"x-chat-name": encodeURIComponent(
+					/@/.test(session.user.name ?? "")
+						? ""
+						: ((session.user.name ?? "").trim().split(/\s+/)[0] ?? ""),
+				),
 				"x-chat-conversation": id,
 			},
 		}),

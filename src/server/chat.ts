@@ -99,8 +99,9 @@ export const chatDesign = z.object({
 	color: hex.optional(),
 	position: z.enum(["right", "left"]).optional(),
 	theme: z.enum(["auto", "light", "dark"]).optional(),
-	/** The launcher: a round bubble, a pill with a label, or none (your own button opens it). */
-	launcher: z.enum(["bubble", "label", "hidden"]).optional(),
+	/** The launcher: a round bubble, a pill with a label, none (your own button opens it), or
+	 * "auto": none until the visitor opens the chat from your button, then the bubble. */
+	launcher: z.enum(["bubble", "label", "hidden", "auto"]).optional(),
 	launcher_text: shortText(40).nullish(),
 	/** Show the brand's logo in the header. */
 	show_logo: z.boolean().optional(),

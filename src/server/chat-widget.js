@@ -290,7 +290,7 @@ function mailroomChat(c) {
 			// Header
 			".head{background:var(--accent);color:var(--on-accent);padding:16px 12px 16px 16px;display:flex;align-items:center;gap:12px;flex:none;padding-top:max(16px,env(safe-area-inset-top))}" +
 			".logo{width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,.18);display:grid;place-items:center;font-weight:700;font-size:17px;flex:none;overflow:hidden}" +
-			".logo img{width:100%;height:100%;object-fit:contain;background:#fff}" +
+			".logo img{width:100%;height:100%;object-fit:cover}" +
 			".ht{min-width:0;flex:1}.ht b{display:block;font-size:16px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.005em}.ht small{display:flex;align-items:center;gap:6px;font-size:13px;opacity:.85;white-space:nowrap;overflow:hidden;padding:2px 0 2px 2px}.ht small span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis}" +
 			".dot{width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 2px rgba(255,255,255,.35);flex:none}" +
 			".hb{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;color:inherit;opacity:.9;flex:none}.hb:hover{background:rgba(255,255,255,.16);opacity:1}" +
@@ -306,7 +306,7 @@ function mailroomChat(c) {
 			".grp{display:flex;gap:8px;align-items:flex-end;margin-top:10px;max-width:100%}" +
 			".grp.me{flex-direction:row-reverse}" +
 			".av{width:28px;height:28px;border-radius:50%;background:var(--soft2);color:var(--text);display:grid;place-items:center;font-size:12px;font-weight:700;flex:none;overflow:hidden}" +
-			".av img{width:100%;height:100%;object-fit:contain;background:#fff}" +
+			".av img{width:100%;height:100%;object-fit:cover}" +
 			".col{display:flex;flex-direction:column;gap:3px;min-width:0;max-width:78%}.me .col{align-items:flex-end}" +
 			".name{font-size:12px;color:var(--muted);margin:0 0 2px 4px;font-weight:500}" +
 			".msg{padding:9px 13px;border-radius:18px;background:var(--soft);white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;animation:pop .22s cubic-bezier(.2,.8,.2,1);max-width:100%}" +
@@ -522,7 +522,20 @@ function mailroomChat(c) {
 			out +=
 				".panel{box-shadow:0 40px 90px -16px rgba(0,0,0,.45),0 8px 24px rgba(0,0,0,.18)}";
 		// Showing it.
-		if (cfg.launcher === "hidden") out += ".launcher{display:none!important}";
+		// No launcher under the panel: it sits on the corner. "auto": none until the visitor has
+		// opened the chat once (from the page's own button), then the bubble, to come back to it.
+		var flush =
+			".panel{bottom:" +
+			(Number(cfg.offset_y) || 0) +
+			"px;height:min(640px,calc(100vh - " +
+			((Number(cfg.offset_y) || 0) + 24) +
+			"px))}";
+		if (cfg.launcher === "hidden") out += ".launcher{display:none!important}" + flush;
+		if (cfg.launcher === "auto")
+			out +=
+				".root:not(.ever) .launcher{display:none!important}.root:not(.ever) .panel{bottom:" +
+				(Number(cfg.offset_y) || 0) +
+				"px}";
 		if (cfg.hide_mobile)
 			out += "@media (max-width:480px){.launcher,.nudge{display:none!important}}";
 		if (cfg.z_index) out += ".launcher,.panel,.nudge{z-index:" + (cfg.z_index | 0) + "}";
@@ -553,11 +566,27 @@ function mailroomChat(c) {
 		!!identity ||
 		!!(state.conversation && state.conversation.visitor && state.conversation.visitor.verified);
 	var opener = null;
-	var dark =
-		cfg.theme === "dark" ||
-		(cfg.theme !== "light" &&
-			window.matchMedia &&
-			matchMedia("(prefers-color-scheme: dark)").matches);
+	/** The page's own theme (MailroomChatSettings.theme / MailroomChat.setTheme) wins over the
+	 * widget's "auto", which follows the device. */
+	var pageTheme = preset.theme === "dark" || preset.theme === "light" ? preset.theme : null;
+	function isDark() {
+		if (pageTheme) return pageTheme === "dark";
+		return (
+			cfg.theme === "dark" ||
+			(cfg.theme !== "light" &&
+				!!window.matchMedia &&
+				matchMedia("(prefers-color-scheme: dark)").matches)
+		);
+	}
+	function rootClass() {
+		return (
+			"root" +
+			(dark ? " dark" : "") +
+			(state.open ? " open" : "") +
+			(stored.ever || stored.token ? " ever" : "")
+		);
+	}
+	var dark = isDark();
 
 	var host = h("div", { id: "mailroom-chat-" + KEY, "data-mailroom-chat": "" });
 	host.style.cssText = "position:fixed;z-index:2147483000;inset:auto";
@@ -569,7 +598,7 @@ function mailroomChat(c) {
 	});
 	var shadow = host.attachShadow ? host.attachShadow({ mode: "open" }) : host;
 	var style = h("style", { text: css(cfg) });
-	var root = h("div", { class: "root" + (dark ? " dark" : "") });
+	var root = h("div", { class: rootClass() });
 	shadow.appendChild(style);
 	shadow.appendChild(root);
 
@@ -581,7 +610,7 @@ function mailroomChat(c) {
 			cfg.launcher_icon === "logo" && mark
 				? '<img src="' +
 					String(mark).replace(/"/g, "&quot;") +
-					'" alt="" style="width:30px;height:30px;border-radius:50%;object-fit:cover;background:#fff">'
+					'" alt="" style="width:30px;height:30px;border-radius:50%;object-fit:cover">'
 				: svg(ICON[cfg.launcher_icon] || ICON.chat, 24);
 		return '<span class="a">' + a + '</span><span class="b">' + svg(ICON.down, 26) + "</span>";
 	}
@@ -1012,12 +1041,13 @@ function mailroomChat(c) {
 					scrollDown();
 				},
 			});
-		if (cfg.address)
+		if (cfg.address && !verified())
 			items.push({
 				icon: ICON.mail,
 				text: T("Email ") + cfg.address,
 				run: () => {
-					window.open("mailto:" + cfg.address, "_blank");
+					// The mail app, from this page: a new tab for a mailto: stays blank.
+					location.href = "mailto:" + cfg.address;
 				},
 			});
 		if (!items.length)
@@ -1072,7 +1102,8 @@ function mailroomChat(c) {
 		if (state.open) return;
 		state.open = true;
 		opener = document.activeElement;
-		root.classList.add("open");
+		if (!stored.ever) stored = save({ ever: true });
+		root.classList.add("open", "ever");
 		launcher.setAttribute("aria-expanded", "true");
 		launcher.setAttribute("aria-label", T("Close chat"));
 		nudge.classList.remove("on");
@@ -1771,12 +1802,8 @@ function mailroomChat(c) {
 	function applyDesign(next) {
 		for (var k in next) cfg[k] = next[k];
 		LANG = cfg.language === "es" ? "es" : "en";
-		dark =
-			cfg.theme === "dark" ||
-			(cfg.theme !== "light" &&
-				window.matchMedia &&
-				matchMedia("(prefers-color-scheme: dark)").matches);
-		root.className = "root" + (dark ? " dark" : "") + (state.open ? " open" : "");
+		dark = isDark();
+		root.className = rootClass();
 		style.textContent = css(cfg);
 		head.querySelector(".ht b").textContent = cfg.title;
 		var small = head.querySelector(".ht small span:last-child");
@@ -1905,10 +1932,17 @@ function mailroomChat(c) {
 			identity = null;
 			closePanel();
 			endChat();
-			stored = save({ email: null, name: null });
+			stored = save({ email: null, name: null, ever: false });
+			root.className = rootClass();
 			setUnread(0);
 		},
 		unread: () => state.unread,
+		/** The page's theme: "light", "dark", or null to follow the widget's setting. */
+		setTheme: (t) => {
+			pageTheme = t === "dark" || t === "light" ? t : null;
+			dark = isDark();
+			root.className = rootClass();
+		},
 	};
 	emit("ready");
 }
