@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { ENFORCING_DMARC, prepareBimiSvg } from "../lib/bimi";
 import type { AwsConfig } from "./aws/ses";
 import {
@@ -692,6 +692,29 @@ export async function addDomain(
 				? "This domain is already added"
 				: "This domain belongs to another brand",
 		);
+	// A name under another organization's domain: SES may count it verified through its parent in
+	// the shared account, with no DNS change by whoever adds it. Only that domain's organization
+	// adds names under it.
+	const parents = name
+		.split(".")
+		.slice(1)
+		.map((_, i, labels) => labels.slice(i).join("."))
+		.filter((p) => p.includes("."));
+	if (parents.length) {
+		const { parentOf } = await import("./brands");
+		const mine = (await parentOf(organizationId)) ?? organizationId;
+		const above = await db
+			.select({ organization_id: schema.domains.organization_id })
+			.from(schema.domains)
+			.where(inArray(schema.domains.name, parents));
+		for (const d of above)
+			if (((await parentOf(d.organization_id)) ?? d.organization_id) !== mine)
+				throw new ApiError(
+					409,
+					"domain_exists",
+					"This domain is under another organization's domain",
+				);
+	}
 	const a = target.aws;
 	let tokens: string[] = [];
 	let owned = true;

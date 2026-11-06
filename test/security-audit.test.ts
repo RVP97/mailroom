@@ -6,6 +6,7 @@ import { memberAccess } from "@/server/access";
 import { createBroadcast, getBroadcast, updateBroadcast } from "@/server/broadcasts";
 import { addToSegment, createSegment, removeFromSegment, upsertContact } from "@/server/contacts";
 import { db, schema } from "@/server/db";
+import { addDomain } from "@/server/provision";
 import { decideReview, requestReview, setApprovalRequired } from "@/server/reviews";
 import { setSetting } from "@/server/settings";
 import { createSmtpCredentials, deleteSmtpCredentials } from "@/server/smtp";
@@ -214,5 +215,16 @@ describe("SMTP users", () => {
 		expect(calls.map((c) => [c.Action, c.AccessKeyId ?? c.UserName])).toEqual([
 			["DeleteAccessKey", "AKIATWO"],
 		]);
+	});
+});
+
+describe("domains", () => {
+	it("refuses a name under another organization's domain", async () => {
+		fakeOutside();
+		const owner = await seedOrg();
+		const other = await seedOrg();
+		await expect(addDomain(other.id, `mail.${owner.domain}`)).rejects.toThrow(
+			/another organization's domain/,
+		);
 	});
 });
