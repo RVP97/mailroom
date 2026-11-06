@@ -1,7 +1,8 @@
-import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { History } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { AccessLogCard } from "@/components/access-log-card";
 import { ArchiveCard } from "@/components/archive-card";
 import { DigestCard } from "@/components/digest-card";
@@ -24,6 +25,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { accessLogFn, firewallsFn } from "@/functions/recipients";
 import { renameOrganizationFn, teamFn } from "@/functions/team";
 import { errorMessage } from "@/lib/errors";
@@ -31,7 +33,11 @@ import { forgetMe, useMe } from "@/lib/me";
 import { allows, STARTER_ROLES } from "@/lib/permissions";
 import { ago, Ph, rememberedRows, Sketch, sample, usePage, useRememberRows } from "@/lib/sketch";
 
+const SETTINGS_TABS = ["general", "team", "sending", "data"] as const;
+type SettingsTab = (typeof SETTINGS_TABS)[number];
+
 export const Route = createFileRoute("/_app/settings")({
+	validateSearch: z.object({ tab: z.enum(SETTINGS_TABS).optional().catch(undefined) }),
 	loader: async () => {
 		const [team, firewalls, log] = await Promise.all([teamFn(), firewallsFn(), accessLogFn()]);
 		return { team, firewalls, log };
@@ -85,7 +91,12 @@ function SettingsSketch() {
 							members: 1,
 							invitations: 0,
 						},
-						...STARTER_ROLES.map((r) => ({ ...r, edited: false, members: 0, invitations: 0 })),
+						...STARTER_ROLES.map((r) => ({
+							...r,
+							edited: false,
+							members: 0,
+							invitations: 0,
+						})),
 					],
 					needs_approval: false,
 				},
@@ -116,6 +127,16 @@ function Settings() {
 	useRememberRows("settings:members", team.members.length);
 	useRememberRows("settings:invitations", team.invitations.length);
 	const only = firewalls.length === 1 ? firewalls[0] : null;
+	const { search } = usePage(Route);
+	const navigate = useNavigate();
+	const tab: SettingsTab = search.tab ?? "general";
+	const setTab = (t: string) =>
+		navigate({
+			to: ".",
+			search: { tab: t === "general" ? undefined : (t as SettingsTab) },
+			replace: true,
+			resetScroll: false,
+		});
 	return (
 		<Page className="max-w-4xl">
 			<PageHeader
@@ -128,49 +149,88 @@ function Settings() {
 					</>
 				}
 			/>
-			<Organization canManage={canManage} />
-			<OrgLogoCard canManage={canManage} />
-			<MembersCard team={team} />
-			<RolesCard team={team} />
-			<ApprovalCard team={team} />
-			{allows(me.active?.access, "activity:view") && (
-				<Card>
-					<CardHeader>
-						<CardTitle>Activity</CardTitle>
-						<CardDescription>
-							Who changed what: broadcasts sent and approved, templates edited, people
-							invited, domains and keys added.
-						</CardDescription>
-						<CardAction>
-							<Button
-								variant="outline"
-								size="sm"
-								asChild
-							>
-								<Link to="/activity">
-									<History />
-									See activity
-								</Link>
-							</Button>
-						</CardAction>
-					</CardHeader>
-				</Card>
-			)}
-			{only ? (
-				<FirewallCard
-					brand={only.brand_id}
-					firewall={only}
-					canManage={allows(me.active?.access, "recipients:block")}
-					description="Checks every recipient before an email is sent. Each check is optional. Blocked recipients are left out and the email shows which rule did it. With more brands, each gets its own."
-				/>
-			) : (
-				<FirewallsOverview firewalls={firewalls} />
-			)}
-			<OrganizationLimitsCard />
-			<SesAccountCard />
-			<DigestCard canManage={canManage} />
-			<ArchiveCard canManage={canManage} />
-			<AccessLogCard rows={log} />
+			<Tabs
+				value={tab}
+				onValueChange={setTab}
+				className="gap-6"
+			>
+				<div className="-mx-1 overflow-x-auto border-b border-border/70 px-1">
+					<TabsList variant="line">
+						<TabsTrigger value="general">General</TabsTrigger>
+						<TabsTrigger value="team">
+							Team
+							<span className="text-muted-foreground tabular-nums">
+								{team.members.length}
+							</span>
+						</TabsTrigger>
+						<TabsTrigger value="sending">Sending</TabsTrigger>
+						<TabsTrigger value="data">Reports and data</TabsTrigger>
+					</TabsList>
+				</div>
+				<TabsContent
+					value="general"
+					className="flex flex-col gap-6"
+				>
+					<Organization canManage={canManage} />
+					<OrgLogoCard canManage={canManage} />
+				</TabsContent>
+				<TabsContent
+					value="team"
+					className="flex flex-col gap-6"
+				>
+					<MembersCard team={team} />
+					<RolesCard team={team} />
+					<ApprovalCard team={team} />
+					{allows(me.active?.access, "activity:view") && (
+						<Card>
+							<CardHeader>
+								<CardTitle>Activity</CardTitle>
+								<CardDescription>
+									Who changed what: broadcasts sent and approved, templates
+									edited, people invited, domains and keys added.
+								</CardDescription>
+								<CardAction>
+									<Button
+										variant="outline"
+										size="sm"
+										asChild
+									>
+										<Link to="/activity">
+											<History />
+											See activity
+										</Link>
+									</Button>
+								</CardAction>
+							</CardHeader>
+						</Card>
+					)}
+				</TabsContent>
+				<TabsContent
+					value="sending"
+					className="flex flex-col gap-6"
+				>
+					{only ? (
+						<FirewallCard
+							brand={only.brand_id}
+							firewall={only}
+							canManage={allows(me.active?.access, "recipients:block")}
+							description="Checks every recipient before an email is sent. Each check is optional. Blocked recipients are left out and the email shows which rule did it. With more brands, each gets its own."
+						/>
+					) : (
+						<FirewallsOverview firewalls={firewalls} />
+					)}
+					<OrganizationLimitsCard />
+					<SesAccountCard />
+				</TabsContent>
+				<TabsContent
+					value="data"
+					className="flex flex-col gap-6"
+				>
+					<DigestCard canManage={canManage} />
+					<ArchiveCard canManage={canManage} />
+					<AccessLogCard rows={log} />
+				</TabsContent>
+			</Tabs>
 		</Page>
 	);
 }
@@ -202,7 +262,9 @@ function Organization({ canManage }: { canManage: boolean }) {
 			>
 				<CardHeader>
 					<CardTitle>Organization name</CardTitle>
-					<CardDescription>How it shows in the sidebar and in invitations.</CardDescription>
+					<CardDescription>
+						How it shows in the sidebar and in invitations.
+					</CardDescription>
 				</CardHeader>
 				<CardContent>
 					<div className="flex max-w-md items-center gap-3">

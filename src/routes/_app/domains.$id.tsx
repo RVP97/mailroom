@@ -60,6 +60,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
 	bimiFn,
 	dmarcFn,
@@ -82,10 +83,15 @@ import { regionInfo } from "@/lib/regions";
 import { ago, listedRow, Ph, Sketch, useOpened, usePage, useSketching } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 
+const DOMAIN_TABS = ["overview", "dns", "reports", "tracking"] as const;
+type DomainTab = (typeof DOMAIN_TABS)[number];
+
 export const Route = createFileRoute("/_app/domains/$id")({
 	// Back from the DNS host's one-click setup (Domain Connect).
-	validateSearch: (s: Record<string, unknown>): { connected?: 1 } =>
-		s.connected ? { connected: 1 } : {},
+	validateSearch: (s: Record<string, unknown>): { connected?: 1; tab?: DomainTab } => ({
+		...(s.connected ? { connected: 1 as const } : {}),
+		...(DOMAIN_TABS.includes(s.tab as DomainTab) ? { tab: s.tab as DomainTab } : {}),
+	}),
 	loader: async ({ params }) => {
 		const domain = (await listDomainsFn()).find((d) => d.id === params.id);
 		if (!domain) throw notFound();
@@ -430,6 +436,16 @@ function DomainPage() {
 	}
 	// Back from the DNS host: check at once (SES often sees the records within a minute).
 	const navigate = useNavigate();
+	// A domain still being set up opens on its records; a verified one on its overview.
+	const tab: DomainTab = search.tab ?? (verified ? "overview" : "dns");
+	const shownTab = !d.sending && (tab === "reports" || tab === "tracking") ? "overview" : tab;
+	const setTab = (t: string) =>
+		navigate({
+			to: ".",
+			search: (s: Record<string, unknown>) => ({ ...s, tab: t as DomainTab }),
+			replace: true,
+			resetScroll: false,
+		});
 	const returned = useRef(false);
 	useEffect(() => {
 		if (sketching || !search.connected || returned.current) return;
@@ -735,114 +751,150 @@ function DomainPage() {
 				</Alert>
 			)}
 
-			{help && (help.connect || (!verified && help.host)) && (
-				<DnsSetup
-					help={help}
-					verified={verified}
-				/>
-			)}
-
-			<Timeline
-				title="Domain events"
-				steps={steps(d)}
-			/>
-
-			<section className="flex flex-col gap-3">
-				<div className="flex items-center justify-between gap-3">
-					<h2 className="text-[11px] font-medium tracking-[0.07em] text-faint uppercase">
-						DNS records
-					</h2>
-					<DropdownMenu>
-						<DropdownMenuTrigger asChild>
-							<Button
-								variant="ghost"
-								size="sm"
-							>
-								<Copy />
-								Copy records
-							</Button>
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end">
-							<CopyItem
-								icon={Bot}
-								label="As instructions for an AI assistant"
-								value={prompt(d)}
-							/>
-							<CopyItem
-								icon={FileCode2}
-								label="As a zone file (BIND)"
-								value={zone(d)}
-							/>
-						</DropdownMenuContent>
-					</DropdownMenu>
+			<Tabs
+				value={shownTab}
+				onValueChange={setTab}
+				className="gap-6"
+			>
+				<div className="-mx-1 overflow-x-auto border-b border-border/70 px-1">
+					<TabsList variant="line">
+						<TabsTrigger value="overview">Overview</TabsTrigger>
+						<TabsTrigger value="dns">
+							DNS records
+							{!verified && (
+								<span className="text-muted-foreground tabular-nums">
+									{done}/{required.length}
+								</span>
+							)}
+						</TabsTrigger>
+						{d.sending && <TabsTrigger value="reports">DMARC reports</TabsTrigger>}
+						{d.sending && <TabsTrigger value="tracking">Tracking and logo</TabsTrigger>}
+					</TabsList>
 				</div>
-				<div className="flex flex-col gap-4">
-					{groups(d).map((g) => (
-						<RecordGroup
-							key={g.key}
-							title={g.title}
-							tag={g.tag}
-							description={g.description}
-							records={g.records}
-							dmarc={g.key === "dmarc" ? (d.dmarc ?? undefined) : undefined}
-							note={
-								g.key === "dmarc" && d.dmarc ? (
-									<DmarcNote
-										dmarc={d.dmarc}
-										domain={d.name}
-									/>
-								) : undefined
-							}
-							found={
-								g.key === "bimi"
-									? !!d.bimi?.found &&
-										g.records.some((r) =>
-											r.value.includes(`l=${d.bimi?.logo};`),
-										)
-									: undefined
-							}
-							host={help?.host ?? null}
-							root={help?.root ?? orgDomain(d.name)}
+
+				<TabsContent
+					value="overview"
+					className="flex flex-col gap-8"
+				>
+					{help && (help.connect || (!verified && help.host)) && (
+						<DnsSetup
+							help={help}
+							verified={verified}
 						/>
-					))}
-				</div>
-				{help?.host && !help.host.fullNames && (
-					<p className="text-xs text-muted-foreground text-pretty">
-						Names are shown the way {help.host.name} wants them typed, without{" "}
-						<span className="font-mono">.{help.root}</span>. Hover one for the full
-						name.
-					</p>
+					)}
+
+					<Timeline
+						title="Domain events"
+						steps={steps(d)}
+					/>
+
+					<DomainReceiving
+						domain={d}
+						canManage={canManage}
+					/>
+
+					{verified && (
+						<DomainHealth
+							domain={d}
+							canManage={canManage}
+						/>
+					)}
+				</TabsContent>
+
+				<TabsContent value="dns">
+					<section className="flex flex-col gap-3">
+						<div className="flex items-center justify-between gap-3">
+							<h2 className="text-[11px] font-medium tracking-[0.07em] text-faint uppercase">
+								DNS records
+							</h2>
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<Button
+										variant="ghost"
+										size="sm"
+									>
+										<Copy />
+										Copy records
+									</Button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="end">
+									<CopyItem
+										icon={Bot}
+										label="As instructions for an AI assistant"
+										value={prompt(d)}
+									/>
+									<CopyItem
+										icon={FileCode2}
+										label="As a zone file (BIND)"
+										value={zone(d)}
+									/>
+								</DropdownMenuContent>
+							</DropdownMenu>
+						</div>
+						<div className="flex flex-col gap-4">
+							{groups(d).map((g) => (
+								<RecordGroup
+									key={g.key}
+									title={g.title}
+									tag={g.tag}
+									description={g.description}
+									records={g.records}
+									dmarc={g.key === "dmarc" ? (d.dmarc ?? undefined) : undefined}
+									note={
+										g.key === "dmarc" && d.dmarc ? (
+											<DmarcNote
+												dmarc={d.dmarc}
+												domain={d.name}
+											/>
+										) : undefined
+									}
+									found={
+										g.key === "bimi"
+											? !!d.bimi?.found &&
+												g.records.some((r) =>
+													r.value.includes(`l=${d.bimi?.logo};`),
+												)
+											: undefined
+									}
+									host={help?.host ?? null}
+									root={help?.root ?? orgDomain(d.name)}
+								/>
+							))}
+						</div>
+						{help?.host && !help.host.fullNames && (
+							<p className="text-xs text-muted-foreground text-pretty">
+								Names are shown the way {help.host.name} wants them typed, without{" "}
+								<span className="font-mono">.{help.root}</span>. Hover one for the
+								full name.
+							</p>
+						)}
+					</section>
+				</TabsContent>
+
+				{d.sending && (
+					<TabsContent value="reports">
+						<DmarcReports domain={d} />
+					</TabsContent>
 				)}
-			</section>
 
-			<DomainReceiving
-				domain={d}
-				canManage={canManage}
-			/>
+				{d.sending && (
+					<TabsContent
+						value="tracking"
+						className="flex flex-col gap-8"
+					>
+						<DomainTracking
+							domain={d}
+							tracking={d.tracking}
+							canManage={canManage}
+						/>
 
-			{verified && (
-				<DomainHealth
-					domain={d}
-					canManage={canManage}
-				/>
-			)}
-
-			{d.sending && (
-				<>
-					<DmarcReports domain={d} />
-
-					<DomainTracking
-						domain={d}
-						tracking={d.tracking}
-						canManage={canManage}
-					/>
-
-					<BrandLogo
-						domain={d}
-						canManage={canManage}
-					/>
-				</>
-			)}
+						<BrandLogo
+							domain={d}
+							canManage={canManage}
+						/>
+					</TabsContent>
+				)}
+			</Tabs>
 		</Page>
 	);
 }

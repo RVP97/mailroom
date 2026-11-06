@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
 import {
 	Bot,
 	KeyRound,
@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useId, useState } from "react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { ChoiceCards } from "@/components/choice-cards";
 import { CodeTabs } from "@/components/code-block";
 import { Confirm } from "@/components/confirm";
@@ -36,6 +37,7 @@ import {
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
 	createInboxCredentialFn,
@@ -55,7 +57,11 @@ import { allows } from "@/lib/permissions";
 import { Ph, Sketch, usePage } from "@/lib/sketch";
 
 /** One agent inbox: its settings, credentials, webhooks and audit trail, and how to connect. */
+const INBOX_TABS = ["settings", "access", "webhooks", "activity"] as const;
+type InboxTab = (typeof INBOX_TABS)[number];
+
 export const Route = createFileRoute("/_app/received/inboxes/$id")({
+	validateSearch: z.object({ tab: z.enum(INBOX_TABS).optional().catch(undefined) }),
 	loader: ({ params }) => getInboxFn({ data: { id: params.id } }),
 	head: ({ loaderData }) => ({
 		meta: [{ title: `${loaderData?.inbox.name || "Inbox"} · Mailroom` }],
@@ -141,8 +147,17 @@ const ACTIONS: Record<string, string> = {
 };
 
 function InboxPage() {
-	const data = usePage(Route).data;
+	const { data, search } = usePage(Route);
 	const router = useRouter();
+	const navigate = useNavigate();
+	const tab: InboxTab = search.tab ?? "settings";
+	const setTab = (t: string) =>
+		navigate({
+			to: ".",
+			search: { tab: t === "settings" ? undefined : (t as InboxTab) },
+			replace: true,
+			resetScroll: false,
+		});
 	const me = useMe();
 	const canManage = allows(me.active?.access, "inbox:agents");
 	const { inbox } = data;
@@ -245,137 +260,175 @@ function InboxPage() {
 				</Fact>
 			</Facts>
 
-			<WebsiteChat
-				inbox={inbox.id}
-				chat={data.chat}
-				canManage={canManage}
-			/>
-
-			{canManage && <Settings inbox={inbox} />}
-
-			<Section
-				title="Credentials"
-				description="Each reaches this inbox (and, if you choose, other inboxes of the brand), and nothing else in Mailroom, through the API or MCP. Revoke one and it stops at once."
-				actions={
-					canManage && (
-						<CreateCredential
-							inboxId={inbox.id}
-							inboxes={data.inboxes}
-							onCreated={setToken}
-						/>
-					)
-				}
+			<Tabs
+				value={tab}
+				onValueChange={setTab}
+				className="gap-6"
 			>
-				{data.credentials.length === 0 ? (
-					<p className="text-sm text-muted-foreground">
-						No credentials yet. Make one for the agent that works this inbox.
-					</p>
-				) : (
-					<ul className="flex flex-col gap-3">
-						{data.credentials.map((c) => (
-							<CredentialRow
-								key={c.id}
-								inboxId={inbox.id}
-								inboxes={data.inboxes}
-								credential={c}
-								canManage={canManage}
-								onRotated={setToken}
-							/>
-						))}
-					</ul>
-				)}
-			</Section>
+				<div className="-mx-1 overflow-x-auto border-b border-border/70 px-1">
+					<TabsList variant="line">
+						<TabsTrigger value="settings">Settings</TabsTrigger>
+						<TabsTrigger value="access">
+							Agent access
+							<span className="text-muted-foreground tabular-nums">
+								{data.credentials.length}
+							</span>
+						</TabsTrigger>
+						<TabsTrigger value="webhooks">
+							Webhooks
+							<span className="text-muted-foreground tabular-nums">
+								{data.webhooks.length}
+							</span>
+						</TabsTrigger>
+						<TabsTrigger value="activity">Activity</TabsTrigger>
+					</TabsList>
+				</div>
+				<TabsContent
+					value="settings"
+					className="flex flex-col gap-8"
+				>
+					<WebsiteChat
+						inbox={inbox.id}
+						chat={data.chat}
+						canManage={canManage}
+					/>
 
-			<Connect
-				base={data.base}
-				inbox={inbox}
-			/>
+					{canManage && <Settings inbox={inbox} />}
+				</TabsContent>
+				<TabsContent
+					value="access"
+					className="flex flex-col gap-8"
+				>
+					<Section
+						title="Credentials"
+						description="Each reaches this inbox (and, if you choose, other inboxes of the brand), and nothing else in Mailroom, through the API or MCP. Revoke one and it stops at once."
+						actions={
+							canManage && (
+								<CreateCredential
+									inboxId={inbox.id}
+									inboxes={data.inboxes}
+									onCreated={setToken}
+								/>
+							)
+						}
+					>
+						{data.credentials.length === 0 ? (
+							<p className="text-sm text-muted-foreground">
+								No credentials yet. Make one for the agent that works this inbox.
+							</p>
+						) : (
+							<ul className="flex flex-col gap-3">
+								{data.credentials.map((c) => (
+									<CredentialRow
+										key={c.id}
+										inboxId={inbox.id}
+										inboxes={data.inboxes}
+										credential={c}
+										canManage={canManage}
+										onRotated={setToken}
+									/>
+								))}
+							</ul>
+						)}
+					</Section>
 
-			<Section
-				title="Webhooks"
-				description="Signed and retried like your other webhooks, with only this inbox's events. Their payloads carry no message text: fetch it with the credential."
-				actions={
-					canManage && (
-						<CreateWebhook
-							inboxId={inbox.id}
-							events={data.events}
-							onCreated={setSecret}
-						/>
-					)
-				}
-			>
-				{data.webhooks.length === 0 ? (
-					<p className="text-sm text-muted-foreground">
-						None yet. Organization-wide webhooks with inbox events get this inbox's too.
-					</p>
-				) : (
-					<ul className="flex flex-col gap-2">
-						{data.webhooks.map((h) => (
-							<li key={h.id}>
-								<Link
-									to="/webhooks/$id"
-									params={{ id: h.id }}
-									className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm shadow-[inset_0_0_0_1px_var(--border)] hover:bg-accent/50"
-								>
-									<Webhook className="size-4 shrink-0 text-muted-foreground" />
-									<span className="min-w-0 truncate font-mono">{h.url}</span>
-									<span className="ml-auto shrink-0 text-muted-foreground">
-										{h.events.length} events
-									</span>
-								</Link>
-							</li>
-						))}
-					</ul>
-				)}
-			</Section>
-
-			<Section
-				title="Activity"
-				description="What agents and people did here: reads, drafts, replies and credential changes."
-			>
-				{data.activity.length === 0 ? (
-					<p className="text-sm text-muted-foreground">Nothing yet.</p>
-				) : (
-					<ul className="flex flex-col gap-2 text-sm">
-						{data.activity.map((a) => (
-							<li
-								key={a.id}
-								className="flex items-center gap-2"
-							>
-								{a.actor.type === "agent" ? (
-									<Bot className="size-4 shrink-0 text-muted-foreground" />
-								) : (
-									<User className="size-4 shrink-0 text-muted-foreground" />
-								)}
-								<span className="min-w-0 truncate">
-									<span className="font-medium">
-										<Ph>{a.actor.name ?? "Someone"}</Ph>
-									</span>{" "}
-									{ACTIONS[a.action] ?? a.action}
-									{a.conversation_id && (
-										<>
-											{" · "}
-											<Link
-												to="/received/$id"
-												params={{ id: a.conversation_id }}
-												className="underline-offset-2 hover:underline"
-											>
-												open
-											</Link>
-										</>
-									)}
-								</span>
-								<span
-									className="ml-auto shrink-0 text-muted-foreground tabular-nums"
-									title={formatDateTime(a.created_at)}
-								>
-									{formatAgo(a.created_at)}
-								</span>
-							</li>
-						))}
-					</ul>
-				)}
-			</Section>
+					<Connect
+						base={data.base}
+						inbox={inbox}
+					/>
+				</TabsContent>
+				<TabsContent value="webhooks">
+					<Section
+						title="Webhooks"
+						description="Signed and retried like your other webhooks, with only this inbox's events. Their payloads carry no message text: fetch it with the credential."
+						actions={
+							canManage && (
+								<CreateWebhook
+									inboxId={inbox.id}
+									events={data.events}
+									onCreated={setSecret}
+								/>
+							)
+						}
+					>
+						{data.webhooks.length === 0 ? (
+							<p className="text-sm text-muted-foreground">
+								None yet. Organization-wide webhooks with inbox events get this
+								inbox's too.
+							</p>
+						) : (
+							<ul className="flex flex-col gap-2">
+								{data.webhooks.map((h) => (
+									<li key={h.id}>
+										<Link
+											to="/webhooks/$id"
+											params={{ id: h.id }}
+											className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm shadow-[inset_0_0_0_1px_var(--border)] hover:bg-accent/50"
+										>
+											<Webhook className="size-4 shrink-0 text-muted-foreground" />
+											<span className="min-w-0 truncate font-mono">
+												{h.url}
+											</span>
+											<span className="ml-auto shrink-0 text-muted-foreground">
+												{h.events.length} events
+											</span>
+										</Link>
+									</li>
+								))}
+							</ul>
+						)}
+					</Section>
+				</TabsContent>
+				<TabsContent value="activity">
+					<Section
+						title="Activity"
+						description="What agents and people did here: reads, drafts, replies and credential changes."
+					>
+						{data.activity.length === 0 ? (
+							<p className="text-sm text-muted-foreground">Nothing yet.</p>
+						) : (
+							<ul className="flex flex-col gap-2 text-sm">
+								{data.activity.map((a) => (
+									<li
+										key={a.id}
+										className="flex items-center gap-2"
+									>
+										{a.actor.type === "agent" ? (
+											<Bot className="size-4 shrink-0 text-muted-foreground" />
+										) : (
+											<User className="size-4 shrink-0 text-muted-foreground" />
+										)}
+										<span className="min-w-0 truncate">
+											<span className="font-medium">
+												<Ph>{a.actor.name ?? "Someone"}</Ph>
+											</span>{" "}
+											{ACTIONS[a.action] ?? a.action}
+											{a.conversation_id && (
+												<>
+													{" · "}
+													<Link
+														to="/received/$id"
+														params={{ id: a.conversation_id }}
+														className="underline-offset-2 hover:underline"
+													>
+														open
+													</Link>
+												</>
+											)}
+										</span>
+										<span
+											className="ml-auto shrink-0 text-muted-foreground tabular-nums"
+											title={formatDateTime(a.created_at)}
+										>
+											{formatAgo(a.created_at)}
+										</span>
+									</li>
+								))}
+							</ul>
+						)}
+					</Section>
+				</TabsContent>
+			</Tabs>
 
 			<ShownOnce
 				open={token !== null}
