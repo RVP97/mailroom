@@ -111,18 +111,22 @@ export const getContactFn = createServerFn({ method: "GET" })
 			}
 			if (!found) throw new Response("Contact not found", { status: 404 });
 			const brand = found.organization_id;
-			const [segments, mine, topics, properties, emails, engagement] = await Promise.all([
-				listSegments(brand),
-				segmentsOfContact(found.id),
-				topicsOfContact(brand, found.id),
-				listProperties(brand),
-				listEmails(brand, { search: found.email, limit: 10 }),
-				engagementOf(brand, [found]),
-			]);
+			const { contactReferrals } = await import("@/server/referrals");
+			const [segments, mine, topics, properties, emails, engagement, referrals] =
+				await Promise.all([
+					listSegments(brand),
+					segmentsOfContact(found.id),
+					topicsOfContact(brand, found.id),
+					listProperties(brand),
+					listEmails(brand, { search: found.email, limit: 10 }),
+					engagementOf(brand, [found]),
+					contactReferrals(found),
+				]);
 			const member = new Set(mine.map((m) => m.id));
 			return {
 				contact: contactView(found),
 				engagement: engagement.get(found.id) ?? null,
+				referrals,
 				brand: brands.find((b) => b.id === brand) ?? null,
 				segments: segments.map((s) => ({
 					id: s.id,

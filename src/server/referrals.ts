@@ -297,6 +297,60 @@ export async function leaderboard(brand: string, limit = 10) {
 		.limit(limit);
 }
 
+/**
+ * One contact's side of the program, for their page in the dashboard: who brought them, who they
+ * brought, where they rank, what they've unlocked and what's next. Null when the brand has no
+ * program and they're not part of one (never referred anyone, never referred).
+ */
+export async function contactReferrals(c: Contact) {
+	const program = await programOf(c.organization_id);
+	if (!program && !c.referrals && !c.referred_by) return null;
+	const person = {
+		id: ct.id,
+		email: ct.email,
+		first_name: ct.first_name,
+		last_name: ct.last_name,
+		created_at: ct.created_at,
+	};
+	const [by, friends, ahead] = await Promise.all([
+		c.referred_by
+			? db.select(person).from(ct).where(eq(ct.id, c.referred_by)).get()
+			: Promise.resolve(undefined),
+		db
+			.select(person)
+			.from(ct)
+			.where(and(eq(ct.organization_id, c.organization_id), eq(ct.referred_by, c.id)))
+			.orderBy(desc(ct.created_at))
+			.limit(50),
+		c.referrals > 0
+			? db
+					.select({ n: sql<number>`COUNT(*)` })
+					.from(ct)
+					.where(
+						and(
+							eq(ct.organization_id, c.organization_id),
+							gt(ct.referrals, c.referrals),
+						),
+					)
+					.get()
+			: Promise.resolve(undefined),
+	]);
+	const rewards = rewardsOf(program?.referral_rewards).map((r) => ({
+		count: r.count,
+		reward: r.reward,
+	}));
+	return {
+		program: program ? { id: program.id, name: program.name } : null,
+		count: c.referrals,
+		rank: ahead ? Number(ahead.n) + 1 : null,
+		share_url: c.referral_code ? referralUrl(c.referral_code) : null,
+		page_url: c.referral_code ? await referralPageUrl(c.referral_code) : null,
+		rewards,
+		referred_by: by ?? null,
+		referred: friends,
+	};
+}
+
 /** Sign-ups that came through referrals, and how many contacts have referred anyone. */
 export async function referralTotals(brand: string) {
 	const row = await db
