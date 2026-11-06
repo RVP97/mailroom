@@ -2,7 +2,7 @@ import { type ErrorComponentProps, Link, useRouter } from "@tanstack/react-route
 import { RotateCw, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { forgetMe, forgetRememberedMe } from "@/lib/me";
+import { forgetMe, forgetRememberedMe, isNetworkError } from "@/lib/me";
 import { isStaleCode, reloadForNewCode } from "@/lib/stale-code";
 
 /** What a page shows while its data loads for the first time: its frame, sketched. */
@@ -68,9 +68,11 @@ export function PageError({ error, reset }: ErrorComponentProps) {
 	const message =
 		error instanceof Response
 			? error.statusText || `The server answered ${error.status}`
-			: error instanceof Error
-				? error.message
-				: "Something went wrong";
+			: isNetworkError(error)
+				? "Mailroom couldn't be reached. Check your connection and try again."
+				: error instanceof Error
+					? error.message
+					: "Something went wrong";
 	return (
 		<div className="mx-auto flex min-h-[60vh] w-full max-w-md flex-col items-center justify-center px-4 text-center">
 			<span className="mb-4 flex size-10 items-center justify-center rounded-[10px] bg-card text-warning shadow-raised">

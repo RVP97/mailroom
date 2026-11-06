@@ -17,13 +17,41 @@ let cached: Me | null = null;
 
 export async function loadMe(): Promise<Me> {
 	if (typeof window === "undefined") return getMe();
-	cached ??= await getMe();
+	cached ??= await getMeRetrying();
 	identify(cached.user);
 	try {
 		localStorage.setItem(SHAPE_KEY, JSON.stringify(cached));
 		document.cookie = `${FRAME_COOKIE}=${encodeURIComponent(frameOf(cached))}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`;
 	} catch {}
 	return cached;
+}
+
+/**
+ * The browser's own "couldn't reach the server" (Safari's "Load failed", Chrome's "Failed to
+ * fetch", Firefox's "NetworkError…"): the request never got an answer, often a phone waking up or
+ * switching networks for a moment.
+ */
+export const isNetworkError = (error: unknown) =>
+	error instanceof TypeError &&
+	/^(Load failed|Failed to fetch|NetworkError when attempting to fetch resource\.?|Network request failed)$/i.test(
+		error.message,
+	);
+
+/**
+ * Every dashboard page waits on this, so a moment without network (opening it from a phone's home
+ * screen before its connection is back) asks again a couple of times before the page shows an
+ * error.
+ */
+async function getMeRetrying(): Promise<Me> {
+	for (const wait of [400, 1200]) {
+		try {
+			return await getMe();
+		} catch (error) {
+			if (!isNetworkError(error)) throw error;
+			await new Promise((r) => setTimeout(r, wait));
+		}
+	}
+	return getMe();
 }
 
 /**
