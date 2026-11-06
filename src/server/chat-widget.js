@@ -50,7 +50,6 @@ function mailroomChat(c) {
 		"Change my email": "Cambiar mi correo",
 		"Get replies by email": "Recibir respuestas por correo",
 		"Email ": "Escribir a ",
-		"Nothing to do here yet": "Nada por aquí todavía",
 		"Sent a file": "Envió un archivo",
 		"Something went wrong": "Algo falló; intente de nuevo",
 		"Couldn't load the robot check": "No se pudo cargar la verificación",
@@ -297,7 +296,7 @@ function mailroomChat(c) {
 			".menu{position:absolute;top:64px;" +
 			(side === "right" ? "right" : "left") +
 			":12px;background:var(--panel);color:var(--text);border-radius:12px;box-shadow:var(--shadow);padding:6px;min-width:220px;display:none;z-index:2}" +
-			".menu.on{display:block}.menu button{display:flex;gap:10px;align-items:center;width:100%;padding:9px 10px;border-radius:8px;font-size:14px;text-align:left}.menu button:hover{background:var(--soft)}" +
+			".menu.on{display:block}.menu button{display:flex;gap:10px;align-items:center;width:100%;padding:9px 10px;border-radius:8px;font-size:14px;text-align:left;line-height:1.3}.menu button:hover{background:var(--soft)}.menu .mi{display:grid;place-items:center;width:18px;height:18px;flex:none;color:var(--muted)}.menu .mi svg{display:block}" +
 			// Body
 			".body{flex:1;overflow-y:auto;padding:16px 14px 8px;display:flex;flex-direction:column;gap:2px;overscroll-behavior:contain;background:var(--bg);position:relative}" +
 			".banner{position:sticky;top:-16px;margin:-16px -14px 8px;padding:6px 12px;font-size:12.5px;text-align:center;background:var(--soft);color:var(--muted);display:none;z-index:1}.banner.on{display:block}" +
@@ -862,6 +861,7 @@ function mailroomChat(c) {
 		}
 		renderTyping();
 		renderCards();
+		syncMenu();
 		scrollDown();
 	}
 
@@ -1030,8 +1030,38 @@ function mailroomChat(c) {
 		]);
 	}
 
+	// The ⋯ menu: what the visitor can do with this chat. With nothing to offer (before the first
+	// message, with no address to write to), its button isn't shown at all.
+	function syncMenu() {
+		var any = menuItems().length > 0;
+		menuBtn.style.display = any ? "" : "none";
+		if (!any) menu.classList.remove("on");
+	}
 	function buildMenu() {
 		menu.textContent = "";
+		var items = menuItems();
+		for (var i = 0; i < items.length; i++)
+			((it) => {
+				menu.appendChild(
+					h(
+						"button",
+						{
+							type: "button",
+							role: "menuitem",
+							onclick: () => {
+								menu.classList.remove("on");
+								it.run();
+							},
+						},
+						[
+							h("span", { class: "mi", html: svg(it.icon, 18) }),
+							h("span", { text: it.text }),
+						],
+					),
+				);
+			})(items[i]);
+	}
+	function menuItems() {
 		var items = [];
 		if (state.conversation)
 			items.push({
@@ -1064,25 +1094,7 @@ function mailroomChat(c) {
 					location.href = "mailto:" + cfg.address;
 				},
 			});
-		if (!items.length)
-			items.push({ icon: ICON.check, text: T("Nothing to do here yet"), run: () => {} });
-		for (var i = 0; i < items.length; i++)
-			((it) => {
-				menu.appendChild(
-					h(
-						"button",
-						{
-							type: "button",
-							role: "menuitem",
-							onclick: () => {
-								menu.classList.remove("on");
-								it.run();
-							},
-						},
-						[h("span", { html: svg(it.icon, 18) }), h("span", { text: it.text })],
-					),
-				);
-			})(items[i]);
+		return items;
 	}
 	document.addEventListener("click", () => {
 		menu.classList.remove("on");

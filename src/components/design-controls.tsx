@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
@@ -61,25 +61,72 @@ export function Choice<T extends string>({
 	onChange: (v: T) => void;
 	options: [T, string][];
 }) {
+	const n = options.length;
+	const box = useRef<HTMLDivElement>(null);
+	const ruler = useRef<HTMLSpanElement>(null);
+	const [cols, setCols] = useState(n);
+	const labels = options.map(([, l]) => l).join("\n");
+	// biome-ignore lint/correctness/useExhaustiveDependencies: labels stands for options
+	useLayoutEffect(() => {
+		const el = box.current;
+		const r = ruler.current;
+		if (!el || !r) return;
+		// Every segment is as wide as the others. When the longest label doesn't fit in one row,
+		// the segments go in two rows (or one under the other), never spilling out of their pill.
+		const fit = () => {
+			const widest = Math.max(
+				0,
+				...[...r.children].map((c) => (c as HTMLElement).offsetWidth),
+			);
+			const room = el.clientWidth - 6;
+			const tries = [n, ...(n >= 4 ? [Math.ceil(n / 2)] : []), 1];
+			setCols(tries.find((c) => (room - 2 * (c - 1)) / c >= widest) ?? 1);
+		};
+		fit();
+		const ro = new ResizeObserver(fit);
+		ro.observe(el);
+		return () => ro.disconnect();
+	}, [n, labels]);
 	return (
-		<ToggleGroup
-			type="single"
-			variant="outline"
-			size="sm"
-			value={value}
-			onValueChange={(x) => x && onChange(x as T)}
-			className="w-full"
+		<div
+			ref={box}
+			className="relative w-full min-w-0"
 		>
-			{options.map(([x, l]) => (
-				<ToggleGroupItem
-					key={x}
-					value={x}
-					className="flex-1 px-1.5"
-				>
-					{l}
-				</ToggleGroupItem>
-			))}
-		</ToggleGroup>
+			<span
+				ref={ruler}
+				aria-hidden
+				className="invisible absolute top-0 left-0 flex h-0 w-max overflow-hidden"
+			>
+				{options.map(([x, l]) => (
+					<span
+						key={x}
+						className="px-2.5 text-xs font-medium whitespace-nowrap"
+					>
+						{l}
+					</span>
+				))}
+			</span>
+			<ToggleGroup
+				type="single"
+				variant="outline"
+				size="sm"
+				value={value}
+				onValueChange={(x) => x && onChange(x as T)}
+				className="grid w-full"
+				style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+			>
+				{options.map(([x, l]) => (
+					<ToggleGroupItem
+						key={x}
+						value={x}
+						title={l}
+						className="w-full px-1.5"
+					>
+						<span className="truncate">{l}</span>
+					</ToggleGroupItem>
+				))}
+			</ToggleGroup>
+		</div>
 	);
 }
 
