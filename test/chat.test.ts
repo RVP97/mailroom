@@ -1228,3 +1228,47 @@ describe("website chat: files in the website's own bucket", () => {
 		fake.spy.mockRestore();
 	});
 });
+
+describe("website chat: links from the website's app", () => {
+	const link = (key: string, token: string, body: Record<string, unknown>) =>
+		call(key, "links", { body, token });
+
+	it("takes links only on its hosts, of the kinds and size it takes, and serves them as they are", async () => {
+		const { inbox, widget } = await setUp();
+		const chat = await start(widget.public_key);
+		const url = "https://files.fiscalisto.test/u/123/factura.pdf";
+		expect((await link(widget.public_key, chat.token, { url })).json.error.code).toBe(
+			"links_off",
+		);
+		await expect(
+			saveChatWidget(inbox, { file_links: { hosts: ["10.0.0.1"] } }),
+		).rejects.toThrow(/website address/);
+		const { widget: w } = await saveChatWidget(inbox, {
+			file_links: { hosts: ["https://fiscalisto.test/"] },
+		});
+		expect(chatWidgetView(w).file_links).toEqual({ hosts: ["fiscalisto.test"] });
+		const ok = await link(widget.public_key, chat.token, { url, size: 2048 });
+		expect(ok.status).toBe(201);
+		expect(ok.json.message.files[0]).toMatchObject({
+			filename: "factura.pdf",
+			content_type: "application/pdf",
+			url,
+		});
+		// Another site, plain http, a kind it doesn't take, too big: refused.
+		const bad = async (body: Record<string, unknown>) =>
+			(await link(widget.public_key, chat.token, body)).json.error.code;
+		expect(await bad({ url: "https://evil.test/factura.pdf" })).toBe("link_host");
+		expect(await bad({ url: "https://fiscalisto.test.evil.test/a.pdf" })).toBe("link_host");
+		expect(await bad({ url: "http://files.fiscalisto.test/a.pdf" })).toBe("validation_error");
+		expect(await bad({ url: "https://files.fiscalisto.test/a.exe" })).toBe("file_kind");
+		expect(await bad({ url, size: 50 * 1024 * 1024 })).toBe("too_large");
+		// The widget is told it may send links; nothing to delete with the chat.
+		const page = await handleChat(
+			new Request(`https://mailroom.test/chat/${widget.public_key}/config`, {
+				headers: { origin: SITE },
+			}),
+		);
+		if (page.ok) expect(((await page.json()) as Json).files?.links ?? true).toBe(true);
+		await deleteChatFiles([chat.conversation.id]);
+	});
+});

@@ -638,6 +638,9 @@ export const chatWidgets = sqliteTable(
 		agent_wait: integer("agent_wait").notNull().default(5),
 		/** The website's own bucket for the files (src/server/chat-storage.ts; null: Mailroom's). */
 		file_storage: text("file_storage", { mode: "json" }).$type<FileStorage>(),
+		/** The website's app uploads files itself and sends their links, on these hosts only
+		 * (null: links aren't taken). */
+		file_links: text("file_links", { mode: "json" }).$type<{ hosts: string[] }>(),
 		/** Identity verification (src/server/chat-identity.ts): the secret the website signs who
 		 * its signed-in visitor is with (mrcs_…; null: not set up). */
 		identity_secret: text("identity_secret"),
@@ -661,6 +664,8 @@ export interface ChatAttachment {
 	key: string;
 	/** In the chat's own bucket (chat-storage.ts placeOf); missing: Mailroom's INBOUND. */
 	place?: string | null;
+	/** A link the website's app sent instead of the file (it keeps the file; key is empty). */
+	url?: string | null;
 	width?: number | null;
 	height?: number | null;
 }

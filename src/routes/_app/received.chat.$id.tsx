@@ -108,7 +108,7 @@ const fieldsOf = (d: Data): Fields => ({
 	files_enabled: d.widget?.files_enabled ?? true,
 	file_kinds: d.widget?.file_kinds ?? DEFAULT_FILE_KINDS,
 	file_max_mb: String(d.widget?.file_max_mb ?? 10),
-	storage: storageOf(d.widget?.file_storage ?? null),
+	storage: storageOf(d.widget?.file_storage ?? null, d.widget?.file_links ?? null),
 	retention: d.retention_days == null ? "default" : String(d.retention_days),
 	identity_required: d.widget?.identity.required ?? false,
 	first_agent: d.widget?.first_agent ?? "none",
@@ -116,9 +116,11 @@ const fieldsOf = (d: Data): Fields => ({
 	design: d.widget?.design ?? d.defaults,
 });
 
-type Where = "mailroom" | "r2" | "s3" | "other";
+type Where = "mailroom" | "r2" | "s3" | "other" | "app";
 type Storage = {
 	where: Where;
+	/** "app": the hosts the app's file links may be on, one a line. */
+	link_hosts: string;
 	account_id: string;
 	endpoint: string;
 	region: string;
@@ -129,8 +131,9 @@ type Storage = {
 	secret: string;
 };
 
-const storageOf = (s: Widget["file_storage"]): Storage => ({
-	where: s?.provider ?? "mailroom",
+const storageOf = (s: Widget["file_storage"], links: Widget["file_links"]): Storage => ({
+	where: links ? "app" : (s?.provider ?? "mailroom"),
+	link_hosts: (links?.hosts ?? []).join("\n"),
 	account_id: s?.account_id ?? "",
 	endpoint: s?.provider === "other" ? (s.endpoint ?? "") : "",
 	region: s?.provider === "r2" ? "" : (s?.region ?? ""),
@@ -142,7 +145,7 @@ const storageOf = (s: Widget["file_storage"]): Storage => ({
 
 /** What saving sends: null back to Mailroom's, nothing when it never left it. */
 const storageInput = (x: Storage, had: boolean) =>
-	x.where === "mailroom"
+	x.where === "mailroom" || x.where === "app"
 		? had
 			? null
 			: undefined
@@ -156,6 +159,10 @@ const storageInput = (x: Storage, had: boolean) =>
 				access_key_id: x.access_key_id.trim(),
 				...(x.secret.trim() ? { secret_access_key: x.secret.trim() } : {}),
 			};
+
+/** The app's file links: on with their hosts, off (null) when it was on, else left alone. */
+const linksInput = (x: Storage, had: boolean) =>
+	x.where === "app" ? { hosts: lines(x.link_hosts) } : had ? null : undefined;
 
 const FILE_KIND_OPTIONS: [FileKind, string, string][] = [
 	["images", "Images", "PNG, JPG, GIF, WebP, HEIC"],
@@ -394,6 +401,7 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 						first_agent: v.first_agent === "none" ? null : v.first_agent,
 						agent_wait: Number(v.agent_wait) || 5,
 						file_storage: storageInput(v.storage, !!widget.file_storage),
+						file_links: linksInput(v.storage, !!widget.file_links),
 						retention_days: v.retention === "default" ? null : Number(v.retention),
 						identity_required: v.identity_required,
 						// A topic still without words isn't one.
@@ -2345,16 +2353,53 @@ function FileStorageFields({
 		<Field>
 			<FieldLabel>Where files are kept</FieldLabel>
 			<Choice
-				value={x.where === "mailroom" ? "mailroom" : "own"}
+				value={x.where === "mailroom" || x.where === "app" ? x.where : "own"}
 				onChange={(w) =>
-					put({ where: w === "own" ? (connected?.provider ?? "r2") : "mailroom" })
+					put({ where: w === "own" ? (connected?.provider ?? "r2") : (w as Where) })
 				}
 				options={[
 					["mailroom", "Mailroom"],
 					["own", "Your own bucket"],
+					["app", "Your app"],
 				]}
 			/>
-			{x.where === "mailroom" ? (
+			{x.where === "app" ? (
+				<div className="mt-1 flex flex-col gap-3 rounded-lg border border-border/70 p-3">
+					<FieldDescription>
+						Your app uploads each file itself (to its own storage) and gives the chat
+						its link; Mailroom keeps only the link. Mailroom never sees the file, so
+						checking what's inside is your app's job. Pages without the code below send
+						files to Mailroom as usual.
+					</FieldDescription>
+					<Field>
+						<FieldLabel htmlFor="fs-hosts">Links can be on</FieldLabel>
+						<Textarea
+							id="fs-hosts"
+							value={x.link_hosts}
+							onChange={(e) => put({ link_hosts: e.target.value })}
+							placeholder={"files.yourapp.com\nyour-bucket.s3.amazonaws.com"}
+							rows={2}
+						/>
+						<FieldDescription>
+							One host a line, each with its subdomains. Links elsewhere are refused,
+							so visitors can't pass off other sites as files. Use links that keep
+							working, or that go through your app (it checks who's signed in).
+						</FieldDescription>
+					</Field>
+					<CodeBlock
+						lang="js"
+						code={`<script>
+  window.MailroomChatSettings = {
+    // Upload the file your way; give back its link.
+    upload: async (file) => {
+      const { url } = await yourApp.uploadChatFile(file);
+      return { url };
+    },
+  };
+</script>`}
+					/>
+				</div>
+			) : x.where === "mailroom" ? (
 				<FieldDescription>
 					{connected
 						? "Saving moves new files back to Mailroom. Files already in your bucket stay there, but chats can't show them anymore."

@@ -2249,6 +2249,14 @@ function mailroomChat(c) {
 			.catch(() => file);
 	}
 
+	/** The website's own upload function (MailroomChat.upload or MailroomChatSettings.upload),
+	 * when this chat takes links: the app uploads the file itself and returns its link. */
+	function appUpload() {
+		if (!cfg.files || !cfg.files.links) return null;
+		var fn = (window.MailroomChat && window.MailroomChat.upload) || preset.upload;
+		return typeof fn === "function" ? fn : null;
+	}
+
 	function sendFile(file) {
 		if (!file || cfg.preview || needEmail()) return;
 		if (!cfg.files) return sayLocally(T("This chat doesn't take files."));
@@ -2274,10 +2282,29 @@ function mailroomChat(c) {
 			pending: true,
 		};
 		add(m);
-		var fd = new FormData();
-		fd.append("file", file);
-		fd.append("client_id", m.client_id);
-		api("POST", "/files", fd, true)
+		var hook = appUpload();
+		(hook
+			? // The website's app keeps the file (its own bucket) and gives back its link.
+				Promise.resolve()
+					.then(() => hook(file))
+					.then((got) => {
+						var link = typeof got === "string" ? got : got && got.url;
+						if (!link) throw new Error(T("Something went wrong"));
+						return api("POST", "/links", {
+							url: String(link),
+							filename: (got && (got.filename || got.name)) || file.name,
+							content_type: (got && got.content_type) || file.type,
+							size: file.size,
+							client_id: m.client_id,
+						});
+					})
+			: (() => {
+					var fd = new FormData();
+					fd.append("file", file);
+					fd.append("client_id", m.client_id);
+					return api("POST", "/files", fd, true);
+				})()
+		)
 			.then((r) => {
 				add(r.message);
 			})
@@ -2727,6 +2754,9 @@ function mailroomChat(c) {
 			setUnread(0);
 		},
 		unread: () => state.unread,
+		/** Set by the website to upload files itself: (file) => Promise<url | { url, filename? }>.
+		 * Used only when the chat takes file links from its hosts. */
+		upload: typeof preset.upload === "function" ? preset.upload : null,
 		/** The page's theme: "light", "dark", or null to follow the widget's setting. */
 		setTheme: (t) => {
 			pageTheme = t === "dark" || t === "light" ? t : null;

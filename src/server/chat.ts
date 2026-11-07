@@ -330,6 +330,11 @@ export const settingsInput = z.object({
 	agent_wait: z.number().int().min(1).max(120).optional(),
 	/** Files go to the website's own bucket (chat-storage.ts); null: back to Mailroom's. */
 	file_storage: fileStorageInput.nullable().optional(),
+	/** The website's app uploads files itself and sends their links, on these hosts; null: off. */
+	file_links: z
+		.object({ hosts: z.array(z.string().trim().max(253)).min(1).max(10) })
+		.nullable()
+		.optional(),
 });
 
 /** The agent that answers first must be one of the inbox's credentials that may send. */
@@ -429,6 +434,10 @@ export async function saveChatWidget(
 			: (existing?.file_kinds ?? DEFAULT_FILE_KINDS),
 		file_max_mb: v.file_max_mb ?? existing?.file_max_mb ?? 10,
 		file_storage,
+		file_links:
+			v.file_links === undefined
+				? (existing?.file_links ?? null)
+				: v.file_links && { hosts: linkHosts(v.file_links.hosts) },
 		identity_secret: existing?.identity_secret ?? null,
 		identity_required: v.identity_required ?? existing?.identity_required ?? false,
 		first_agent:
@@ -534,6 +543,8 @@ export const chatWidgetView = (w: ChatWidget) => ({
 	agent_wait: w.agent_wait,
 	/** The website's own bucket the files go to (null: Mailroom's); never its secret. */
 	file_storage: fileStorageView(w.file_storage ?? null),
+	/** The website's app uploads files and sends their links, on these hosts (null: off). */
+	file_links: w.file_links ?? null,
 	/** Identity verification: whether the secret exists (never its value) and is required. */
 	identity: { configured: !!w.identity_secret, required: w.identity_required },
 	snippet: snippetFor(w),
@@ -1296,6 +1307,84 @@ export async function visitorSendsFile(
 	);
 }
 
+/** Hosts links may be on: hostnames (each with its subdomains), never an address or localhost. */
+function linkHosts(list: string[]) {
+	return [
+		...new Set(
+			list.map((x) => {
+				const h = originHost(x);
+				if (!h || !h.includes(".") || /^[\d.]+$/.test(h) || h.includes(":"))
+					throw validation(`file_links.hosts: "${x}" isn't a website address`);
+				return h;
+			}),
+		),
+	];
+}
+
+const LINK_TYPES_BY_EXT: Record<string, string> = Object.fromEntries(
+	Object.entries(FILE_TYPES).map(([type, ext]) => [ext, type]),
+);
+
+/**
+ * A visitor's file the website's app uploaded itself: only its link is kept (https, on one of
+ * the chat's link hosts), with the kinds and size the chat takes. Mailroom never has its bytes,
+ * so checking what's inside is the app's job.
+ */
+export async function visitorSendsLink(chat: VisitorChat, raw: unknown, o: { now?: number } = {}) {
+	const now = o.now ?? Date.now();
+	const w = chat.widget;
+	if (!w.files_enabled) throw new ApiError(422, "files_off", "This chat doesn't take files.");
+	const hosts = w.file_links?.hosts ?? [];
+	if (!hosts.length) throw new ApiError(422, "links_off", "This chat doesn't take file links.");
+	const v = z
+		.object({
+			url: z.string().trim().max(2000),
+			filename: z.string().trim().max(300).optional(),
+			content_type: z.string().trim().max(200).optional(),
+			size: z.number().int().min(0).max(1e10).optional(),
+			client_id: z.string().max(80).nullish(),
+		})
+		.parse(raw ?? {});
+	let url: URL;
+	try {
+		url = new URL(v.url);
+	} catch {
+		throw validation("url: not a link");
+	}
+	const host = url.hostname.toLowerCase();
+	if (url.protocol !== "https:" || url.username || url.password)
+		throw validation("url: an https link, please");
+	if (!hosts.some((h) => host === h || host.endsWith(`.${h}`)))
+		throw new ApiError(422, "link_host", "That link isn't on one of this chat's file hosts");
+	const fromPath = decodeURIComponent(url.pathname.split("/").pop() ?? "");
+	const name = (v.filename || fromPath || "file")
+		.replace(/[\\/\0\r\n"]/g, "_")
+		.trim()
+		.slice(0, 150);
+	const ext = lower(name.split(".").pop() ?? "");
+	const given = lower((v.content_type ?? "").split(";")[0] ?? "");
+	const type = FILE_TYPES[given] ? given : (LINK_TYPES_BY_EXT[ext] ?? given);
+	const kinds = fileKindsOf(w);
+	if (!typesFor(kinds).has(type))
+		throw new ApiError(422, "file_kind", `This chat takes ${kindsText(kinds)}.`);
+	if ((v.size ?? 0) > w.file_max_mb * 1024 * 1024)
+		throw new ApiError(413, "too_large", `Files up to ${w.file_max_mb} MB, please.`);
+	await checkVisitorRate(chat.conversation.id, now);
+	const a: ChatAttachment = {
+		id: crypto.randomUUID(),
+		filename: name || `file.${FILE_TYPES[type]}`,
+		content_type: type,
+		size: v.size ?? 0,
+		key: "",
+		url: url.toString(),
+	};
+	return postVisitorLine(
+		chat,
+		{ text: "", client_id: v.client_id ?? null, via: "widget", attachments: [a] },
+		{ now },
+	);
+}
+
 const FILE_TTL_S = 7 * 86_400;
 
 /** A file's link (signed; a week): /chat/files/<line>/<file>/<expires>/<signature>. */
@@ -1310,7 +1399,8 @@ const linkExpiry = (now: number) => (Math.floor(now / 1000 / FILE_TTL_S) + 2) * 
 async function linkKey(line: ChatLine, now: number) {
 	const out = new Map<string, string>();
 	const exp = linkExpiry(now);
-	for (const a of line.attachments ?? []) out.set(a.id, await fileUrl(line.id, a.id, exp));
+	for (const a of line.attachments ?? [])
+		out.set(a.id, a.url ?? (await fileUrl(line.id, a.id, exp)));
 	return out;
 }
 
@@ -1328,6 +1418,8 @@ export async function serveChatFile(path: string, now = Date.now()): Promise<Res
 	if (diff) return gone;
 	const line = await db.select().from(cm).where(eq(cm.id, lineId)).get();
 	const meta = line?.attachments?.find((a) => a.id === fileId);
+	// A link the website's app sent: the file is there.
+	if (meta?.url) return Response.redirect(meta.url, 302);
 	const inboxId = meta?.place
 		? ((
 				await db
@@ -2367,7 +2459,8 @@ export async function deleteChatFiles(conversationIds: string[]) {
 			and(inArray(cm.conversation_id, conversationIds), sql`${cm.attachments} IS NOT NULL`),
 		);
 	const all = rows.flatMap((r) => (r.attachments ?? []).map((a) => ({ a, inbox: r.inbox })));
-	const keys = all.filter((x) => !x.a.place).map((x) => x.a.key);
+	// A link's file is the app's (nothing here to delete).
+	const keys = all.filter((x) => !x.a.place && !x.a.url && x.a.key).map((x) => x.a.key);
 	for (let i = 0; i < keys.length; i += 500) await store?.delete(keys.slice(i, i + 500));
 	// Files in a chat's own bucket go from there (while it's still the bucket they're in).
 	const byInbox = new Map<string | null, ChatAttachment[]>();

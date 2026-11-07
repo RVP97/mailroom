@@ -25,6 +25,7 @@ import {
 	visitorRates,
 	visitorSays,
 	visitorSendsFile,
+	visitorSendsLink,
 	widgetByKey,
 } from "./chat";
 import { chatRoom } from "./chat-room";
@@ -44,6 +45,8 @@ import { ApiError } from "./errors";
  *   GET  /chat/<key>/messages      the chat (?after=<line id>)
  *   POST /chat/<key>/messages      a message
  *   POST /chat/<key>/files         a file (multipart "file")
+ *   POST /chat/<key>/links         a file the website's app uploaded itself: { url, filename,
+ *                                  content_type, size } (only on the chat's link hosts)
  *   POST /chat/<key>/profile       name and email (or the website's signed identity)
  *   POST /chat/<key>/identify      the website's signed identity → the person's chat, any browser
  *   POST /chat/<key>/seen          the visitor has it in front of them
@@ -211,6 +214,14 @@ export async function handleChat(request: Request, now = Date.now()): Promise<Re
 					},
 					{ client_id: (form?.get("client_id") as string | null) ?? null, now },
 				);
+				return json(
+					{ message: (await linesFor("visitor", [line], now))[0] },
+					{ status: 201, headers },
+				);
+			}
+			case "POST links": {
+				const chat = await need(key, request);
+				const line = await visitorSendsLink(chat, await readJson(request), { now });
 				return json(
 					{ message: (await linesFor("visitor", [line], now))[0] },
 					{ status: 201, headers },
@@ -472,6 +483,8 @@ export async function publicConfig(w: NonNullable<Awaited<ReturnType<typeof widg
 					accept: acceptFor(fileKindsOf(w.widget)),
 					max_mb: w.widget.file_max_mb,
 					kinds: fileKindsOf(w.widget),
+					// The website's app may upload files itself and send their links.
+					links: !!w.widget.file_links?.hosts.length,
 				}
 			: null,
 	};
