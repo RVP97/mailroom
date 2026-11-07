@@ -75,6 +75,7 @@ function mailroomChat(c) {
 		"Start a new chat": "Empezar otro chat",
 		"End chat": "Terminar el chat",
 		"Hide chat": "Ocultar el chat",
+		"Minimize chat": "Minimizar el chat",
 		"More options": "Más opciones",
 		"Download transcript": "Descargar la conversación",
 		"Past conversations": "Conversaciones anteriores",
@@ -773,7 +774,8 @@ function mailroomChat(c) {
 		h("button", {
 			class: "hb",
 			type: "button",
-			"aria-label": T("Close chat"),
+			"aria-label": T("Minimize chat"),
+			title: T("Minimize chat"),
 			html: svg(ICON.down, 22),
 			onclick: () => {
 				closePanel();
@@ -1802,9 +1804,6 @@ function mailroomChat(c) {
 
 	function closePanel() {
 		if (!state.open) return;
-		// Nothing to come back to (no chat, or it ended): the bubble goes too.
-		if (cfg.launcher === "auto" && (!state.conversation || ended()) && !stored.hidden)
-			stored = save({ hidden: true });
 		state.open = false;
 		root.className = rootClass();
 		root.classList.remove("open");
