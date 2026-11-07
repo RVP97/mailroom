@@ -86,6 +86,14 @@ function mailroomChat(c) {
 		You: "Usted",
 		Conversation: "Conversación",
 		"New conversation": "Nueva conversación",
+		Seen: "Visto",
+		"Replies in a few minutes": "Responde en unos minutos",
+		"Replies in under an hour": "Responde en menos de una hora",
+		"Replies in a few hours": "Responde en unas horas",
+		"Replies within a day": "Responde en un día",
+		"Back today at {t}": "Volvemos hoy a las {t}",
+		"Back tomorrow at {t}": "Volvemos mañana a las {t}",
+		"Back {day} at {t}": "Volvemos el {day} a las {t}",
 	};
 	/** The server's errors, by code (its messages are in English). */
 	var ES_ERRORS = {
@@ -330,7 +338,8 @@ function mailroomChat(c) {
 			".logo{width:40px;height:40px;border-radius:12px;background:rgba(255,255,255,.18);display:grid;place-items:center;font-weight:700;font-size:17px;flex:none;overflow:hidden}" +
 			".logo img{width:100%;height:100%;object-fit:cover}" +
 			".ht{min-width:0;flex:1}.ht b{display:block;font-size:16px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.005em}.ht small{display:flex;align-items:center;gap:6px;font-size:13px;opacity:.85;white-space:nowrap;overflow:hidden;padding:2px 0 2px 2px}.ht small span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis}" +
-			".dot{width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 2px rgba(255,255,255,.35);flex:none}" +
+			".dot{width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 2px rgba(255,255,255,.35);flex:none}.dot.off{background:#9ca3af}" +
+			".head.faces .logo{display:none}.team{display:flex;flex:none;padding-left:10px}.team .av{width:34px;height:34px;margin-left:-10px;font-size:13px;background:color-mix(in srgb,var(--on-accent) 22%,var(--accent));color:var(--on-accent);box-shadow:0 0 0 2px var(--accent)}" +
 			".hb{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;color:inherit;opacity:.9;flex:none}.hb:hover{background:rgba(255,255,255,.16);opacity:1}" +
 			".menu{position:absolute;top:64px;" +
 			(side === "right" ? "right" : "left") +
@@ -525,7 +534,8 @@ function mailroomChat(c) {
 			out +=
 				".head{background:var(--panel);color:var(--text);border-bottom:1px solid var(--line)}" +
 				".head .logo{background:var(--accent);color:var(--on-accent)}" +
-				".head .hb:hover{background:var(--soft)}.head .dot{box-shadow:0 0 0 2px var(--panel)}";
+				".head .hb:hover{background:var(--soft)}.head .dot{box-shadow:0 0 0 2px var(--panel)}" +
+				".head .team .av{background:var(--soft2);color:var(--text);box-shadow:0 0 0 2px var(--panel)}";
 		// The conversation's background.
 		var tint = "rgba(" + rgb(cfg.color) + ",";
 		if (cfg.background === "tint")
@@ -721,10 +731,11 @@ function mailroomChat(c) {
 		else el.textContent = initial(cfg.title);
 		return el;
 	}
-	var statusLine = h("small", null, [
-		h("span", { class: "dot", "aria-hidden": "true" }),
-		h("span", { text: cfg.subtitle || "" }),
-	]);
+	var statusDot = h("span", { class: "dot", "aria-hidden": "true" });
+	var statusText = h("span");
+	var statusLine = h("small", null, [statusDot, statusText]);
+	// Who answers here: up to three faces in the header.
+	var teamEl = h("div", { class: "team", "aria-hidden": "true" });
 	var menu = h("div", { class: "menu", role: "menu" });
 	var menuBtn = h("button", {
 		class: "hb",
@@ -740,7 +751,8 @@ function mailroomChat(c) {
 	});
 	var head = h("div", { class: "head" }, [
 		logoEl("logo"),
-		h("div", { class: "ht" }, [h("b", { text: cfg.title }), cfg.subtitle ? statusLine : null]),
+		teamEl,
+		h("div", { class: "ht" }, [h("b", { text: cfg.title }), statusLine]),
 		menuBtn,
 		h("button", {
 			class: "hb",
@@ -812,6 +824,97 @@ function mailroomChat(c) {
 			"{x}",
 			retentionText(cfg.retention),
 		);
+	// ── The header: who answers, how soon, and whether you're open ─────────────
+
+	var REPLY = {
+		minutes: "Replies in a few minutes",
+		hour: "Replies in under an hour",
+		hours: "Replies in a few hours",
+		day: "Replies within a day",
+	};
+	/** The wall clock in a time zone: weekday (0 Sunday) and minutes since midnight. */
+	function zoneParts(at, tz) {
+		var parts;
+		try {
+			parts = new Intl.DateTimeFormat("en-US", {
+				timeZone: tz,
+				weekday: "short",
+				hour: "2-digit",
+				minute: "2-digit",
+				hourCycle: "h23",
+			}).formatToParts(new Date(at));
+		} catch (_) {
+			return null;
+		}
+		var get = (t) => {
+			for (var i = 0; i < parts.length; i++) if (parts[i].type === t) return parts[i].value;
+			return "";
+		};
+		return {
+			day: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(get("weekday")),
+			minutes: Number(get("hour")) * 60 + Number(get("minute")),
+		};
+	}
+	/** The inbox's business hours now: { open: true }, or when it opens next; null without them. */
+	function hoursNow() {
+		var hr = cfg.show_hours && cfg.hours;
+		if (!hr || !hr.days || !hr.days.length) return null;
+		var mins = (s) => Number(String(s).slice(0, 2)) * 60 + Number(String(s).slice(3, 5));
+		var open = mins(hr.start);
+		var close = mins(hr.end);
+		var t = Date.now();
+		t -= t % 60000;
+		for (var i = 0; i < 16; i++) {
+			var l = zoneParts(t, hr.timezone);
+			if (!l) return null;
+			var workday = hr.days.indexOf(l.day) >= 0;
+			if (workday && l.minutes >= open && l.minutes < close)
+				return i === 0 ? { open: true } : { open: false, at: t };
+			if (!workday || l.minutes >= close) t += (1440 - l.minutes + open) * 60000;
+			else t += (open - l.minutes) * 60000;
+		}
+		return null;
+	}
+	/** "Back today at 9:00 AM", in the visitor's own time. */
+	function backText(at) {
+		var d = new Date(at);
+		var now = new Date();
+		var tomorrow = new Date();
+		tomorrow.setDate(now.getDate() + 1);
+		var t = fmtTime(at);
+		if (d.toDateString() === now.toDateString())
+			return T("Back today at {t}").replace("{t}", t);
+		if (d.toDateString() === tomorrow.toDateString())
+			return T("Back tomorrow at {t}").replace("{t}", t);
+		var day = d.toLocaleDateString(LANG === "es" ? "es-MX" : [], { weekday: "long" });
+		return T("Back {day} at {t}").replace("{day}", day).replace("{t}", t);
+	}
+	function renderStatus() {
+		var hs = hoursNow();
+		var away = !!(hs && !hs.open && hs.at);
+		var text = away
+			? backText(hs.at)
+			: cfg.reply_time === "auto" && (cfg.usual_reply || cfg.preview)
+				? T(REPLY[cfg.usual_reply] || REPLY.minutes)
+				: cfg.subtitle || "";
+		statusText.textContent = text;
+		statusDot.classList.toggle("off", away);
+		statusLine.style.display = text ? "" : "none";
+	}
+	function renderTeam() {
+		teamEl.textContent = "";
+		var people = cfg.team || [];
+		// The preview shows how it looks before anyone has answered a chat.
+		if (cfg.preview && !people.length)
+			people = [{ name: "Alex" }, { name: "Sam" }, { name: "Jo" }];
+		if (!cfg.show_team) people = [];
+		for (var i = 0; i < people.length && i < 3; i++)
+			teamEl.appendChild(faceEl(people[i].name, people[i].avatar));
+		teamEl.style.display = people.length ? "" : "none";
+		// The faces stand where the logo was.
+		head.classList.toggle("faces", people.length > 0);
+	}
+
 	function retentionText(days) {
 		if (days % 365 === 0) return days / 365 === 1 ? T("a year") : days / 365 + T(" years");
 		if (days % 30 === 0) return days / 30 === 1 ? T("a month") : days / 30 + T(" months");
@@ -846,8 +949,29 @@ function mailroomChat(c) {
 		return true;
 	}
 
+	/** Who wrote a team line: their photo, their initial, or the brand's logo. */
+	function faceEl(name, avatar) {
+		if (avatar) return h("div", { class: "av" }, [h("img", { src: avatar, alt: "" })]);
+		return name ? h("div", { class: "av", text: initial(name) }) : logoEl("av");
+	}
+
+	/** The visitor's last line, once someone on the team read it (before any answer). */
+	var seenId = null;
+	function seenLine() {
+		var at = state.conversation && state.conversation.team_seen_at;
+		for (var i = state.messages.length - 1; i >= 0; i--) {
+			var m = state.messages[i];
+			if (m.author === "system" || m.local) continue;
+			if (m.author !== "visitor") return null;
+			if (m.pending || m.failed) return null;
+			return at && m.at && at >= m.at ? m.id : null;
+		}
+		return null;
+	}
+
 	function render() {
 		list.textContent = "";
+		seenId = seenLine();
 		var msgs = state.messages.slice();
 		var g = greetingMessage();
 		if (g) msgs.unshift(g);
@@ -885,7 +1009,7 @@ function mailroomChat(c) {
 				var col = h("div", { class: "col" });
 				var av = null;
 				if (!mine) {
-					av = m.name ? h("div", { class: "av", text: initial(m.name) }) : logoEl("av");
+					av = faceEl(m.name, m.avatar);
 					col.appendChild(h("div", { class: "name", text: m.name || cfg.title }));
 				}
 				grp = h("div", { class: "grp" + (mine ? " me" : "") }, [av, col]);
@@ -957,7 +1081,11 @@ function mailroomChat(c) {
 				}),
 			]);
 		if (m.pending) return h("div", { class: "meta", text: T("Sending…") });
-		return m.at ? h("div", { class: "meta", text: fmtTime(m.at) }) : null;
+		if (!m.at) return null;
+		return h("div", {
+			class: "meta",
+			text: fmtTime(m.at) + (m.id === seenId ? " · " + T("Seen") : ""),
+		});
 	}
 
 	function renderTyping() {
@@ -966,7 +1094,7 @@ function mailroomChat(c) {
 		var who = state.typing.name;
 		typingRow.appendChild(
 			h("div", { class: "grp" }, [
-				who ? h("div", { class: "av", text: initial(who) }) : logoEl("av"),
+				faceEl(who, state.typing.avatar),
 				h("div", { class: "col" }, [
 					h("span", { class: "sr", text: (who || cfg.title) + " is typing" }),
 					h("div", { class: "typing", "aria-hidden": "true" }, [h("i"), h("i"), h("i")]),
@@ -1606,7 +1734,8 @@ function mailroomChat(c) {
 	function showNudge(m) {
 		if (state.open || cfg.preview) return;
 		nudgeAv.textContent = "";
-		if (m.name) nudgeAv.textContent = initial(m.name);
+		if (m.avatar) nudgeAv.appendChild(h("img", { src: m.avatar, alt: "" }));
+		else if (m.name) nudgeAv.textContent = initial(m.name);
 		else {
 			var l = logoEl("av");
 			nudgeAv.appendChild(l.firstChild || document.createTextNode(initial(cfg.title)));
@@ -1973,7 +2102,10 @@ function mailroomChat(c) {
 	/** After the first message: the away note when nobody's connected, then the email card. */
 	function afterFirst() {
 		setTimeout(() => {
-			if (state.awayShown || !cfg.away || teamOnline) return;
+			// Outside business hours it's said even when someone happens to be here.
+			var hs = hoursNow();
+			var closed = !!(hs && !hs.open && hs.at);
+			if (state.awayShown || !cfg.away || (teamOnline && !closed)) return;
 			state.awayShown = true;
 			var has = state.messages.some((x) => x.author !== "visitor");
 			if (!has)
@@ -1981,7 +2113,7 @@ function mailroomChat(c) {
 					id: "away",
 					local: true,
 					author: "system",
-					text: cfg.away,
+					text: closed ? cfg.away + " " + backText(hs.at) + "." : cfg.away,
 					files: [],
 					at: new Date().toISOString(),
 				});
@@ -2197,7 +2329,7 @@ function mailroomChat(c) {
 				}
 				save({ last: Date.now() });
 			} else if (ev.type === "typing" && ev.role === "team") {
-				state.typing = ev.on ? { name: ev.name } : null;
+				state.typing = ev.on ? { name: ev.name, avatar: ev.avatar || null } : null;
 				renderTyping();
 				if (ev.on) scrollDown();
 				clearTimeout(state.typingTimer);
@@ -2215,6 +2347,9 @@ function mailroomChat(c) {
 					syncMenu();
 					scrollDown();
 				}
+			} else if (ev.type === "team_seen" && state.conversation) {
+				state.conversation.team_seen_at = ev.at;
+				if (seenLine() !== seenId) render();
 			} else if (ev.type === "visitor" && state.conversation) {
 				state.conversation.visitor = ev.visitor;
 				renderCards();
@@ -2307,10 +2442,8 @@ function mailroomChat(c) {
 		var sheet = css(cfg);
 		if (style.textContent !== sheet) style.textContent = sheet;
 		head.querySelector(".ht b").textContent = cfg.title;
-		var small = head.querySelector(".ht small span:last-child");
-		if (small) small.textContent = cfg.subtitle || "";
-		var hs = head.querySelector(".ht small");
-		if (hs) hs.style.display = cfg.subtitle ? "" : "none";
+		renderStatus();
+		renderTeam();
 		var lg = head.querySelector(".logo");
 		var nl = logoEl("logo");
 		if (lg && !lg.isEqualNode(nl)) lg.replaceWith(nl);
@@ -2392,6 +2525,10 @@ function mailroomChat(c) {
 	function mount() {
 		if (!document.body) return setTimeout(mount, 50);
 		document.body.appendChild(host);
+		renderStatus();
+		renderTeam();
+		// Opening and closing time come round while the page is open.
+		setInterval(renderStatus, 60000);
 		render();
 		setComposer();
 		if (cfg.preview) {

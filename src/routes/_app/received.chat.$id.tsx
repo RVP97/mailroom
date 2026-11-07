@@ -310,6 +310,7 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 				offset_x: v.design.offset_x,
 				offset_y: v.design.offset_y,
 				retention: v.design.show_retention && retentionDays > 0 ? retentionDays : null,
+				hours: data.hours,
 				files:
 					v.files_enabled && v.file_kinds.length
 						? {
@@ -488,6 +489,8 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 									look={look}
 									defaults={data.defaults}
 									brand={data.brand_name}
+									inboxId={data.inbox.id}
+									hasHours={!!data.hours}
 								/>
 							</TabsContent>
 							<TabsContent value="settings">
@@ -1304,11 +1307,15 @@ function MessagesPanel({
 	look,
 	defaults,
 	brand,
+	inboxId,
+	hasHours,
 }: {
 	v: Fields;
 	look: (x: Partial<Design>) => void;
 	defaults: Data["defaults"];
 	brand: string;
+	inboxId: string;
+	hasHours: boolean;
 }) {
 	const d = v.design;
 	return (
@@ -1325,16 +1332,52 @@ function MessagesPanel({
 					/>
 				</Field>
 				<Field>
-					<FieldLabel htmlFor="chat-subtitle">Under it</FieldLabel>
+					<FieldLabel>Under it</FieldLabel>
+					<Choice
+						value={d.reply_time ?? "text"}
+						onChange={(reply_time) => look({ reply_time })}
+						options={[
+							["text", "Your words"],
+							["auto", "Your usual reply time"],
+						]}
+					/>
 					<Input
 						id="chat-subtitle"
+						aria-label="Under the title"
 						maxLength={120}
 						placeholder={defaults.subtitle ?? ""}
 						value={d.subtitle ?? ""}
 						onChange={(e) => look({ subtitle: e.target.value || null })}
 					/>
-					<FieldDescription>When you usually answer, or anything short.</FieldDescription>
+					<FieldDescription>
+						{d.reply_time === "auto"
+							? "Worked out from the last 30 days of chats (“Replies in a few minutes”). Your words show until there are a few."
+							: "When you usually answer, or anything short."}
+					</FieldDescription>
 				</Field>
+				<SwitchRow
+					label="Show who answers"
+					hint="The faces of the last three people who answered a chat here: their first name and sign-in photo."
+					checked={!!d.show_team}
+					onChange={(show_team) => look({ show_team })}
+				/>
+				<SwitchRow
+					label="Say when you're closed"
+					hint={
+						hasHours
+							? "Outside your business hours it says “Back tomorrow at 9:00 AM”, in the visitor's own time, and so does the note after their first message."
+							: "Set your business hours in the inbox's workflow first."
+					}
+					checked={!!d.show_hours}
+					onChange={(show_hours) => look({ show_hours })}
+				/>
+				<Link
+					to="/received/workflow/$id"
+					params={{ id: inboxId }}
+					className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+				>
+					{hasHours ? "Change your business hours" : "Set your business hours"}
+				</Link>
 			</Group>
 			<Group title="The conversation">
 				<Field>

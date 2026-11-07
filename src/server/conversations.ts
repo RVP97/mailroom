@@ -747,13 +747,13 @@ export async function getConversation(
 /** Marks the conversation read (or unread) for this reader only. */
 export async function markRead(
 	actor: InboxActor,
-	x: Pick<Conversation, "id">,
+	x: Pick<Conversation, "id"> & { channel?: string },
 	read: boolean,
 	now = Date.now(),
 ) {
 	if (!actor.reader) return;
 	const r = schema.conversationReads;
-	if (read)
+	if (read) {
 		await db
 			.insert(r)
 			.values({ conversation_id: x.id, reader: actor.reader, read_at: iso(now) })
@@ -761,7 +761,12 @@ export async function markRead(
 				target: [r.conversation_id, r.reader],
 				set: { read_at: iso(now) },
 			});
-	else {
+		// A chat's visitor sees "Seen" under their message.
+		if (x.channel === "chat") {
+			const { teamSaw } = await import("./chat");
+			await teamSaw(x.id, iso(now));
+		}
+	} else {
 		const mr = schema.messageReads;
 		await db.batch([
 			db.delete(r).where(and(eq(r.conversation_id, x.id), eq(r.reader, actor.reader))),

@@ -5,6 +5,7 @@ import {
 	CHAT_LIMITS,
 	chatLines,
 	chatState,
+	chatTeam,
 	designOf,
 	fileKindsOf,
 	identifyVisitor,
@@ -14,6 +15,7 @@ import {
 	originAllowed,
 	serveChatFile,
 	startChat,
+	usualReply,
 	type VisitorChat,
 	visitorChat,
 	visitorEnds,
@@ -338,6 +340,10 @@ export async function handleTeamLive(request: Request): Promise<Response> {
 						? ""
 						: ((session.user.name ?? "").trim().split(/\s+/)[0] ?? ""),
 				),
+				// Their photo, by "typing…" (like their lines).
+				"x-chat-avatar": /^https:\/\//.test(session.user.image ?? "")
+					? (session.user.image as string)
+					: "",
 				"x-chat-conversation": id,
 			},
 		}),
@@ -399,6 +405,7 @@ export async function publicConfig(w: NonNullable<Awaited<ReturnType<typeof widg
 	const { brandWidget } = await import("./turnstile");
 	const turnstile = await brandWidget(w.inbox.organization_id);
 	const days = w.inbox.retention_days ?? inboundRetentionDays();
+	const { settingsOf } = await import("./inbox-workflow");
 	return {
 		key: w.widget.public_key,
 		api: `${baseUrl()}/chat/${w.widget.public_key}`,
@@ -437,6 +444,13 @@ export async function publicConfig(w: NonNullable<Awaited<ReturnType<typeof widg
 		language: d.language,
 		ask_rating: d.ask_rating,
 		allow_end: d.allow_end,
+		show_team: d.show_team,
+		team: d.show_team ? await chatTeam(w.inbox.id) : [],
+		reply_time: d.reply_time,
+		usual_reply: d.reply_time === "auto" ? await usualReply(w.inbox.id) : null,
+		show_hours: d.show_hours,
+		// The inbox's business hours (its workflow): the widget works out "back at 9" itself.
+		hours: d.show_hours ? settingsOf(w.inbox).sla.business_hours : null,
 		identity_required: w.widget.identity_required,
 		retention: d.show_retention && days > 0 ? days : null,
 		turnstile: turnstile?.sitekey ?? null,

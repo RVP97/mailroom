@@ -14,6 +14,8 @@ interface Attached {
 	role: ChatRole;
 	/** Who it is, for "Ana is typing…" (a team member's first name; the visitor's own name). */
 	name: string;
+	/** A team member's photo (https), shown by "typing…". */
+	avatar?: string | null;
 	conversation: string;
 	/** A team member without emails:unmasked: runs of 4+ digits in text arrive as dots. */
 	masked?: boolean;
@@ -87,6 +89,10 @@ export class ChatRoom extends DurableObject {
 					return raw.slice(0, 80);
 				}
 			})(),
+			avatar: (() => {
+				const a = request.headers.get("x-chat-avatar") ?? "";
+				return role === "team" && /^https:\/\/\S{1,1000}$/.test(a) ? a : null;
+			})(),
 			conversation: request.headers.get("x-chat-conversation") ?? "",
 			masked: role === "team" && request.headers.get("x-chat-masked") !== "0",
 		};
@@ -142,6 +148,7 @@ export class ChatRoom extends DurableObject {
 				type: "typing",
 				role: me.role,
 				name: me.name || null,
+				...(me.avatar ? { avatar: me.avatar } : {}),
 				on: m.on === true,
 				// The team sees what the visitor is writing as they write it (Intercom-style).
 				...(me.role === "visitor" && typeof m.text === "string"

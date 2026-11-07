@@ -842,3 +842,72 @@ describe("website chat: ending, rating and past chats", () => {
 		});
 	});
 });
+
+describe("website chat: who answers, and when", () => {
+	it("tells the visitor when the team has read their message, and shows the replier's photo", async () => {
+		const { org, widget } = await setUp();
+		const chat = await start(widget.public_key);
+		const before = await call(widget.public_key, "messages", { token: chat.token });
+		expect(before.json.conversation.team_seen_at).toBeNull();
+		const pat = person(org.id);
+		await db.insert(schema.user).values({
+			id: pat.id,
+			name: "Pat Rivera",
+			email: `pat-${uid()}@acme-hotel.test`,
+			emailVerified: true,
+			image: "https://photos.example/pat.jpg",
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		});
+		const { updateConversation } = await import("@/server/conversations");
+		await updateConversation(pat, chat.conversation.id, { read: true });
+		const after = await call(widget.public_key, "messages", { token: chat.token });
+		expect(after.json.conversation.team_seen_at).toBeTruthy();
+		await sendReply(pat, chat.conversation.id, { text: "Hello!" }, noEmail);
+		const lines = await call(widget.public_key, "messages", { token: chat.token });
+		expect(lines.json.messages.at(-1)).toMatchObject({
+			name: "Pat",
+			avatar: "https://photos.example/pat.jpg",
+		});
+		const { chatTeam } = await import("@/server/chat");
+		expect(await chatTeam(widget.inbox_id)).toEqual([
+			{ name: "Pat", avatar: "https://photos.example/pat.jpg" },
+		]);
+	});
+
+	it("works out the usual reply time and passes the business hours to the widget", async () => {
+		const { inbox, widget } = await setUp();
+		const { usualReply } = await import("@/server/chat");
+		expect(await usualReply(inbox.id)).toBeNull();
+		const at = Date.now() - 3600_000;
+		for (const mins of [2, 5, 40]) {
+			const chat = await start(widget.public_key);
+			await db
+				.update(schema.conversations)
+				.set({
+					created_at: new Date(at).toISOString(),
+					first_reply_at: new Date(at + mins * 60_000).toISOString(),
+				})
+				.where(eq(schema.conversations.id, chat.conversation.id));
+		}
+		expect(await usualReply(inbox.id)).toBe("minutes");
+		const { updateSettings } = await import("@/server/inbox-workflow");
+		await updateSettings(inbox, {
+			sla: {
+				business_hours: {
+					timezone: "America/Mexico_City",
+					days: [1, 2, 3],
+					start: "09:00",
+					end: "18:00",
+				},
+			},
+		});
+		await saveChatWidget(inbox, { design: { reply_time: "auto" } }, { userId: null });
+		const res = await handleChat(
+			new Request(`https://mailroom.test/chat/${widget.public_key}.js`),
+		);
+		const js = await res.text();
+		expect(js).toContain('"usual_reply":"minutes"');
+		expect(js).toContain('"hours":{"timezone":"America/Mexico_City"');
+	});
+});

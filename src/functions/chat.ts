@@ -69,6 +69,9 @@ export const getChatSettingsFn = createServerFn({ method: "GET" })
 					domains: turnstile?.domains ?? [],
 				},
 				defaults: chat.DESIGN_DEFAULTS,
+				/** The inbox's business hours (its workflow), for "Back at 9" in the widget. */
+				hours: (await import("@/server/inbox-workflow")).settingsOf(inbox).sla
+					.business_hours,
 				me: context.email,
 				base: baseUrl(),
 			};

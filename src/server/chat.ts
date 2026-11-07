@@ -165,6 +165,13 @@ export const chatDesign = z.object({
 	ask_rating: z.boolean().optional(),
 	/** The visitor may end the chat themselves (the ⋯ menu). */
 	allow_end: z.boolean().optional(),
+	/** The header shows the faces of who answers here (first names and photos, up to three). */
+	show_team: z.boolean().optional(),
+	/** Under the title: the subtitle as written, or the usual reply time worked out from the
+	 * inbox's chats ("Usually replies in a few minutes"). */
+	reply_time: z.enum(["text", "auto"]).optional(),
+	/** Outside the inbox's business hours (its workflow), say so and when you're back. */
+	show_hours: z.boolean().optional(),
 });
 export type ChatDesign = z.infer<typeof chatDesign>;
 
@@ -205,6 +212,9 @@ export const DESIGN_DEFAULTS: Required<{
 	language: "en",
 	ask_rating: true,
 	allow_end: true,
+	show_team: true,
+	reply_time: "text",
+	show_hours: true,
 };
 
 /** The default texts of a chat in Spanish (design.language "es"). */
@@ -1205,8 +1215,31 @@ const firstName = (name: string | null) => {
 	return first?.includes("@") ? null : first;
 };
 
-/** What the visitor sees of a line: the team's first names, never ids or how it was sent. */
-export const visitorView = (line: ChatLine, links: Map<string, string>) => ({
+/** The team's photos (their sign-in picture), by user id, for the visitor's view. */
+async function facesFor(lines: Pick<ChatLine, "author" | "author_id">[]) {
+	const ids = [
+		...new Set(
+			lines.flatMap((l) => (l.author === "person" && l.author_id ? [l.author_id] : [])),
+		),
+	];
+	const out = new Map<string, string>();
+	if (!ids.length) return out;
+	const rows = await db
+		.select({ id: schema.user.id, image: schema.user.image })
+		.from(schema.user)
+		.where(inArray(schema.user.id, ids));
+	for (const r of rows) if (r.image && /^https:\/\//.test(r.image)) out.set(r.id, r.image);
+	return out;
+}
+
+/** What the visitor sees of a line: the team's first names and photos, never ids or how it was sent. */
+export const visitorView = (
+	line: ChatLine,
+	links: Map<string, string>,
+	faces?: Map<string, string>,
+) => ({
+	avatar:
+		line.author === "person" && line.author_id ? (faces?.get(line.author_id) ?? null) : null,
 	id: line.id,
 	author: line.author === "visitor" ? "visitor" : line.author === "system" ? "system" : "team",
 	name:
@@ -1279,7 +1312,8 @@ export async function chatLines(
 
 /** Lines as the visitor sees them (the widget). */
 export async function linesFor(_view: "visitor", lines: ChatLine[], now = Date.now()) {
-	return Promise.all(lines.map(async (l) => visitorView(l, await linkKey(l, now))));
+	const faces = await facesFor(lines);
+	return Promise.all(lines.map(async (l) => visitorView(l, await linkKey(l, now), faces)));
 }
 
 /** Lines as the team sees them (the dashboard, the API). */
@@ -1289,9 +1323,17 @@ export async function teamLines(lines: ChatLine[], now = Date.now()) {
 
 /** The team's last line the visitor has seen, for "Seen" under it. */
 export async function chatState(x: Conversation) {
+	const r = schema.conversationReads;
+	const seen = await db
+		.select({ at: sql<string | null>`max(${r.read_at})` })
+		.from(r)
+		.where(eq(r.conversation_id, x.id))
+		.get();
 	return {
 		id: x.id,
 		status: x.status as "open" | "resolved",
+		/** When someone on the team last read it ("Seen" under the visitor's lines before it). */
+		team_seen_at: seen?.at ?? null,
 		ended_at: x.status === "resolved" ? x.resolved_at : null,
 		/** The visitor's own rating of it (1-5), once they gave one. */
 		rating: x.csat_rating ?? null,
@@ -1386,7 +1428,7 @@ export async function teamSays(
 	const links = await linkKey(line, now);
 	await pushToRoom(
 		x.id,
-		{ type: "message", message: visitorView(line, links) },
+		{ type: "message", message: visitorView(line, links, await facesFor([line])) },
 		{ type: "message", message: teamView(line, links) },
 	);
 	await pushToRoom(x.id, { type: "typing", role: "team", on: false });
@@ -1440,6 +1482,11 @@ export const lineAsReply = (line: ChatLine, x: Conversation) => ({
 	created_at: line.created_at,
 	updated_at: line.created_at,
 });
+
+/** Someone on the team read the chat: the visitor sees "Seen". */
+export async function teamSaw(conversationId: string, at: string) {
+	await pushToRoom(conversationId, { type: "team_seen", at });
+}
 
 /** Closing or reopening a chat: the widget shows it. */
 export async function chatStatusChanged(x: Pick<Conversation, "id" | "channel">, status: string) {
@@ -1987,6 +2034,59 @@ export async function chatStats(inboxId: string, now = Date.now()) {
 		.where(and(eq(c.inbox_id, inboxId), eq(c.channel, "chat")))
 		.get();
 	return { month: row?.month ?? 0, open: row?.open ?? 0, today: row?.today ?? 0 };
+}
+
+/**
+ * Who answers here, for the widget's header: the people who wrote in the inbox's chats lately
+ * (newest first, up to three), by first name and sign-in photo. Nobody else is shown.
+ */
+export async function chatTeam(inboxId: string, now = Date.now()) {
+	const rows = await db
+		.select({ id: cm.author_id, name: cm.author_name })
+		.from(cm)
+		.where(
+			and(
+				eq(cm.inbox_id, inboxId),
+				eq(cm.author, "person"),
+				gte(cm.created_at, iso(now - 90 * 86_400_000)),
+			),
+		)
+		.orderBy(desc(cm.created_at))
+		.limit(200);
+	const people: { id: string; name: string }[] = [];
+	for (const r of rows) {
+		const name = firstName(r.name);
+		if (!r.id || !name || people.some((p) => p.id === r.id)) continue;
+		people.push({ id: r.id, name });
+		if (people.length === 3) break;
+	}
+	const faces = await facesFor(people.map((p) => ({ author: "person", author_id: p.id })));
+	return people.map((p) => ({ name: p.name, avatar: faces.get(p.id) ?? null }));
+}
+
+/**
+ * How soon the inbox usually answers a chat (the median first reply of the last 30 days'
+ * chats): "minutes" (under 15), "hour", "hours" (under 6), "day"; null with too few to say.
+ */
+export async function usualReply(inboxId: string, now = Date.now()) {
+	const rows = await db
+		.select({
+			mins: sql<number>`(julianday(${c.first_reply_at}) - julianday(${c.created_at})) * 1440`,
+		})
+		.from(c)
+		.where(
+			and(
+				eq(c.inbox_id, inboxId),
+				eq(c.channel, "chat"),
+				gte(c.created_at, iso(now - 30 * 86_400_000)),
+				sql`${c.first_reply_at} is not null`,
+			),
+		)
+		.limit(500);
+	if (rows.length < 3) return null;
+	const sorted = rows.map((r) => Number(r.mins)).sort((a, b) => a - b);
+	const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+	return median < 15 ? "minutes" : median < 60 ? "hour" : median < 360 ? "hours" : "day";
 }
 
 export async function deleteChatFiles(conversationIds: string[]) {
