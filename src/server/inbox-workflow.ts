@@ -1248,6 +1248,8 @@ export interface RuleMessage {
 	created: boolean;
 	flags: MessageFlags | null;
 	at: number;
+	/** A website chat started from one of its topics: tagged, and given to someone. */
+	topic?: { tag?: string | null; assignee?: string | null } | null;
 }
 
 function test(
@@ -1355,6 +1357,19 @@ export async function onInbound(
 		const rules = (await listRules(inbox.id)).filter((r) => r.enabled);
 		const actor = await systemActor(x, inbox);
 		let assigned = false;
+		if (m.created && m.topic) {
+			if (m.topic.tag)
+				await runAction(actor, x, inbox, { type: "add_tag", value: m.topic.tag }, m, now);
+			if (m.topic.assignee)
+				assigned = await runAction(
+					actor,
+					x,
+					inbox,
+					{ type: "assign", value: m.topic.assignee },
+					m,
+					now,
+				);
+		}
 		for (const r of rules) {
 			if (!ruleMatches(r, m, s)) continue;
 			await db

@@ -393,6 +393,8 @@ function mailroomChat(c) {
 			".drop{position:absolute;inset:8px;border-radius:14px;border:2px dashed var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--panel));display:none;place-items:center;font-weight:600;color:var(--accent);z-index:3}.drop.on{display:grid}" +
 			".ts{margin:8px auto 0;display:none}.ts.on{display:block}" +
 			".sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}" +
+			// Topics
+			".topics{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin:12px 0 4px}.topic{padding:8px 14px;border-radius:999px;box-shadow:inset 0 0 0 1.5px var(--accent);color:var(--accent);font-weight:600;font-size:14px;background:var(--panel);transition:background .15s}.topic:hover{background:color-mix(in srgb,var(--accent) 10%,var(--panel))}" +
 			// A closed chat: the rating, and starting another
 			".endt{display:flex;gap:8px;align-items:center;font-weight:600;font-size:14.5px;margin-bottom:10px}.endt span{width:26px;height:26px;border-radius:50%;background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent);display:grid;place-items:center;flex:none}" +
 			".faces{display:flex;gap:6px;margin:2px 0 4px}.face{flex:1;height:44px;border-radius:12px;background:var(--soft);font-size:24px;line-height:1;display:grid;place-items:center;transition:transform .15s,background .15s}.face:hover{transform:scale(1.08);background:var(--soft2)}" +
@@ -1114,11 +1116,12 @@ function mailroomChat(c) {
 			cards.appendChild(endedCard());
 			return;
 		}
-		if (cfg.preview || verified()) return;
-		if (needEmail()) {
+		if (!cfg.preview && needEmail()) {
 			cards.appendChild(emailCard(true));
 			return;
 		}
+		if (showTopics()) cards.appendChild(topicsEl());
+		if (cfg.preview || verified()) return;
 		var visitorWrote = state.messages.some((m) => m.author === "visitor" && !m.failed);
 		if (cfg.ask_email !== "off" && visitorWrote && state.conversation) {
 			var email = state.conversation.visitor && state.conversation.visitor.email;
@@ -1215,6 +1218,35 @@ function mailroomChat(c) {
 				]),
 			]),
 		]);
+	}
+
+	// Topics: buttons under the greeting that start the chat with their words (the team's
+	// settings tag it and give it to someone).
+	function topicList() {
+		return (cfg.topics || []).filter((t) => t && String(t.label || "").trim());
+	}
+	function showTopics() {
+		if (!topicList().length || state.sending) return false;
+		if (cfg.preview) return !state.previewUsed;
+		return !state.conversation && !state.messages.some((m) => m.author === "visitor");
+	}
+	function topicsEl() {
+		return h(
+			"div",
+			{ class: "topics" },
+			(cfg.topics || []).map((t, i) =>
+				t && String(t.label || "").trim()
+					? h("button", {
+							type: "button",
+							class: "topic",
+							text: t.label,
+							onclick: () => {
+								send(t.label, i);
+							},
+						})
+					: null,
+			),
+		);
 	}
 
 	// A closed chat (by the team, or the visitor): how did it go, and another one. Writing again
@@ -2017,12 +2049,15 @@ function mailroomChat(c) {
 		);
 	}
 
-	function send(text) {
+	function send(text, topic) {
 		text = (text || "").trim();
 		if (!text || state.sending) return;
 		// Writing in a closed chat reopens it (the server does too).
 		if (ended()) state.conversation.status = "open";
-		if (cfg.preview) return previewSend(text);
+		if (cfg.preview) {
+			state.previewUsed = true;
+			return previewSend(text);
+		}
 		var m = {
 			id: "local-" + uuid(),
 			client_id: uuid(),
@@ -2031,6 +2066,7 @@ function mailroomChat(c) {
 			files: [],
 			at: new Date().toISOString(),
 			pending: true,
+			topic: topic == null ? undefined : topic,
 		};
 		add(m);
 		deliver(m);
@@ -2054,6 +2090,7 @@ function mailroomChat(c) {
 							email: stored.email || undefined,
 							name: stored.name || undefined,
 							identity: identity || undefined,
+							topic: m.topic,
 							page: location.href,
 						}),
 					),
@@ -2498,6 +2535,7 @@ function mailroomChat(c) {
 			// What the preview shows: the chat open, closed, or the greeting popped up.
 			if (e.data.type === "mailroom-chat-view" && e.data.view !== lastView) {
 				lastView = e.data.view;
+				state.previewUsed = false;
 				nudge.classList.remove("on");
 				// "ended": the chat closed, asking for the rating.
 				state.conversation =

@@ -851,7 +851,7 @@ describe("website chat: who answers, and when", () => {
 		expect(before.json.conversation.team_seen_at).toBeNull();
 		const pat = person(org.id);
 		await db.insert(schema.user).values({
-			id: pat.id,
+			id: pat.id as string,
 			name: "Pat Rivera",
 			email: `pat-${uid()}@acme-hotel.test`,
 			emailVerified: true,
@@ -909,5 +909,54 @@ describe("website chat: who answers, and when", () => {
 		const js = await res.text();
 		expect(js).toContain('"usual_reply":"minutes"');
 		expect(js).toContain('"hours":{"timezone":"America/Mexico_City"');
+	});
+});
+
+describe("website chat: topics", () => {
+	it("tags a chat started from a topic and gives it to its person, and shows only the words", async () => {
+		const { org, inbox, widget } = await setUp();
+		const ana = `user_${uid()}`;
+		await db.insert(schema.user).values({
+			id: ana,
+			name: "Ana Ruiz",
+			email: `ana-${uid()}@acme-hotel.test`,
+			emailVerified: true,
+			createdAt: new Date(),
+			updatedAt: new Date(),
+		});
+		const { orgOf } = await import("@/server/brands");
+		await db.insert(schema.member).values({
+			id: uid(),
+			organizationId: await orgOf(org.id),
+			userId: ana,
+			role: "member",
+			createdAt: new Date(),
+		});
+		await saveChatWidget(
+			inbox,
+			{
+				design: {
+					topics: [
+						{ label: "Booking", tag: "booking" },
+						{ label: "Billing", tag: "billing", assignee: `user:${ana}` },
+					],
+				},
+			},
+			{ userId: null },
+		);
+		const res = await handleChat(
+			new Request(`https://mailroom.test/chat/${widget.public_key}.js`),
+		);
+		const js = await res.text();
+		expect(js).toContain('"topics":[{"label":"Booking"},{"label":"Billing"}]');
+		expect(js).not.toContain(ana);
+		const chat = await start(widget.public_key, "Billing", { topic: 1 });
+		const row = await db
+			.select()
+			.from(schema.conversations)
+			.where(eq(schema.conversations.id, chat.conversation.id))
+			.get();
+		expect(row?.tags).toContain("billing");
+		expect(row?.assignee).toBe(`user:${ana}`);
 	});
 });

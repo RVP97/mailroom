@@ -12,6 +12,7 @@ import {
 	MessageSquareText,
 	Monitor,
 	Moon,
+	Plus,
 	ShieldCheck,
 	ShieldOff,
 	Smartphone,
@@ -345,7 +346,11 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 						file_max_mb: Number(v.file_max_mb) || 10,
 						retention_days: v.retention === "default" ? null : Number(v.retention),
 						identity_required: v.identity_required,
-						design: v.design,
+						// A topic still without words isn't one.
+						design: {
+							...v.design,
+							topics: (v.design.topics ?? []).filter((t) => t.label.trim()),
+						},
 					},
 				},
 			});
@@ -491,6 +496,7 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 									brand={data.brand_name}
 									inboxId={data.inbox.id}
 									hasHours={!!data.hours}
+									assignees={data.assignees}
 								/>
 							</TabsContent>
 							<TabsContent value="settings">
@@ -1309,6 +1315,7 @@ function MessagesPanel({
 	brand,
 	inboxId,
 	hasHours,
+	assignees,
 }: {
 	v: Fields;
 	look: (x: Partial<Design>) => void;
@@ -1316,8 +1323,12 @@ function MessagesPanel({
 	brand: string;
 	inboxId: string;
 	hasHours: boolean;
+	assignees: Data["assignees"];
 }) {
 	const d = v.design;
+	const topics = d.topics ?? [];
+	const setTopic = (i: number, x: Partial<(typeof topics)[number]>) =>
+		look({ topics: topics.map((t, j) => (j === i ? { ...t, ...x } : t)) });
 	return (
 		<>
 			<Group title="Header">
@@ -1416,6 +1427,84 @@ function MessagesPanel({
 						Shown after their first message when nobody on your team has the chat open.
 					</FieldDescription>
 				</Field>
+			</Group>
+			<Group title="Topics">
+				<p className="text-xs text-muted-foreground">
+					Buttons under the greeting, like “Booking” or “Billing”. One starts the chat
+					with its words, and can tag it and give it to someone. Visitors can still just
+					write.
+				</p>
+				{topics.map((t, i) => (
+					<div
+						key={i}
+						className="flex flex-col gap-2 rounded-md border border-border/80 p-2.5"
+					>
+						<div className="flex gap-2">
+							<Input
+								aria-label={`Topic ${i + 1}`}
+								placeholder="Booking"
+								maxLength={60}
+								value={t.label}
+								onChange={(e) => setTopic(i, { label: e.target.value })}
+							/>
+							<Button
+								variant="ghost"
+								size="icon"
+								aria-label={`Remove topic ${i + 1}`}
+								onClick={() => look({ topics: topics.filter((_, j) => j !== i) })}
+							>
+								<Trash2 className="size-4" />
+							</Button>
+						</div>
+						<div className="grid grid-cols-2 gap-2">
+							<Input
+								aria-label={`Topic ${i + 1}'s tag`}
+								placeholder="Tag (optional)"
+								maxLength={40}
+								value={t.tag ?? ""}
+								onChange={(e) => setTopic(i, { tag: e.target.value || null })}
+							/>
+							<Select
+								value={t.assignee ?? "none"}
+								onValueChange={(x) =>
+									setTopic(i, { assignee: x === "none" ? null : x })
+								}
+							>
+								<SelectTrigger
+									className="w-full"
+									aria-label={`Who gets topic ${i + 1}`}
+								>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="none">Whoever's next</SelectItem>
+									{assignees.map((p) => (
+										<SelectItem
+											key={p.reader}
+											value={p.reader}
+										>
+											{p.type === "agent" && !/agent/i.test(p.name)
+												? `${p.name} (agent)`
+												: p.name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+					</div>
+				))}
+				{topics.length < 8 && (
+					<Button
+						variant="outline"
+						size="sm"
+						className="self-start"
+						onClick={() =>
+							look({ topics: [...topics, { label: "", tag: null, assignee: null }] })
+						}
+					>
+						<Plus className="size-4" /> Add a topic
+					</Button>
+				)}
 			</Group>
 		</>
 	);

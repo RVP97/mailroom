@@ -28,6 +28,8 @@ export const getChatSettingsFn = createServerFn({ method: "GET" })
 				throw new Response("Inbox not found", { status: 404 });
 			});
 			const chat = await import("@/server/chat");
+			const workflow = await import("@/server/inbox-workflow");
+			const { orgOf } = await import("@/server/brands");
 			const { baseUrl, inboundRetentionDays } = await import("@/server/env");
 			const { turnstileConfigured } = await import("@/server/turnstile");
 			const widget = await chat.getChatWidget(inbox.id);
@@ -70,8 +72,11 @@ export const getChatSettingsFn = createServerFn({ method: "GET" })
 				},
 				defaults: chat.DESIGN_DEFAULTS,
 				/** The inbox's business hours (its workflow), for "Back at 9" in the widget. */
-				hours: (await import("@/server/inbox-workflow")).settingsOf(inbox).sla
-					.business_hours,
+				hours: workflow.settingsOf(inbox).sla.business_hours,
+				/** Who a topic can give a chat to: people and the inbox's agents. */
+				assignees: (
+					await workflow.assignees(await orgOf(inbox.organization_id), inbox)
+				).map((p) => ({ reader: p.reader, name: p.name, type: p.type })),
 				me: context.email,
 				base: baseUrl(),
 			};

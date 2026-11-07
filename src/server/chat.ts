@@ -172,6 +172,18 @@ export const chatDesign = z.object({
 	reply_time: z.enum(["text", "auto"]).optional(),
 	/** Outside the inbox's business hours (its workflow), say so and when you're back. */
 	show_hours: z.boolean().optional(),
+	/** Buttons under the greeting ("Booking", "Billing"…): one starts the chat with its words,
+	 * tags it and gives it to someone (a reader from the inbox's assignees). */
+	topics: z
+		.array(
+			z.object({
+				label: shortText(60).min(1, "topics: each needs its words"),
+				tag: shortText(40).nullish(),
+				assignee: shortText(120).nullish(),
+			}),
+		)
+		.max(8)
+		.optional(),
 });
 export type ChatDesign = z.infer<typeof chatDesign>;
 
@@ -215,6 +227,7 @@ export const DESIGN_DEFAULTS: Required<{
 	show_team: true,
 	reply_time: "text",
 	show_hours: true,
+	topics: [],
 };
 
 /** The default texts of a chat in Spanish (design.language "es"). */
@@ -548,6 +561,8 @@ const startInput = z.object({
 	client_id: z.string().max(100).nullish(),
 	/** The website's signed identity token (src/server/chat-identity.ts). */
 	identity: z.string().max(8000).nullish(),
+	/** Which of the chat's topics the visitor picked (its button). */
+	topic: z.number().int().min(0).max(7).nullish(),
 });
 
 const cleanEmail = (raw: string | null | undefined) => {
@@ -623,6 +638,7 @@ export async function startChat(
 	const token = `mrv_${random(40)}`;
 	const name = who?.name ?? (v.name?.trim() || null);
 	const page = cleanPage(v.page);
+	const topic = v.topic != null ? (designOf(w.widget).topics?.[v.topic] ?? null) : null;
 	const contact = email ?? name ?? "Website visitor";
 	const at = iso(now);
 	await db.batch([
@@ -663,13 +679,17 @@ export async function startChat(
 		inboxId: w.inbox.id,
 		conversationId: id,
 		action: "chat.started",
-		detail: { ...(page ? { page } : {}), ...(who ? { verified: true } : {}) },
+		detail: {
+			...(page ? { page } : {}),
+			...(who ? { verified: true } : {}),
+			...(topic ? { topic: topic.label } : {}),
+		},
 		now,
 	});
 	const line = await postVisitorLine(
 		{ conversation, inbox: w.inbox, widget: w.widget },
 		{ text, client_id: v.client_id ?? null, via: "widget" },
-		{ now, created: true },
+		{ now, created: true, topic },
 	);
 	return { token, conversation, line };
 }
@@ -725,7 +745,12 @@ async function postVisitorLine(
 		via: "widget" | "email";
 		attachments?: ChatAttachment[] | null;
 	},
-	o: { now?: number; created?: boolean } = {},
+	o: {
+		now?: number;
+		created?: boolean;
+		/** The topic the visitor picked to start it: its tag and who gets it. */
+		topic?: { tag?: string | null; assignee?: string | null } | null;
+	} = {},
 ) {
 	const now = o.now ?? Date.now();
 	const x = chat.conversation;
@@ -811,6 +836,7 @@ async function postVisitorLine(
 			created: !!o.created,
 			flags: null,
 			at: now,
+			topic: o.topic ?? null,
 		},
 		now,
 	);
