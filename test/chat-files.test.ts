@@ -48,6 +48,37 @@ describe("chat files: what they really are", () => {
 			name,
 		);
 		expect(refuseContent("application/zip", zip)).toMatch(/Archives/);
+	});
+
+	it("refuses zip bombs: small files that unpack to something huge", () => {
+		// One entry: 40 KB packed, 400 MB unpacked.
+		const record = (name: string, packed: number, size: number) => {
+			const r = new Uint8Array(46);
+			r.set([0x50, 0x4b, 0x01, 0x02]);
+			const v = new DataView(r.buffer);
+			v.setUint32(20, packed, true);
+			v.setUint32(24, size, true);
+			v.setUint16(28, name.length, true);
+			return [...r, ...new TextEncoder().encode(name)];
+		};
+		const zipOf = (...records: number[][]) =>
+			new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0, 0, ...records.flat()]);
+		expect(
+			refuseContent("application/zip", zipOf(record("zeros.txt", 40_000, 400_000_000))),
+		).toMatch(/far too big/);
+		// Many files that add up past 200 MB, each packed sensibly.
+		const many = Array.from({ length: 30 }, (_, i) =>
+			record(`photo${i}.jpg`, 7_000_000, 8_000_000),
+		);
+		expect(refuseContent("application/zip", zipOf(...many))).toMatch(/far too big/);
+		// Sizes too big to say (zip64).
+		expect(
+			refuseContent("application/zip", zipOf(record("x.bin", 0xffffffff, 0xffffffff))),
+		).toMatch(/far too big/);
+		// A normal archive is fine.
+		expect(
+			refuseContent("application/zip", zipOf(record("notes.txt", 2_000, 9_000))),
+		).toBeNull();
 		expect(refuseContent("image/svg+xml", bytes("<svg/>"))).toMatch(/can't be sent/);
 	});
 });

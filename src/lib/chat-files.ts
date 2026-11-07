@@ -81,15 +81,45 @@ const RUNNABLE =
 	/\.(exe|com|scr|pif|bat|cmd|msi|msp|dll|cpl|jar|js|jse|vbs|vbe|wsf|wsh|ps1|psm1|hta|lnk|reg|sh|app|apk|dmg|pkg|iso|img|docm|xlsm|pptm|dotm|xltm)$/i;
 
 /** The names in a .zip's directory (its central records). */
-function zipNames(b: Uint8Array) {
-	const names: string[] = [];
+function zipEntries(b: Uint8Array) {
+	const out: { name: string; packed: number; size: number }[] = [];
 	const sig = [0x50, 0x4b, 0x01, 0x02];
-	for (let i = indexOf(b, sig); i >= 0 && names.length < 5000; i = indexOf(b, sig, i + 4)) {
+	const u32 = (i: number) =>
+		((b[i] ?? 0) |
+			((b[i + 1] ?? 0) << 8) |
+			((b[i + 2] ?? 0) << 16) |
+			((b[i + 3] ?? 0) << 24)) >>>
+		0;
+	for (let i = indexOf(b, sig); i >= 0 && out.length < 5000; i = indexOf(b, sig, i + 4)) {
 		const len = (b[i + 28] ?? 0) | ((b[i + 29] ?? 0) << 8);
-		names.push(new TextDecoder().decode(b.subarray(i + 46, i + 46 + len)));
+		out.push({
+			name: new TextDecoder().decode(b.subarray(i + 46, i + 46 + len)),
+			packed: u32(i + 20),
+			size: u32(i + 24),
+		});
 	}
-	return names;
+	return out;
 }
+const zipNames = (b: Uint8Array) => zipEntries(b).map((e) => e.name);
+
+/**
+ * A zip bomb: a small file that unpacks to something huge (to fill a disk or hang whoever opens
+ * it). Mailroom never unpacks files, so it's only a danger to the person who opens it; refused
+ * by what its directory says it holds: over 200 MB in all, a file packed over 100 times
+ * smaller (past 1 MB), over 1,000 files, or sizes too big to say (zip64).
+ */
+function zipBomb(b: Uint8Array) {
+	const entries = zipEntries(b);
+	if (entries.length > 1000) return true;
+	let total = 0;
+	for (const e of entries) {
+		if (e.size === 0xffffffff || e.packed === 0xffffffff) return true;
+		if (e.size > 1024 * 1024 && e.size > e.packed * 100) return true;
+		total += e.size;
+	}
+	return total > 200 * 1024 * 1024;
+}
+const BOMB = "This file unpacks to something far too big, so it can't be sent.";
 
 /**
  * Why these bytes can't be sent as `type` (null: they can). The reason is for the visitor.
@@ -127,6 +157,8 @@ export function refuseContent(type: string, bytes: Uint8Array | ArrayBuffer): st
 			if (!starts(b, ZIP)) return wrong;
 			if (!has(b, "[Content_Types].xml")) return wrong;
 			if (has(b, "vbaProject.bin")) return "Documents with macros can't be sent.";
+			// A .docx or .xlsx is a zip too.
+			if (zipBomb(b)) return BOMB;
 			return null;
 		}
 		case "application/msword":
@@ -157,6 +189,7 @@ export function refuseContent(type: string, bytes: Uint8Array | ArrayBuffer): st
 		}
 		case "application/zip": {
 			if (!starts(b, ZIP) && !starts(b, ZIP_EMPTY)) return wrong;
+			if (zipBomb(b)) return BOMB;
 			const names = zipNames(b);
 			if (names.some((n) => RUNNABLE.test(n) || /\.zip$/i.test(n)))
 				return "Archives with programs (or other archives) inside can't be sent.";
