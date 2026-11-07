@@ -351,6 +351,13 @@
       "when": 1794008605442,
       "tag": "0049_chat_files",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "6",
+      "when": 1794022054934,
+      "tag": "0050_chat_first_agent",
+      "breakpoints": true
     }
   ]
 }

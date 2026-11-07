@@ -8,6 +8,7 @@ import {
 	chatTeam,
 	designOf,
 	fileKindsOf,
+	handOff,
 	identifyVisitor,
 	identityOf,
 	linesFor,
@@ -49,6 +50,7 @@ import { ApiError } from "./errors";
  *   POST /chat/<key>/end           the visitor ends it (resolved)
  *   POST /chat/<key>/rate          the visitor's rating, 1-5, and a comment
  *   POST /chat/<key>/history       the visitor's chats: { tokens, identity? }
+ *   POST /chat/<key>/handoff       the visitor asks for a person (an agent has the chat)
  *   GET  /chat/<key>/live          WebSocket (the ChatRoom)
  *   GET  /chat/files/…             a file, by its signed link
  */
@@ -252,6 +254,12 @@ export async function handleChat(request: Request, now = Date.now()): Promise<Re
 			case "POST rate": {
 				const chat = await need(key, request);
 				const fresh = await visitorRates(chat, await readJson(request), now);
+				return json({ conversation: await chatState(fresh) }, { headers });
+			}
+			case "POST handoff": {
+				// The visitor asks for a person (while an agent answers).
+				const chat = await need(key, request);
+				const fresh = await handOff(chat, "visitor", now);
 				return json({ conversation: await chatState(fresh) }, { headers });
 			}
 			case "POST history": {

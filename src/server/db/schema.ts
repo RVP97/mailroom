@@ -630,6 +630,11 @@ export const chatWidgets = sqliteTable(
 			.default(sql`'["images","pdf","documents"]'`),
 		/** ...each up to this many MB (at most 10). */
 		file_max_mb: integer("file_max_mb").notNull().default(10),
+		/** An agent credential (its id) that answers new chats first, until it hands them to a
+		 * person; null: the team answers. */
+		first_agent: text("first_agent"),
+		/** Its chats email the team only if it hasn't answered within this many minutes. */
+		agent_wait: integer("agent_wait").notNull().default(5),
 		/** Identity verification (src/server/chat-identity.ts): the secret the website signs who
 		 * its signed-in visitor is with (mrcs_…; null: not set up). */
 		identity_secret: text("identity_secret"),

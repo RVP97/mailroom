@@ -242,6 +242,7 @@ const ACTIONS: Record<string, string> = {
 	"message.read": "read a message",
 	"chat.started": "opened the chat (the visitor's first message)",
 	"chat.ended": "closed it: the visitor ended the chat",
+	"chat.handed_off": "handed the chat from its agent to the team",
 };
 
 type Patch = Omit<Parameters<typeof updateConversationFn>[0]["data"], "id">;
@@ -1372,6 +1373,8 @@ function describe(a: Event) {
 			return typeof d.rule === "string" ? `ran the rule “${d.rule}”` : "ran a rule";
 		case "csat.received":
 			return typeof d.rating === "number" ? `rated it ${d.rating} of 5` : "rated it";
+		case "chat.handed_off":
+			return `handed the chat to ${typeof d.to === "string" ? d.to : "the team"}${d.by === "visitor" ? " (the visitor asked for a person)" : ""}`;
 		case "chat.started":
 			return typeof d.popup === "string"
 				? `opened the chat from the pop-up “${d.popup}”`

@@ -350,7 +350,7 @@ export const INBOX_TOOLS: InboxTool[] = [
 		name: "update_conversation",
 		title: "Read, resolve, tag, snooze, prioritize or assign",
 		description:
-			'Marks a conversation read or unread for you (nobody else\'s state changes); with triage, for everyone: resolves or reopens it (a new message reopens it), sets its tags (or adds/removes some), its priority, snoozes it until a time (it comes back then, or when they write; good for follow-ups), or assigns it (to a person to hand it over, "me", or null).',
+			"Marks a conversation read or unread for you (nobody else's state changes); with triage, for everyone: resolves or reopens it (a new message reopens it), sets its tags (or adds/removes some), its priority, snoozes it until a time (it comes back then, or when they write; good for follow-ups), or assigns it (to a person to hand it over, \"me\", or null). A website chat you answer: hand_off gives it to a person (the visitor is told and the team emailed) when you can't help or they ask for one.",
 		input: {
 			id: z.string(),
 			read: z.boolean().optional(),
@@ -365,10 +365,15 @@ export const INBOX_TOOLS: InboxTool[] = [
 				.nullable()
 				.optional()
 				.describe('A reader from list_assignees, "me", or null for nobody.'),
+			hand_off: z
+				.literal(true)
+				.optional()
+				.describe("A website chat you have: to a person on the team."),
 		},
 		needs: "read",
 		run: (a, actor) =>
 			updateConversation(actor, a.id as string, {
+				hand_off: a.hand_off,
 				read: a.read,
 				status: a.status,
 				tags: a.tags,

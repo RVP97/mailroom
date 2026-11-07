@@ -871,6 +871,9 @@ export const conversationUpdate = z.object({
 	release_held: z.literal(true).optional(),
 	/** With release_held: the held_at the person saw (mail held after it stays held). */
 	held_seen: z.string().optional(),
+	/** A website chat an agent has: to a person (round robin's next, or anyone), and the
+	 * visitor is told. The agent holding it may always; others need triage. */
+	hand_off: z.literal(true).optional(),
 });
 
 export async function updateConversation(
@@ -882,6 +885,25 @@ export async function updateConversation(
 	need(actor, "read");
 	const v = conversationUpdate.parse(raw ?? {});
 	const { c: x } = await conversationFor(actor, id);
+	if (v.hand_off) {
+		if (x.channel !== "chat") throw validation("hand_off: only a website chat is handed off");
+		if (!actor.reader || actor.reader !== x.assignee) need(actor, "triage");
+		const { getChatWidget, handOff } = await import("./chat");
+		const { inboxOf } = await import("./inbox-workflow");
+		const [widget, inbox] = await Promise.all([
+			getChatWidget(x.inbox_id ?? ""),
+			inboxOf(x.inbox_id),
+		]);
+		if (widget && inbox)
+			Object.assign(
+				x,
+				await handOff(
+					{ conversation: x, widget, inbox },
+					actor.type === "agent" ? "agent" : "person",
+					now,
+				),
+			);
+	}
 	if (v.tags !== undefined || v.add_tags !== undefined || v.remove_tags !== undefined)
 		x.tags = await setTags(
 			actor,

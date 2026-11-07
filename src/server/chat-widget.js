@@ -87,6 +87,7 @@ function mailroomChat(c) {
 		Conversation: "Conversación",
 		"New conversation": "Nueva conversación",
 		Seen: "Visto",
+		"Talk to a person": "Hablar con una persona",
 		"Replies in a few minutes": "Responde en unos minutos",
 		"Replies in under an hour": "Responde en menos de una hora",
 		"Replies in a few hours": "Responde en unas horas",
@@ -1123,6 +1124,20 @@ function mailroomChat(c) {
 			return;
 		}
 		if (showTopics()) cards.appendChild(topicsEl());
+		// An agent answers: the visitor can ask for a person at any time.
+		if (state.conversation && state.conversation.with_agent)
+			cards.appendChild(
+				h("div", { class: "topics" }, [
+					h("button", {
+						type: "button",
+						class: "topic",
+						text: T("Talk to a person"),
+						onclick: () => {
+							askPerson();
+						},
+					}),
+				]),
+			);
 		if (cfg.preview || verified()) return;
 		var visitorWrote = state.messages.some((m) => m.author === "visitor" && !m.failed);
 		if (cfg.ask_email !== "off" && visitorWrote && state.conversation) {
@@ -1345,6 +1360,25 @@ function mailroomChat(c) {
 			renderCards();
 		});
 	}
+	/** The visitor asks for a person (an agent has the chat). */
+	function askPerson() {
+		var x = state.conversation;
+		x.with_agent = false;
+		renderCards();
+		api("POST", "/handoff", {})
+			.then((r) => {
+				if (state.conversation && state.conversation.id === r.conversation.id) {
+					state.conversation = r.conversation;
+					renderCards();
+				}
+			})
+			.catch((e) => {
+				x.with_agent = true;
+				renderCards();
+				sayLocally(e.message);
+			});
+	}
+
 	/** The visitor ends the chat (the ⋯ menu). */
 	function endIt() {
 		var x = state.conversation;
@@ -2388,6 +2422,9 @@ function mailroomChat(c) {
 					syncMenu();
 					scrollDown();
 				}
+			} else if (ev.type === "handoff" && state.conversation) {
+				state.conversation.with_agent = false;
+				renderCards();
 			} else if (ev.type === "team_seen" && state.conversation) {
 				state.conversation.team_seen_at = ev.at;
 				if (seenLine() !== seenId) render();

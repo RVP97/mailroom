@@ -1407,7 +1407,7 @@ export async function onInbound(
 	}
 }
 
-async function giveTo(
+export async function giveTo(
 	x: Conversation,
 	who: { reader: string; name: string; type: "person" | "agent"; email: string | null },
 	by: string,

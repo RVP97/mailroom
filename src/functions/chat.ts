@@ -77,6 +77,10 @@ export const getChatSettingsFn = createServerFn({ method: "GET" })
 				assignees: (
 					await workflow.assignees(await orgOf(inbox.organization_id), inbox)
 				).map((p) => ({ reader: p.reader, name: p.name, type: p.type })),
+				/** The agents that may answer chats first (their credential can send). */
+				agents: (await (await import("@/server/inboxes")).listCredentials(inbox))
+					.filter((x) => !x.revoked_at && (x.permissions as string[]).includes("send"))
+					.map((x) => ({ id: x.id, name: x.name })),
 				me: context.email,
 				base: baseUrl(),
 			};

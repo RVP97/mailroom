@@ -312,7 +312,32 @@ export const settingsInput = z.object({
 	retention_days: z.number().int().min(0).max(3650).nullish(),
 	/** Only visitors the website signed in may chat (needs the identity secret). */
 	identity_required: z.boolean().optional(),
+	/** An agent credential of the inbox (its id) that answers new chats first, until it (or the
+	 * visitor) hands the chat to a person; null: the team answers. */
+	first_agent: z.string().max(100).nullish(),
+	/** The team is emailed about the agent's chats only if it hasn't answered in this long. */
+	agent_wait: z.number().int().min(1).max(120).optional(),
 });
+
+/** The agent that answers first must be one of the inbox's credentials that may send. */
+async function firstAgentFor(inbox: Inbox, id: string | null | undefined) {
+	if (!id) return null;
+	const { listCredentials } = await import("./inboxes");
+	const cred = (await listCredentials(inbox)).find((x) => x.id === id && !x.revoked_at);
+	if (!cred) throw validation("first_agent: one of this inbox's agent credentials");
+	if (!(cred.permissions as string[]).includes("send"))
+		throw validation("first_agent: its credential needs the send permission to answer");
+	return cred.id;
+}
+
+/** An agent (a credential) has the chat: the visitor may ask for a person. */
+export const withAgent = (x: Pick<Conversation, "assignee">) => !!x.assignee?.startsWith("cred:");
+
+/** The chat's first agent has it (the team waits on it before being emailed). */
+export const agentHolds = (
+	w: Pick<ChatWidget, "first_agent"> | null | undefined,
+	x: Pick<Conversation, "assignee">,
+) => !!w?.first_agent && x.assignee === `cred:${w.first_agent}`;
 
 export async function getChatWidget(inboxId: string) {
 	return (await db.select().from(cw).where(eq(cw.inbox_id, inboxId)).get()) ?? null;
@@ -384,6 +409,11 @@ export async function saveChatWidget(
 		file_max_mb: v.file_max_mb ?? existing?.file_max_mb ?? 10,
 		identity_secret: existing?.identity_secret ?? null,
 		identity_required: v.identity_required ?? existing?.identity_required ?? false,
+		first_agent:
+			v.first_agent !== undefined
+				? await firstAgentFor(inbox, v.first_agent)
+				: (existing?.first_agent ?? null),
+		agent_wait: v.agent_wait ?? existing?.agent_wait ?? 5,
 		created_by: existing?.created_by ?? by.userId ?? null,
 		created_at: existing?.created_at ?? iso(now),
 		updated_at: iso(now),
@@ -477,6 +507,9 @@ export const chatWidgetView = (w: ChatWidget) => ({
 	files_enabled: w.files_enabled,
 	file_kinds: fileKindsOf(w),
 	file_max_mb: w.file_max_mb,
+	/** The agent credential (id) that answers new chats first, and how long the team waits on it. */
+	first_agent: w.first_agent,
+	agent_wait: w.agent_wait,
 	/** Identity verification: whether the secret exists (never its value) and is required. */
 	identity: { configured: !!w.identity_secret, required: w.identity_required },
 	snippet: snippetFor(w),
@@ -706,7 +739,20 @@ export async function startChat(
 	const line = await postVisitorLine(
 		{ conversation, inbox: w.inbox, widget: w.widget },
 		{ text, client_id: v.client_id ?? null, via: "widget" },
-		{ now, created: true, topic },
+		{
+			now,
+			created: true,
+			// The chat's agent answers first, unless the topic gives it to someone.
+			topic:
+				topic || w.widget.first_agent
+					? {
+							tag: topic?.tag ?? null,
+							assignee:
+								topic?.assignee ??
+								(w.widget.first_agent ? `cred:${w.widget.first_agent}` : null),
+						}
+					: null,
+		},
 	);
 	return { token, conversation, line };
 }
@@ -1377,6 +1423,8 @@ export async function chatState(x: Conversation) {
 		status: x.status as "open" | "resolved",
 		/** When someone on the team last read it ("Seen" under the visitor's lines before it). */
 		team_seen_at: seen?.at ?? null,
+		/** An agent is answering: the visitor can ask for a person. */
+		with_agent: withAgent(x),
 		ended_at: x.status === "resolved" ? x.resolved_at : null,
 		/** The visitor's own rating of it (1-5), once they gave one. */
 		rating: x.csat_rating ?? null,
@@ -1525,6 +1573,94 @@ export const lineAsReply = (line: ChatLine, x: Conversation) => ({
 	created_at: line.created_at,
 	updated_at: line.created_at,
 });
+
+/** A line from Mailroom itself in the chat (both sides see it; nobody is emailed it). */
+async function systemLine(x: Conversation, text: string, now: number) {
+	const at = iso(now);
+	const line: ChatLine = {
+		id: crypto.randomUUID(),
+		organization_id: x.organization_id,
+		conversation_id: x.id,
+		inbox_id: x.inbox_id,
+		author: "system",
+		author_id: null,
+		author_name: null,
+		text,
+		attachments: null,
+		via: "api",
+		client_id: null,
+		sent_by: null,
+		notified_at: at,
+		created_at: at,
+	};
+	await db.batch([
+		db.insert(cm).values(line),
+		db
+			.update(c)
+			.set({ messages: sql`${c.messages} + 1`, updated_at: at })
+			.where(eq(c.id, x.id)),
+	]);
+	const links = new Map<string, string>();
+	await pushToRoom(
+		x.id,
+		{ type: "message", message: visitorView(line, links) },
+		{ type: "message", message: teamView(line, links) },
+	);
+	return line;
+}
+
+/**
+ * The chat goes from its agent to a person, asked by the agent or the visitor: round robin's
+ * next person, or nobody (anyone on the team takes it). The visitor is told in the chat, and the
+ * team is emailed (their last line, again) at the cron's next minute.
+ */
+export async function handOff(
+	chat: { conversation: Conversation; widget: ChatWidget; inbox: Inbox },
+	by: "visitor" | "agent" | "person",
+	now = Date.now(),
+) {
+	const x = chat.conversation;
+	if (!withAgent(x)) return x;
+	const { nextInTurn, giveTo } = await import("./inbox-workflow");
+	const next = await nextInTurn(chat.inbox, now);
+	if (next?.type === "person")
+		await giveTo(
+			x,
+			next,
+			by === "visitor" ? "The visitor asked for a person" : "A hand-off from the agent",
+			now,
+		);
+	else
+		await db
+			.update(c)
+			.set({ assignee: null, assignee_name: null, claimed_until: null, updated_at: iso(now) })
+			.where(eq(c.id, x.id));
+	await logInbox("system", {
+		brandId: x.organization_id,
+		inboxId: x.inbox_id,
+		conversationId: x.id,
+		action: "chat.handed_off",
+		detail: { by, ...(next?.type === "person" ? { to: next.name } : {}) },
+		now,
+	});
+	await systemLine(
+		x,
+		designOf(chat.widget).language === "es"
+			? "Le comunicamos con alguien del equipo; le responderá aquí."
+			: "Connecting you with someone from the team. They'll answer here.",
+		now,
+	);
+	const last = await db
+		.select({ id: cm.id })
+		.from(cm)
+		.where(and(eq(cm.conversation_id, x.id), eq(cm.author, "visitor")))
+		.orderBy(desc(cm.created_at))
+		.limit(1)
+		.get();
+	if (last) await db.update(cm).set({ notified_at: null }).where(eq(cm.id, last.id));
+	await pushToRoom(x.id, { type: "handoff" });
+	return (await db.select().from(c).where(eq(c.id, x.id)).get()) as Conversation;
+}
 
 /** Someone on the team read the chat: the visitor sees "Seen". */
 export async function teamSaw(conversationId: string, at: string) {
@@ -1851,6 +1987,25 @@ export async function notifyTeam(now = Date.now(), sender?: ChatSender) {
 		if (!x || !inbox || !widget?.notify.length || !widget.email_team) {
 			await done();
 			continue;
+		}
+		// The chat's agent has it: the team hears only if it hasn't answered in its wait.
+		if (agentHolds(widget, x)) {
+			const answered = await db
+				.select({ n: sql<number>`count(*)` })
+				.from(cm)
+				.where(
+					and(
+						eq(cm.conversation_id, id),
+						eq(cm.author, "agent"),
+						gte(cm.created_at, lines.at(-1)?.created_at ?? ""),
+					),
+				)
+				.get();
+			if ((answered?.n ?? 0) > 0) {
+				await done();
+				continue;
+			}
+			if ((lines[0]?.created_at ?? "") > iso(now - widget.agent_wait * 60_000)) continue;
 		}
 		// Each chat's own wait (a minute by default: the cron's minute plus half of one; 0 is
 		// right away, at the cron's next minute).

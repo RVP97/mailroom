@@ -990,3 +990,109 @@ describe("website chat: pop-up messages", () => {
 		expect(org.id).toBeTruthy();
 	});
 });
+
+/** The emails about one chat (other tests' chats are pending too). */
+const about = (sent: Json[], words: string) =>
+	sent.filter((e) => JSON.stringify(e).includes(words));
+
+describe("website chat: an agent answers first", () => {
+	it("gives new chats to the agent, emails the team only if it's silent, and hands off to a person", async () => {
+		const { org, inbox, widget } = await setUp();
+		const { createCredential } = await import("@/server/inboxes");
+		const readOnly = await createCredential(inbox, { name: "Reader", permissions: ["read"] });
+		await expect(
+			saveChatWidget(inbox, { first_agent: readOnly.credential.id }, { userId: null }),
+		).rejects.toThrow(/send/);
+		const { credential } = await createCredential(inbox, {
+			name: "Concierge",
+			permissions: ["read", "send"],
+		});
+		await saveChatWidget(
+			inbox,
+			{ first_agent: credential.id, agent_wait: 5 },
+			{ userId: null },
+		);
+		const chat = await start(widget.public_key, "Do you have valet service?");
+		const state = await call(widget.public_key, "messages", { token: chat.token });
+		expect(state.json.conversation.with_agent).toBe(true);
+		const row = await db
+			.select()
+			.from(schema.conversations)
+			.where(eq(schema.conversations.id, chat.conversation.id))
+			.get();
+		expect(row?.assignee).toBe(`cred:${credential.id}`);
+		// Within its wait the team isn't emailed; once it answered, never for those lines.
+		const { s, sent } = sender();
+		await notifyTeam(Date.now() + 2 * 60_000, s);
+		expect(about(sent, "valet service")).toHaveLength(0);
+		const agent: InboxActor = {
+			organizationId: org.id,
+			brands: [org.id],
+			inboxIds: [inbox.id],
+			permissions: new Set(["read", "send"]),
+			sendScope: "replies",
+			type: "agent",
+			id: credential.id,
+			name: "Concierge",
+			reader: `cred:${credential.id}`,
+		};
+		await sendReply(agent, chat.conversation.id, { text: "Yes, free parking!" }, noEmail);
+		await notifyTeam(Date.now() + 10 * 60_000, s);
+		expect(about(sent, "valet service")).toHaveLength(0);
+		// The visitor asks for a person: told in the chat, and the team is emailed.
+		const handed = await call(widget.public_key, "handoff", { body: {}, token: chat.token });
+		expect(handed.json.conversation.with_agent).toBe(false);
+		const lines = await call(widget.public_key, "messages", { token: chat.token });
+		expect(lines.json.messages.at(-1)).toMatchObject({
+			author: "system",
+			text: expect.stringMatching(/someone from the team/),
+		});
+		await notifyTeam(Date.now() + 2 * 60_000, s);
+		expect(about(sent, "valet service")).toHaveLength(1);
+	});
+
+	it("lets the agent hand a chat off itself, and emails the team when it stays silent", async () => {
+		const { org, inbox, widget } = await setUp();
+		const { createCredential } = await import("@/server/inboxes");
+		const { credential } = await createCredential(inbox, {
+			name: "Concierge",
+			permissions: ["read", "send"],
+		});
+		await saveChatWidget(
+			inbox,
+			{ first_agent: credential.id, agent_wait: 2 },
+			{ userId: null },
+		);
+		const chat = await start(widget.public_key, "Can I get a refund?");
+		const { s, sent } = sender();
+		await notifyTeam(Date.now() + 3 * 60_000, s);
+		expect(about(sent, "refund")).toHaveLength(1);
+		const agent: InboxActor = {
+			organizationId: org.id,
+			brands: [org.id],
+			inboxIds: [inbox.id],
+			permissions: new Set(["read", "send"]),
+			sendScope: "replies",
+			type: "agent",
+			id: credential.id,
+			name: "Concierge",
+			reader: `cred:${credential.id}`,
+		};
+		const { updateConversation } = await import("@/server/conversations");
+		await updateConversation(agent, chat.conversation.id, { hand_off: true });
+		const after = await call(widget.public_key, "messages", { token: chat.token });
+		expect(after.json.conversation.with_agent).toBe(false);
+		// Someone else's chat isn't the agent's to hand off.
+		const other = await start(widget.public_key, "Hello");
+		await updateConversation(agent, other.conversation.id, { hand_off: true });
+		const pat = person(org.id);
+		await updateConversation(pat, other.conversation.id, { assignee: null });
+		await expect(
+			updateConversation(
+				{ ...agent, permissions: new Set(["read"]) },
+				other.conversation.id,
+				{ hand_off: true },
+			),
+		).rejects.toThrow();
+	});
+});

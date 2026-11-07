@@ -89,6 +89,8 @@ type Fields = {
 	file_max_mb: string;
 	retention: string;
 	identity_required: boolean;
+	first_agent: string;
+	agent_wait: string;
 	design: Design;
 };
 
@@ -107,6 +109,8 @@ const fieldsOf = (d: Data): Fields => ({
 	file_max_mb: String(d.widget?.file_max_mb ?? 10),
 	retention: d.retention_days == null ? "default" : String(d.retention_days),
 	identity_required: d.widget?.identity.required ?? false,
+	first_agent: d.widget?.first_agent ?? "none",
+	agent_wait: String(d.widget?.agent_wait ?? 5),
 	design: d.widget?.design ?? d.defaults,
 });
 
@@ -344,6 +348,8 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 						files_enabled: v.files_enabled,
 						file_kinds: v.file_kinds,
 						file_max_mb: Number(v.file_max_mb) || 10,
+						first_agent: v.first_agent === "none" ? null : v.first_agent,
+						agent_wait: Number(v.agent_wait) || 5,
 						retention_days: v.retention === "default" ? null : Number(v.retention),
 						identity_required: v.identity_required,
 						// A topic still without words isn't one.
@@ -1653,6 +1659,64 @@ function SettingsPanel({
 							/>
 						)}
 					</>
+				)}
+			</Group>
+			<Group title="An agent answers first">
+				<Field>
+					<FieldLabel>Agent</FieldLabel>
+					<Select
+						value={v.first_agent}
+						onValueChange={(x) => set("first_agent", x)}
+					>
+						<SelectTrigger
+							className="w-full"
+							aria-label="Agent that answers first"
+						>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="none">None: your team answers</SelectItem>
+							{data.agents.map((a) => (
+								<SelectItem
+									key={a.id}
+									value={a.id}
+								>
+									{a.name}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					<FieldDescription>
+						{v.first_agent === "none"
+							? "One of this inbox's agent credentials can take new chats first (it needs the send permission) and hand them to a person."
+							: "New chats are its. It answers with send_reply and hands a chat over with update_conversation (hand_off). Visitors can ask for a person at any time."}
+					</FieldDescription>
+				</Field>
+				{v.first_agent !== "none" && (
+					<Field>
+						<FieldLabel>If it hasn't answered</FieldLabel>
+						<Select
+							value={v.agent_wait}
+							onValueChange={(x) => set("agent_wait", x)}
+						>
+							<SelectTrigger
+								className="w-full"
+								aria-label="Wait for the agent"
+							>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{["2", "5", "10", "30"].map((m) => (
+									<SelectItem
+										key={m}
+										value={m}
+									>
+										Email your team after {m} minutes
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					</Field>
 				)}
 			</Group>
 			<Group title="When a chat ends">
