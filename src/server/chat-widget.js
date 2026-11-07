@@ -61,6 +61,31 @@ function mailroomChat(c) {
 		"This chat doesn't take files.": "Este chat no recibe archivos.",
 		"Reconnecting…": "Reconectando…",
 		"You're offline": "Está sin conexión",
+		"This chat has ended": "Este chat terminó",
+		"How did we do?": "¿Cómo lo atendimos?",
+		Terrible: "Muy mal",
+		Bad: "Mal",
+		Okay: "Regular",
+		Good: "Bien",
+		Great: "Excelente",
+		"Thanks for your rating!": "¡Gracias por su calificación!",
+		"Anything else to tell us?": "¿Algo más que quiera decirnos?",
+		Send: "Enviar",
+		"Write again to reopen it, or:": "Escriba de nuevo para reabrirlo, o bien:",
+		"Start a new chat": "Empezar otro chat",
+		"End chat": "Terminar el chat",
+		"Download transcript": "Descargar la conversación",
+		"Past conversations": "Conversaciones anteriores",
+		"Your conversations": "Sus conversaciones",
+		Back: "Volver",
+		"Loading…": "Cargando…",
+		"No other conversations yet": "Aún no hay otras conversaciones",
+		Ended: "Terminada",
+		Open: "Abierta",
+		"This one": "Esta",
+		You: "Usted",
+		Conversation: "Conversación",
+		"New conversation": "Nueva conversación",
 	};
 	/** The server's errors, by code (its messages are in English). */
 	var ES_ERRORS = {
@@ -154,7 +179,19 @@ function mailroomChat(c) {
 		sparkle:
 			'<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9Z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8Z"/>',
 		hand: '<path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8a8 8 0 0 0 16 0v-3a2 2 0 0 0-4 0"/>',
+		back: '<path d="m15 18-6-6 6-6"/>',
+		end: '<circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
+		download: '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/>',
+		history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/>',
 	};
+	/** The rating's five faces, worst first. */
+	var FACES = [
+		["😞", "Terrible"],
+		["🙁", "Bad"],
+		["😐", "Okay"],
+		["🙂", "Good"],
+		["😍", "Great"],
+	];
 	function fmtTime(at) {
 		try {
 			return new Date(at).toLocaleTimeString(LANG === "es" ? "es-MX" : [], {
@@ -347,6 +384,19 @@ function mailroomChat(c) {
 			".drop{position:absolute;inset:8px;border-radius:14px;border:2px dashed var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--panel));display:none;place-items:center;font-weight:600;color:var(--accent);z-index:3}.drop.on{display:grid}" +
 			".ts{margin:8px auto 0;display:none}.ts.on{display:block}" +
 			".sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}" +
+			// A closed chat: the rating, and starting another
+			".endt{display:flex;gap:8px;align-items:center;font-weight:600;font-size:14.5px;margin-bottom:10px}.endt span{width:26px;height:26px;border-radius:50%;background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent);display:grid;place-items:center;flex:none}" +
+			".faces{display:flex;gap:6px;margin:2px 0 4px}.face{flex:1;height:44px;border-radius:12px;background:var(--soft);font-size:24px;line-height:1;display:grid;place-items:center;transition:transform .15s,background .15s}.face:hover{transform:scale(1.08);background:var(--soft2)}" +
+			".card .hint{font-size:13px;color:var(--muted);margin:12px 0 8px}" +
+			".btn.wide{width:100%;display:flex;gap:8px;align-items:center;justify-content:center}.btn.ghost{background:var(--soft);color:var(--text)}" +
+			// Past conversations
+			".hist{flex:1;display:none;flex-direction:column;min-height:0;background:var(--bg)}.histv .hist{display:flex}.histv .body,.histv .foot{display:none}" +
+			".hh{display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--line);font-size:15px;background:var(--panel)}.hh .hb{color:var(--text)}.hh .hb:hover{background:var(--soft)}" +
+			".hl{flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:2px;overscroll-behavior:contain}" +
+			".hi{display:flex;gap:12px;align-items:center;width:100%;padding:10px;border-radius:12px;text-align:left}.hi:hover,.hi.cur{background:var(--soft)}.hi .av{width:36px;height:36px}" +
+			".hx{min-width:0;flex:1}.hx b{display:block;font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hx small{font-size:12.5px;color:var(--muted)}" +
+			".hempty{padding:28px 16px;text-align:center;color:var(--muted);font-size:14px}" +
+			".hf{padding:12px;border-top:1px solid var(--line);background:var(--panel)}" +
 			extras(cfg) +
 			// The brand's own CSS goes last (it only reaches inside the widget).
 			(cfg.custom_css ? String(cfg.custom_css) : "")
@@ -741,6 +791,8 @@ function mailroomChat(c) {
 	var form = h("form", { class: "box" }, [input, attachBtn, sendBtn]);
 	var note = h("div", { class: "note" });
 	var foot = h("div", { class: "foot" }, [form, note, fileInput]);
+	// The visitor's other conversations (the ⋯ menu), in place of this one.
+	var historyEl = h("div", { class: "hist" });
 	var panel = h(
 		"div",
 		{
@@ -749,7 +801,7 @@ function mailroomChat(c) {
 			"aria-label": cfg.title + " chat",
 			"aria-modal": "false",
 		},
-		[head, menu, body, foot, drop],
+		[head, menu, body, historyEl, foot, drop],
 	);
 	root.appendChild(nudge);
 	root.appendChild(panel);
@@ -926,8 +978,14 @@ function mailroomChat(c) {
 	var needEmail = () =>
 		cfg.ask_email === "required" && !state.conversation && !stored.email && !verified();
 
+	var ended = () => !!state.conversation && state.conversation.status === "resolved";
+
 	function renderCards() {
 		cards.textContent = "";
+		if (ended()) {
+			cards.appendChild(endedCard());
+			return;
+		}
 		if (cfg.preview || verified()) return;
 		if (needEmail()) {
 			cards.appendChild(emailCard(true));
@@ -1031,6 +1089,326 @@ function mailroomChat(c) {
 		]);
 	}
 
+	// A closed chat (by the team, or the visitor): how did it go, and another one. Writing again
+	// reopens it.
+	var rateStep = {};
+	function endedCard() {
+		var x = state.conversation;
+		var kids = [
+			h("div", { class: "endt" }, [
+				h("span", { html: svg(ICON.check, 15) }),
+				h("b", { text: T("This chat has ended") }),
+			]),
+		];
+		if (cfg.ask_rating) {
+			if (x.rating == null) {
+				kids.push(h("p", { text: T("How did we do?") }));
+				kids.push(
+					h(
+						"div",
+						{ class: "faces" },
+						FACES.map((f, i) =>
+							h("button", {
+								type: "button",
+								class: "face",
+								title: T(f[1]),
+								"aria-label": T(f[1]),
+								text: f[0],
+								onclick: () => {
+									rateIt(i + 1);
+								},
+							}),
+						),
+					),
+				);
+			} else {
+				var face = (FACES[x.rating - 1] || FACES[4])[0];
+				kids.push(
+					h("div", { class: "done" }, [
+						h("span", { style: "font-size:22px;line-height:1", text: face }),
+						h("b", { text: T("Thanks for your rating!") }),
+					]),
+				);
+				if (rateStep[x.id] === "comment") kids.push(commentForm(x));
+			}
+		}
+		kids.push(h("div", { class: "hint", text: T("Write again to reopen it, or:") }));
+		kids.push(
+			h(
+				"button",
+				{
+					type: "button",
+					class: "btn wide ghost",
+					onclick: () => {
+						newConversation();
+					},
+				},
+				[h("span", { html: svg(ICON.plus, 16) }), T("Start a new chat")],
+			),
+		);
+		return h("div", { class: "card" }, kids);
+	}
+	function commentForm(x) {
+		var field = h("input", {
+			class: "in",
+			type: "text",
+			maxlength: "2000",
+			placeholder: T("Anything else to tell us?"),
+			"aria-label": T("Anything else to tell us?"),
+		});
+		var f = h("form", { class: "row", style: "margin-top:10px" }, [
+			field,
+			h("button", { class: "btn", type: "submit", text: T("Send") }),
+		]);
+		f.addEventListener("submit", (e) => {
+			e.preventDefault();
+			var text = field.value.trim();
+			rateStep[x.id] = "done";
+			renderCards();
+			if (!text || cfg.preview) return;
+			api("POST", "/rate", { rating: x.rating, comment: text }).catch(() => {});
+		});
+		return f;
+	}
+	function rateIt(n) {
+		var x = state.conversation;
+		x.rating = n;
+		rateStep[x.id] = "comment";
+		renderCards();
+		scrollDown();
+		if (cfg.preview) return;
+		api("POST", "/rate", { rating: n }).catch(() => {
+			x.rating = null;
+			delete rateStep[x.id];
+			renderCards();
+		});
+	}
+	/** The visitor ends the chat (the ⋯ menu). */
+	function endIt() {
+		var x = state.conversation;
+		x.status = "resolved";
+		render();
+		if (cfg.preview) return;
+		api("POST", "/end", {})
+			.then((r) => {
+				if (state.conversation && state.conversation.id === r.conversation.id) {
+					state.conversation = r.conversation;
+					renderCards();
+					syncMenu();
+				}
+			})
+			.catch((e) => {
+				x.status = "open";
+				render();
+				sayLocally(e.message);
+			});
+	}
+
+	/** The chat as a text file, from what's on screen. */
+	function transcript() {
+		var when = (at) => {
+			try {
+				return new Date(at).toLocaleString(LANG === "es" ? "es-MX" : [], {
+					dateStyle: "medium",
+					timeStyle: "short",
+				});
+			} catch (_) {
+				return at;
+			}
+		};
+		var out = [cfg.title, ""];
+		state.messages.forEach((m) => {
+			if (m.pending || m.failed || m.local) return;
+			var who =
+				m.author === "visitor"
+					? T("You")
+					: m.author === "system"
+						? "—"
+						: m.name || cfg.title;
+			out.push("[" + when(m.at) + "] " + who + ": " + (m.text || ""));
+			(m.files || []).forEach((f) => {
+				out.push("    " + f.filename + (f.url ? " " + f.url : ""));
+			});
+		});
+		var url = URL.createObjectURL(
+			new Blob([out.join("\n") + "\n"], { type: "text/plain;charset=utf-8" }),
+		);
+		var name =
+			String(cfg.title || "Chat")
+				.replace(/[\\/:*?"<>|]+/g, "")
+				.trim() || "Chat";
+		var a = h("a", { href: url, download: name + " chat.txt", style: "display:none" });
+		root.appendChild(a);
+		a.click();
+		a.remove();
+		setTimeout(() => {
+			URL.revokeObjectURL(url);
+		}, 10000);
+	}
+
+	// ── Past conversations ─────────────────────────────────────────────────────
+
+	/** This chat goes first in the browser's list of the visitor's chats (at most 20). */
+	function remember() {
+		if (!stored.token || !state.conversation || cfg.preview) return;
+		var past = stored.past || [];
+		if (past[0] && past[0].t === stored.token) return;
+		var id = state.conversation.id;
+		past = past.filter((p) => p.t !== stored.token && p.id !== id);
+		past.unshift({ t: stored.token, id: id });
+		stored = save({ past: past.slice(0, 20) });
+	}
+	function forget(token) {
+		stored = save({ past: (stored.past || []).filter((p) => p.t !== token) });
+	}
+	var hasPast = () =>
+		!!identity || (stored.past || []).some((p) => p.t !== stored.token) || !!cfg.preview;
+
+	function showHistory() {
+		remember();
+		panel.classList.add("histv");
+		historyEl.textContent = "";
+		var listEl = h("div", { class: "hl" }, [
+			h("div", { class: "hempty", text: T("Loading…") }),
+		]);
+		historyEl.appendChild(
+			h("div", { class: "hh" }, [
+				h("button", {
+					class: "hb",
+					type: "button",
+					"aria-label": T("Back"),
+					html: svg(ICON.back, 20),
+					onclick: hideHistory,
+				}),
+				h("b", { text: T("Your conversations") }),
+			]),
+		);
+		historyEl.appendChild(listEl);
+		historyEl.appendChild(
+			h("div", { class: "hf" }, [
+				h(
+					"button",
+					{
+						type: "button",
+						class: "btn wide",
+						onclick: () => {
+							hideHistory();
+							newConversation();
+						},
+					},
+					[h("span", { html: svg(ICON.plus, 16) }), T("New conversation")],
+				),
+			]),
+		);
+		var tokens = (stored.past || []).map((p) => p.t);
+		var got = cfg.preview
+			? Promise.resolve({
+					conversations: [
+						{
+							id: "p",
+							ref: null,
+							status: "open",
+							snippet: "Hi! Do you have rooms for this weekend?",
+							at: new Date().toISOString(),
+						},
+						{
+							id: "q",
+							ref: null,
+							status: "resolved",
+							snippet: "Can I bring my dog?",
+							at: new Date(Date.now() - 9 * 86400000).toISOString(),
+						},
+					],
+				})
+			: api("POST", "/history", { tokens: tokens, identity: identity || undefined });
+		got.then((r) => {
+			var found = {};
+			r.conversations.forEach((x) => {
+				if (x.ref != null) found[x.ref] = true;
+			});
+			if (!cfg.preview)
+				stored = save({ past: (stored.past || []).filter((_, i) => found[i]) });
+			listEl.textContent = "";
+			var current = state.conversation && state.conversation.id;
+			if (!r.conversations.length)
+				listEl.appendChild(
+					h("div", { class: "hempty", text: T("No other conversations yet") }),
+				);
+			r.conversations.forEach((x) => {
+				listEl.appendChild(
+					h(
+						"button",
+						{
+							type: "button",
+							class: "hi" + (x.id === current ? " cur" : ""),
+							onclick: () => {
+								openPast(x, tokens);
+							},
+						},
+						[
+							logoEl("av"),
+							h("span", { class: "hx" }, [
+								h("b", { text: x.snippet || T("Conversation") }),
+								h("small", {
+									text:
+										(x.at ? fmtDay(x.at) + ", " + fmtTime(x.at) + " · " : "") +
+										(x.id === current
+											? T("This one")
+											: x.status === "resolved"
+												? T("Ended")
+												: T("Open")),
+								}),
+							]),
+						],
+					),
+				);
+			});
+		}).catch((e) => {
+			listEl.textContent = "";
+			listEl.appendChild(h("div", { class: "hempty", text: e.message }));
+		});
+	}
+	function hideHistory() {
+		panel.classList.remove("histv");
+		historyEl.textContent = "";
+		scrollDown();
+	}
+	function openPast(x, tokens) {
+		if (cfg.preview || (state.conversation && x.id === state.conversation.id))
+			return hideHistory();
+		var t = x.ref != null ? tokens[x.ref] : null;
+		if (t) return switchTo(t, null);
+		if (!identity) return;
+		api("POST", "/identify", { identity: identity, conversation: x.id })
+			.then((r) => {
+				if (r.token) switchTo(r.token, r);
+			})
+			.catch((e) => {
+				sayLocally(e.message);
+				hideHistory();
+			});
+	}
+	/** Another of the visitor's chats, in place of this one. */
+	function switchTo(token, loaded) {
+		remember();
+		disconnect();
+		stored = save({
+			token: token,
+			last: Date.now(),
+			emailJustSaved: false,
+			emailDismissed: false,
+		});
+		state.conversation = loaded ? loaded.conversation : null;
+		state.messages = [];
+		state.typing = null;
+		state.awayShown = true;
+		hideHistory();
+		if (loaded) merge(loaded.messages || []);
+		else render();
+		refresh().then(remember);
+		connect();
+	}
+
 	// The ⋯ menu: what the visitor can do with this chat. With nothing to offer (before the first
 	// message, with no address to write to), its button isn't shown at all.
 	function syncMenu() {
@@ -1070,6 +1448,30 @@ function mailroomChat(c) {
 				text: T("Start a new conversation"),
 				run: () => {
 					newConversation();
+				},
+			});
+		if (state.conversation && !ended() && cfg.allow_end)
+			items.push({
+				icon: ICON.end,
+				text: T("End chat"),
+				run: () => {
+					endIt();
+				},
+			});
+		if (hasPast())
+			items.push({
+				icon: ICON.history,
+				text: T("Past conversations"),
+				run: () => {
+					showHistory();
+				},
+			});
+		if (state.messages.some((m) => !m.local && !m.pending && !m.failed))
+			items.push({
+				icon: ICON.download,
+				text: T("Download transcript"),
+				run: () => {
+					transcript();
 				},
 			});
 		if (state.conversation && cfg.ask_email !== "off" && !verified())
@@ -1295,15 +1697,19 @@ function mailroomChat(c) {
 					showNudge(r.messages[r.messages.length - 1]);
 				}
 				save({ last: Date.now() });
+				remember();
 				render();
 				setComposer();
 			})
 			.catch((e) => {
-				if (e.status === 401) endChat();
+				if (e.status === 401) endChat(true);
 			});
 	}
 
-	function endChat() {
+	/** Leaves this chat (it stays in the visitor's past ones; `gone`: it was deleted). */
+	function endChat(gone) {
+		if (gone) forget(stored.token);
+		else remember();
 		stored = save({
 			token: null,
 			conversation: null,
@@ -1335,17 +1741,20 @@ function mailroomChat(c) {
 			.then((r) => {
 				if (mine !== identity) return;
 				if (r.status === "other_person") {
-					endChat();
+					// Someone else signed in on this browser: none of the earlier chats are listed.
+					endChat(true);
+					stored = save({ past: [] });
 					return identifyNow();
 				}
 				if (r.status === "none") {
-					if (stored.token) endChat();
+					if (stored.token) endChat(true);
 					return;
 				}
 				if (r.token) stored = save({ token: r.token, last: Date.now() });
 				state.conversation = r.conversation;
 				merge(r.messages || []);
 				save({ last: Date.now() });
+				remember();
 				connect();
 				renderCards();
 				setComposer();
@@ -1482,6 +1891,8 @@ function mailroomChat(c) {
 	function send(text) {
 		text = (text || "").trim();
 		if (!text || state.sending) return;
+		// Writing in a closed chat reopens it (the server does too).
+		if (ended()) state.conversation.status = "open";
 		if (cfg.preview) return previewSend(text);
 		var m = {
 			id: "local-" + uuid(),
@@ -1524,6 +1935,7 @@ function mailroomChat(c) {
 				stored = save({ token: r.token, last: Date.now() });
 				state.conversation = r.conversation;
 				merge(r.messages);
+				remember();
 				connect();
 				afterFirst();
 				// Files picked before there was a chat go now.
@@ -1537,7 +1949,7 @@ function mailroomChat(c) {
 			state.sending = false;
 			if (e.status === 401 && stored.token) {
 				// The chat ended (deleted, expired): start a new one with this message.
-				endChat();
+				endChat(true);
 				add(m);
 				return deliver(m);
 			}
@@ -1797,12 +2209,17 @@ function mailroomChat(c) {
 			} else if (ev.type === "hello") {
 				teamOnline = !!ev.team_online;
 			} else if (ev.type === "conversation") {
-				if (state.conversation) state.conversation.status = ev.status;
+				if (state.conversation && state.conversation.status !== ev.status) {
+					state.conversation.status = ev.status;
+					renderCards();
+					syncMenu();
+					scrollDown();
+				}
 			} else if (ev.type === "visitor" && state.conversation) {
 				state.conversation.visitor = ev.visitor;
 				renderCards();
 			} else if (ev.type === "deleted") {
-				endChat();
+				endChat(true);
 			}
 		};
 		ws.onclose = (e) => {
@@ -1949,7 +2366,15 @@ function mailroomChat(c) {
 			if (e.data.type === "mailroom-chat-view" && e.data.view !== lastView) {
 				lastView = e.data.view;
 				nudge.classList.remove("on");
-				if (e.data.view === "open") openPanel();
+				// "ended": the chat closed, asking for the rating.
+				state.conversation =
+					e.data.view === "ended"
+						? { id: "preview", status: "resolved", rating: null }
+						: null;
+				delete rateStep.preview;
+				hideHistory();
+				render();
+				if (e.data.view === "open" || e.data.view === "ended") openPanel();
 				else {
 					closePanel();
 					if (e.data.view === "nudge") {
@@ -2025,7 +2450,8 @@ function mailroomChat(c) {
 			identity = null;
 			closePanel();
 			endChat();
-			stored = save({ email: null, name: null, ever: false });
+			// Their chats aren't listed for whoever uses this browser next.
+			stored = save({ email: null, name: null, ever: false, past: [] });
 			root.className = rootClass();
 			setUnread(0);
 		},

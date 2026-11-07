@@ -1863,6 +1863,20 @@ export async function rate(
 	const x = await db.select().from(c).where(eq(c.id, id)).get();
 	if (!x) return null;
 	if (o.record === false) return { conversation: x, inbox: await inboxOf(x.inbox_id) };
+	await recordCsat(x, rating, comment, now);
+	return { conversation: x, inbox: await inboxOf(x.inbox_id) };
+}
+
+/**
+ * A rating (1-5) and maybe a comment, from the survey email or the chat widget: on the
+ * conversation, in the activity, to webhooks (the first time, or with a comment).
+ */
+export async function recordCsat(
+	x: Conversation,
+	rating: number,
+	comment: string | null,
+	now = Date.now(),
+) {
 	const first = x.csat_rating === null;
 	await db
 		.update(c)
@@ -1871,7 +1885,7 @@ export async function rate(
 			csat_at: iso(now),
 			...(comment !== null ? { csat_comment: comment.slice(0, 2000) || null } : {}),
 		})
-		.where(eq(c.id, id));
+		.where(eq(c.id, x.id));
 	if (first || comment) {
 		await logInbox("system", {
 			brandId: x.organization_id,
@@ -1883,7 +1897,6 @@ export async function rate(
 		});
 		await event(x, "inbox.csat.received", { rating, comment: !!comment });
 	}
-	return { conversation: x, inbox: await inboxOf(x.inbox_id) };
 }
 
 /** /rate/<conversation>/<signature>/<1-5>: a GET shows the page, a POST records the rating (and a comment). */

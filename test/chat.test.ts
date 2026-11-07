@@ -760,3 +760,85 @@ describe("website chat: live", () => {
 		ws.close();
 	});
 });
+
+describe("website chat: ending, rating and past chats", () => {
+	it("lets the visitor end the chat, and writing again reopens it", async () => {
+		const { inbox, widget } = await setUp();
+		const chat = await start(widget.public_key);
+		const ended = await call(widget.public_key, "end", { body: {}, token: chat.token });
+		expect(ended.status).toBe(200);
+		expect(ended.json.conversation).toMatchObject({ status: "resolved", rating: null });
+		const row = await db
+			.select()
+			.from(schema.conversations)
+			.where(eq(schema.conversations.id, chat.conversation.id))
+			.get();
+		expect(row?.status).toBe("resolved");
+		const activity = await db
+			.select()
+			.from(schema.inboxActivity)
+			.where(eq(schema.inboxActivity.conversation_id, chat.conversation.id));
+		expect(activity.map((a) => a.action)).toContain("chat.ended");
+		await call(widget.public_key, "messages", {
+			body: { text: "One more thing", client_id: uid() },
+			token: chat.token,
+		});
+		const again = await call(widget.public_key, "messages", { token: chat.token });
+		expect(again.json.conversation.status).toBe("open");
+		// A chat that doesn't let visitors end it.
+		await saveChatWidget(inbox, { design: { allow_end: false } }, { userId: null });
+		const refused = await call(widget.public_key, "end", { body: {}, token: chat.token });
+		expect(refused.status).toBe(403);
+	});
+
+	it("keeps the visitor's rating and comment as the conversation's CSAT", async () => {
+		const { org, inbox, widget } = await setUp();
+		const chat = await start(widget.public_key);
+		await call(widget.public_key, "end", { body: {}, token: chat.token });
+		const bad = await call(widget.public_key, "rate", {
+			body: { rating: 9 },
+			token: chat.token,
+		});
+		expect(bad.status).toBe(422);
+		const rated = await call(widget.public_key, "rate", {
+			body: { rating: 4 },
+			token: chat.token,
+		});
+		expect(rated.json.conversation.rating).toBe(4);
+		await call(widget.public_key, "rate", {
+			body: { rating: 4, comment: "Quick and kind" },
+			token: chat.token,
+		});
+		const full = await getConversation(person(org.id), chat.conversation.id);
+		expect(full.csat).toMatchObject({ rating: 4, comment: "Quick and kind" });
+		await saveChatWidget(inbox, { design: { ask_rating: false } }, { userId: null });
+		const off = await call(widget.public_key, "rate", {
+			body: { rating: 5 },
+			token: chat.token,
+		});
+		expect(off.status).toBe(403);
+	});
+
+	it("lists the visitor's chats this browser has, newest first, and nothing of other chats", async () => {
+		const { widget } = await setUp();
+		const other = await setUp();
+		const first = await start(widget.public_key, "First question");
+		await new Promise((r) => setTimeout(r, 5));
+		const second = await start(widget.public_key, "Second question");
+		const elsewhere = await start(other.widget.public_key, "Not this chat");
+		const r = await call(widget.public_key, "history", {
+			body: {
+				tokens: [first.token, "mrv_nonsense", elsewhere.token, second.token],
+			},
+		});
+		expect(r.status).toBe(200);
+		expect(r.json.conversations.map((x: Json) => [x.id, x.ref])).toEqual([
+			[second.conversation.id, 3],
+			[first.conversation.id, 0],
+		]);
+		expect(r.json.conversations[1]).toMatchObject({
+			status: "open",
+			snippet: "First question",
+		});
+	});
+});

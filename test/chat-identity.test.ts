@@ -219,6 +219,37 @@ describe("website chat: identity verification", () => {
 		expect(no.status).toBe(401);
 	});
 
+	it("lists a signed-in person's chats from any browser and opens an earlier one", async () => {
+		const { widget, secret } = await setUp();
+		const ana = await sign(secret, { sub: "ana", exp: soon() });
+		const beto = await sign(secret, { sub: "beto", exp: soon() });
+		const first = await call(widget.public_key, "start", {
+			body: { text: "Primera", client_id: uid(), identity: ana },
+		});
+		await new Promise((r) => setTimeout(r, 5));
+		await call(widget.public_key, "start", {
+			body: { text: "Segunda", client_id: uid(), identity: ana },
+		});
+		await call(widget.public_key, "start", {
+			body: { text: "De Beto", client_id: uid(), identity: beto },
+		});
+		const list = await call(widget.public_key, "history", { body: { identity: ana } });
+		expect(list.json.conversations.map((x: Json) => x.snippet)).toEqual(["Segunda", "Primera"]);
+		expect(list.json.conversations[0].ref).toBeNull();
+		const opened = await call(widget.public_key, "identify", {
+			body: { identity: ana, conversation: first.json.conversation.id },
+		});
+		expect(opened.json).toMatchObject({
+			status: "resumed",
+			conversation: { id: first.json.conversation.id },
+		});
+		// Someone else's chat isn't opened for them.
+		const not = await call(widget.public_key, "identify", {
+			body: { identity: beto, conversation: first.json.conversation.id },
+		});
+		expect(not.json).toEqual({ status: "none" });
+	});
+
 	it("only lets signed-in people chat when required", async () => {
 		const { widget, secret } = await setUp(true);
 		const anon = await call(widget.public_key, "start", {

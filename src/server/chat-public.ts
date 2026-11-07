@@ -16,7 +16,10 @@ import {
 	startChat,
 	type VisitorChat,
 	visitorChat,
+	visitorEnds,
+	visitorHistory,
 	visitorProfile,
+	visitorRates,
 	visitorSays,
 	visitorSendsFile,
 	widgetByKey,
@@ -41,6 +44,9 @@ import { ApiError } from "./errors";
  *   POST /chat/<key>/profile       name and email (or the website's signed identity)
  *   POST /chat/<key>/identify      the website's signed identity → the person's chat, any browser
  *   POST /chat/<key>/seen          the visitor has it in front of them
+ *   POST /chat/<key>/end           the visitor ends it (resolved)
+ *   POST /chat/<key>/rate          the visitor's rating, 1-5, and a comment
+ *   POST /chat/<key>/history       the visitor's chats: { tokens, identity? }
  *   GET  /chat/<key>/live          WebSocket (the ChatRoom)
  *   GET  /chat/files/…             a file, by its signed link
  */
@@ -236,6 +242,20 @@ export async function handleChat(request: Request, now = Date.now()): Promise<Re
 				await markVisitorSeen(chat.conversation.id, now);
 				return json({ ok: true }, { headers });
 			}
+			case "POST end": {
+				const chat = await need(key, request);
+				const fresh = await visitorEnds(chat, now);
+				return json({ conversation: await chatState(fresh) }, { headers });
+			}
+			case "POST rate": {
+				const chat = await need(key, request);
+				const fresh = await visitorRates(chat, await readJson(request), now);
+				return json({ conversation: await chatState(fresh) }, { headers });
+			}
+			case "POST history": {
+				const conversations = await visitorHistory(w, await readJson(request), now);
+				return json({ conversations }, { headers });
+			}
 			case "GET live": {
 				if (request.headers.get("upgrade")?.toLowerCase() !== "websocket")
 					return fail(426, "upgrade_required", "Expected a WebSocket", headers);
@@ -415,6 +435,8 @@ export async function publicConfig(w: NonNullable<Awaited<ReturnType<typeof widg
 		z_index: d.z_index,
 		custom_css: d.custom_css,
 		language: d.language,
+		ask_rating: d.ask_rating,
+		allow_end: d.allow_end,
 		identity_required: w.widget.identity_required,
 		retention: d.show_retention && days > 0 ? days : null,
 		turnstile: turnstile?.sitekey ?? null,

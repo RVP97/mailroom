@@ -556,7 +556,7 @@ function Canvas({
 		() => sitePage({ script, dark: site === "dark", brand }),
 		[script, site, brand],
 	);
-	const [view, setView] = useState<"open" | "closed" | "nudge">("open");
+	const [view, setView] = useState<"open" | "closed" | "nudge" | "ended">("open");
 	const push = useCallback(() => {
 		frame.current?.contentWindow?.postMessage({ type: "mailroom-chat-design", config }, "*");
 	}, [config]);
@@ -627,6 +627,7 @@ function Canvas({
 							["open", "Open"],
 							["closed", "Closed"],
 							["nudge", "Pop-up"],
+							["ended", "Ended"],
 						] as const
 					).map(([x, l]) => (
 						<button
@@ -1436,6 +1437,24 @@ function SettingsPanel({
 						)}
 					</>
 				)}
+			</Group>
+			<Group title="When a chat ends">
+				<SwitchRow
+					label="Visitors can end the chat"
+					hint="From the chat's ⋯ menu. It's resolved here, as if you had closed it."
+					checked={!!v.design.allow_end}
+					onChange={(allow_end) => look({ allow_end })}
+				/>
+				<SwitchRow
+					label="Ask them to rate it"
+					hint="Five faces and an optional comment, in the chat when it closes. Ratings show on the conversation and in the inbox report."
+					checked={!!v.design.ask_rating}
+					onChange={(ask_rating) => look({ ask_rating })}
+				/>
+				<p className="text-xs text-muted-foreground">
+					Writing again reopens a closed chat. Visitors can also see their past chats and
+					download a transcript from the ⋯ menu.
+				</p>
 			</Group>
 			<Group title="Your team">
 				<SwitchRow

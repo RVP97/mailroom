@@ -241,6 +241,7 @@ const ACTIONS: Record<string, string> = {
 	"attachment.downloaded": "downloaded an attachment",
 	"message.read": "read a message",
 	"chat.started": "opened the chat (the visitor's first message)",
+	"chat.ended": "closed it: the visitor ended the chat",
 };
 
 type Patch = Omit<Parameters<typeof updateConversationFn>[0]["data"], "id">;

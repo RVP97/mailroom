@@ -161,6 +161,10 @@ export const chatDesign = z.object({
 	custom_css: z.string().max(10_000).nullish(),
 	/** The widget's own words (buttons, notices, errors): English or Spanish. */
 	language: z.enum(["en", "es"]).optional(),
+	/** When a chat is closed, the visitor is asked how it went (five faces, a comment). */
+	ask_rating: z.boolean().optional(),
+	/** The visitor may end the chat themselves (the ⋯ menu). */
+	allow_end: z.boolean().optional(),
 });
 export type ChatDesign = z.infer<typeof chatDesign>;
 
@@ -199,6 +203,8 @@ export const DESIGN_DEFAULTS: Required<{
 	z_index: null,
 	custom_css: null,
 	language: "en",
+	ask_rating: true,
+	allow_end: true,
 };
 
 /** The default texts of a chat in Spanish (design.language "es"). */
@@ -848,10 +854,16 @@ export async function identifyVisitor(
 	o: { ip?: string | null; now?: number } = {},
 ) {
 	const now = o.now ?? Date.now();
-	const v = z.object({ identity: z.string().max(8000) }).parse(raw ?? {});
+	const v = z
+		.object({
+			identity: z.string().max(8000),
+			/** One of the person's earlier chats (from history), instead of the latest. */
+			conversation: z.string().uuid().nullish(),
+		})
+		.parse(raw ?? {});
 	const who = await identityOf(w.widget, v.identity, now);
 	if (!who) throw validation("identity: the website's signed token");
-	if (chat) {
+	if (chat && !(v.conversation && v.conversation !== chat.conversation.id)) {
 		const owner = chat.conversation.visitor_user_id;
 		if (owner && owner !== who.userId) return { status: "other_person" as const };
 		const fresh = await updateVisitor(chat.conversation, identitySet(who), now);
@@ -865,6 +877,7 @@ export async function identifyVisitor(
 				eq(c.inbox_id, w.inbox.id),
 				eq(c.visitor_user_id, who.userId),
 				eq(c.channel, "chat"),
+				v.conversation ? eq(c.id, v.conversation) : undefined,
 			),
 		)
 		.orderBy(desc(c.last_message_at))
@@ -937,6 +950,120 @@ export async function markVisitorSeen(conversationId: string, now = Date.now()) 
 		db.update(cv).set({ last_seen_at: at }).where(eq(cv.conversation_id, conversationId)),
 	]);
 	return at;
+}
+
+/**
+ * The visitor ends the chat (when the widget lets them): it's resolved, as if the team had
+ * closed it. Writing again reopens it, like any chat.
+ */
+export async function visitorEnds(chat: VisitorChat, now = Date.now()) {
+	const x = chat.conversation;
+	if (!designOf(chat.widget).allow_end)
+		throw new ApiError(403, "end_off", "This chat can't be ended from here");
+	if (x.status === "resolved") return x;
+	const at = iso(now);
+	await db
+		.update(c)
+		.set({ status: "resolved", resolved_at: at, snoozed_until: null, updated_at: at })
+		.where(eq(c.id, x.id));
+	const { slaResolved } = await import("./inbox-workflow");
+	await slaResolved(x, now);
+	await logInbox("system", {
+		brandId: x.organization_id,
+		inboxId: x.inbox_id,
+		conversationId: x.id,
+		action: "chat.ended",
+		now,
+	});
+	const { inboxEvent } = await import("./conversations");
+	await inboxEvent(x, "inbox.conversation.resolved", { resolved_by: { type: "visitor" } }, now);
+	await chatStatusChanged(x, "resolved");
+	return (await db.select().from(c).where(eq(c.id, x.id)).get()) as Conversation;
+}
+
+const rateInput = z.object({
+	rating: z.number().int().min(1).max(5),
+	comment: z.string().trim().max(2000).nullish(),
+});
+
+/** The visitor rates the chat (asked when it's closed): like the survey email's faces. */
+export async function visitorRates(chat: VisitorChat, raw: unknown, now = Date.now()) {
+	const v = rateInput.parse(raw ?? {});
+	const x = chat.conversation;
+	if (!designOf(chat.widget).ask_rating)
+		throw new ApiError(403, "rating_off", "This chat doesn't take ratings");
+	const { recordCsat } = await import("./inbox-workflow");
+	await recordCsat(x, v.rating, v.comment === undefined ? null : v.comment || "", now);
+	if (!x.csat_sent_at)
+		await db
+			.update(c)
+			.set({ csat_sent_at: iso(now) })
+			.where(eq(c.id, x.id));
+	return (await db.select().from(c).where(eq(c.id, x.id)).get()) as Conversation;
+}
+
+const historyInput = z.object({
+	/** The visitor tokens this browser kept for its earlier chats. */
+	tokens: z.array(z.string().max(64)).max(25).default([]),
+	/** The website's signed identity: the person's chats from any browser too. */
+	identity: z.string().max(8000).nullish(),
+});
+
+/**
+ * The visitor's chats, newest first: the ones this browser has a token for (`ref`: which one)
+ * and, for a person the website signed in, theirs from anywhere (opened with identify).
+ */
+export async function visitorHistory(
+	w: { widget: ChatWidget; inbox: Inbox },
+	raw: unknown,
+	now = Date.now(),
+) {
+	const v = historyInput.parse(raw ?? {});
+	const refs = new Map<string, number>();
+	await Promise.all(
+		v.tokens.map(async (t, i) => {
+			if (VISITOR_RE.test(t)) refs.set(await sha256Hex(t), i);
+		}),
+	);
+	const byId = new Map<string, { x: Conversation; ref: number | null }>();
+	if (refs.size) {
+		const rows = await db
+			.select({ x: c, hash: cv.token_hash })
+			.from(cv)
+			.innerJoin(c, eq(c.id, cv.conversation_id))
+			.where(and(inArray(cv.token_hash, [...refs.keys()]), eq(cv.inbox_id, w.inbox.id)));
+		for (const r of rows)
+			if (r.x.channel === "chat") byId.set(r.x.id, { x: r.x, ref: refs.get(r.hash) ?? null });
+	}
+	if (v.identity) {
+		const who = await identityOf(w.widget, v.identity, now);
+		if (who) {
+			const theirs = await db
+				.select()
+				.from(c)
+				.where(
+					and(
+						eq(c.inbox_id, w.inbox.id),
+						eq(c.visitor_user_id, who.userId),
+						eq(c.channel, "chat"),
+					),
+				)
+				.orderBy(desc(c.last_message_at))
+				.limit(20);
+			for (const x of theirs) if (!byId.has(x.id)) byId.set(x.id, { x, ref: null });
+		}
+	}
+	return [...byId.values()]
+		.sort((a, b) => (a.x.last_message_at < b.x.last_message_at ? 1 : -1))
+		.slice(0, 20)
+		.map(({ x, ref }) => ({
+			id: x.id,
+			ref,
+			status: x.status as "open" | "resolved",
+			snippet: x.snippet,
+			at: x.last_message_at,
+			rating: x.csat_rating ?? null,
+		}));
 }
 
 // ── Files ──────────────────────────────────────────────────────────────────
@@ -1165,6 +1292,9 @@ export async function chatState(x: Conversation) {
 	return {
 		id: x.id,
 		status: x.status as "open" | "resolved",
+		ended_at: x.status === "resolved" ? x.resolved_at : null,
+		/** The visitor's own rating of it (1-5), once they gave one. */
+		rating: x.csat_rating ?? null,
 		visitor: visitorOf(x),
 	};
 }
