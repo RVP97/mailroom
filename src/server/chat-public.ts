@@ -450,6 +450,7 @@ export async function publicConfig(w: NonNullable<Awaited<ReturnType<typeof widg
 		usual_reply: d.reply_time === "auto" ? await usualReply(w.inbox.id) : null,
 		// Only the words: which tag and who gets it stay here.
 		topics: (d.topics ?? []).map((t) => ({ label: t.label })),
+		popups: d.popups ?? [],
 		show_hours: d.show_hours,
 		// The inbox's business hours (its workflow): the widget works out "back at 9" itself.
 		hours: d.show_hours ? settingsOf(w.inbox).sla.business_hours : null,

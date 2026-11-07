@@ -960,3 +960,33 @@ describe("website chat: topics", () => {
 		expect(row?.assignee).toBe(`user:${ana}`);
 	});
 });
+
+describe("website chat: pop-up messages", () => {
+	it("passes the pop-ups to the widget and notes which one a chat started from", async () => {
+		const { org, inbox, widget } = await setUp();
+		await saveChatWidget(
+			inbox,
+			{
+				design: {
+					popups: [{ text: "Questions about our plans?", pages: ["/pricing"], after: 5 }],
+				},
+			},
+			{ userId: null },
+		);
+		const js = await (
+			await handleChat(new Request(`https://mailroom.test/chat/${widget.public_key}.js`))
+		).text();
+		expect(js).toContain(
+			'"popups":[{"pages":["/pricing"],"text":"Questions about our plans?","after":5}]',
+		);
+		const chat = await start(widget.public_key, "Is there a yearly plan?", { popup: 0 });
+		const activity = await db
+			.select()
+			.from(schema.inboxActivity)
+			.where(eq(schema.inboxActivity.conversation_id, chat.conversation.id));
+		expect(activity.find((a) => a.action === "chat.started")?.detail).toMatchObject({
+			popup: "Questions about our plans?",
+		});
+		expect(org.id).toBeTruthy();
+	});
+});

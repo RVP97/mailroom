@@ -1372,6 +1372,12 @@ function describe(a: Event) {
 			return typeof d.rule === "string" ? `ran the rule “${d.rule}”` : "ran a rule";
 		case "csat.received":
 			return typeof d.rating === "number" ? `rated it ${d.rating} of 5` : "rated it";
+		case "chat.started":
+			return typeof d.popup === "string"
+				? `opened the chat from the pop-up “${d.popup}”`
+				: typeof d.topic === "string"
+					? `opened the chat about “${d.topic}”`
+					: (ACTIONS[a.action] ?? a.action);
 		case "sla.breached":
 			return d.what === "resolve" ? "missed the resolve target" : "missed the reply target";
 		default:

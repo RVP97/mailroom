@@ -928,12 +928,14 @@ function mailroomChat(c) {
 	var FIVE_MIN = 5 * 60 * 1000;
 
 	function greetingMessage() {
-		return cfg.greeting
+		// Opened from a pop-up message: it's what greets them.
+		var text = state.popup ? state.popup.text : cfg.greeting;
+		return text
 			? {
 					id: "greeting",
 					author: "team",
 					name: null,
-					text: cfg.greeting,
+					text: text,
 					files: [],
 					at: null,
 					greeting: true,
@@ -1880,6 +1882,7 @@ function mailroomChat(c) {
 		state.conversation = null;
 		state.messages = [];
 		state.awayShown = false;
+		state.popup = null;
 		disconnect();
 		render();
 		setComposer();
@@ -2091,6 +2094,7 @@ function mailroomChat(c) {
 							name: stored.name || undefined,
 							identity: identity || undefined,
 							topic: m.topic,
+							popup: state.popup ? state.popup.i : undefined,
 							page: location.href,
 						}),
 					),
@@ -2550,7 +2554,11 @@ function mailroomChat(c) {
 					closePanel();
 					if (e.data.view === "nudge") {
 						cfg.preview = false;
-						showNudge({ name: null, text: cfg.greeting || "Hi! How can we help?" });
+						var first = (cfg.popups || []).find((x) => x && x.text);
+						showNudge({
+							name: null,
+							text: (first && first.text) || cfg.greeting || "Hi! How can we help?",
+						});
 						cfg.preview = true;
 					}
 				}
@@ -2580,11 +2588,62 @@ function mailroomChat(c) {
 		}
 		if (location.hash === "#mailroom-chat") openPanel();
 		else greetLater();
+		if ((cfg.popups || []).length) {
+			checkPopups();
+			setInterval(checkPopups, 1000);
+		}
 	}
 	/** The greeting pops up by the launcher after a while (once a visit, never mid-chat). */
+	// ── Pop-up messages on chosen pages ────────────────────────────────────────
+
+	/** "/pricing", "/blog/*", or a host and path ("shop.example.com/cart*"). */
+	function pageMatches(pattern) {
+		var pat = String(pattern || "")
+			.trim()
+			.replace(/^https?:\/\//i, "");
+		if (!pat) return false;
+		var target = pat.charAt(0) === "/" ? location.pathname : location.host + location.pathname;
+		var re = new RegExp(
+			"^" + pat.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "/?$",
+			"i",
+		);
+		return re.test(target);
+	}
+	function popupHere() {
+		var list = cfg.popups || [];
+		for (var i = 0; i < list.length; i++)
+			if (list[i] && list[i].text && (list[i].pages || []).some(pageMatches))
+				return { i: i, text: list[i].text, after: Number(list[i].after) || 0 };
+		return null;
+	}
+	var popupPath = null;
+	var popupTimer = null;
+	/** On a page with a pop-up (each page change too, for sites that don't reload): once a visit. */
+	function checkPopups() {
+		if (cfg.preview || location.pathname === popupPath) return;
+		popupPath = location.pathname;
+		clearTimeout(popupTimer);
+		var hit = popupHere();
+		if (!hit) return;
+		var key = STORE + ":popup:" + hit.i + ":" + hit.text.length;
+		try {
+			if (sessionStorage.getItem(key)) return;
+		} catch (_) {}
+		popupTimer = setTimeout(() => {
+			// Not over a chat they're having.
+			if (state.open || (stored.token && recent()) || location.pathname !== popupPath) return;
+			try {
+				sessionStorage.setItem(key, "1");
+			} catch (_) {}
+			state.popup = hit;
+			render();
+			showNudge({ name: null, text: hit.text });
+		}, hit.after * 1000);
+	}
+
 	function greetLater() {
 		var s = Number(cfg.nudge_after) || 0;
-		if (s <= 0 || stored.token || !cfg.greeting) return;
+		if (s <= 0 || stored.token || !cfg.greeting || popupHere()) return;
 		try {
 			if (sessionStorage.getItem(STORE + ":greeted")) return;
 		} catch (_) {}

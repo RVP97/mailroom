@@ -184,6 +184,18 @@ export const chatDesign = z.object({
 		)
 		.max(8)
 		.optional(),
+	/** Messages that pop up by the launcher on chosen pages ("/pricing", "/blog/*"), after a few
+	 * seconds, once a visit; opening the chat shows it as the greeting. */
+	popups: z
+		.array(
+			z.object({
+				pages: z.array(shortText(300).min(1)).min(1, "popups: on which pages").max(10),
+				text: shortText(300).min(1, "popups: each needs its words"),
+				after: z.number().int().min(0).max(300).optional(),
+			}),
+		)
+		.max(10)
+		.optional(),
 });
 export type ChatDesign = z.infer<typeof chatDesign>;
 
@@ -228,6 +240,7 @@ export const DESIGN_DEFAULTS: Required<{
 	reply_time: "text",
 	show_hours: true,
 	topics: [],
+	popups: [],
 };
 
 /** The default texts of a chat in Spanish (design.language "es"). */
@@ -563,6 +576,8 @@ const startInput = z.object({
 	identity: z.string().max(8000).nullish(),
 	/** Which of the chat's topics the visitor picked (its button). */
 	topic: z.number().int().min(0).max(7).nullish(),
+	/** The pop-up message the visitor opened the chat from. */
+	popup: z.number().int().min(0).max(9).nullish(),
 });
 
 const cleanEmail = (raw: string | null | undefined) => {
@@ -639,6 +654,7 @@ export async function startChat(
 	const name = who?.name ?? (v.name?.trim() || null);
 	const page = cleanPage(v.page);
 	const topic = v.topic != null ? (designOf(w.widget).topics?.[v.topic] ?? null) : null;
+	const popup = v.popup != null ? (designOf(w.widget).popups?.[v.popup] ?? null) : null;
 	const contact = email ?? name ?? "Website visitor";
 	const at = iso(now);
 	await db.batch([
@@ -683,6 +699,7 @@ export async function startChat(
 			...(page ? { page } : {}),
 			...(who ? { verified: true } : {}),
 			...(topic ? { topic: topic.label } : {}),
+			...(popup ? { popup: popup.text } : {}),
 		},
 		now,
 	});

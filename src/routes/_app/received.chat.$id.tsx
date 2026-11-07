@@ -350,6 +350,16 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 						design: {
 							...v.design,
 							topics: (v.design.topics ?? []).filter((t) => t.label.trim()),
+							// Pages are typed as one line ("/pricing, /blog/*").
+							popups: (v.design.popups ?? [])
+								.map((p) => ({
+									...p,
+									pages: p.pages
+										.flatMap((x) => x.split(/[,\n]/))
+										.map((x) => x.trim())
+										.filter(Boolean),
+								}))
+								.filter((p) => p.text.trim() && p.pages.length),
 						},
 					},
 				},
@@ -1329,6 +1339,9 @@ function MessagesPanel({
 	const topics = d.topics ?? [];
 	const setTopic = (i: number, x: Partial<(typeof topics)[number]>) =>
 		look({ topics: topics.map((t, j) => (j === i ? { ...t, ...x } : t)) });
+	const popups = d.popups ?? [];
+	const setPopup = (i: number, x: Partial<(typeof popups)[number]>) =>
+		look({ popups: popups.map((p, j) => (j === i ? { ...p, ...x } : p)) });
 	return (
 		<>
 			<Group title="Header">
@@ -1503,6 +1516,78 @@ function MessagesPanel({
 						}
 					>
 						<Plus className="size-4" /> Add a topic
+					</Button>
+				)}
+			</Group>
+			<Group title="Pop-up messages">
+				<p className="text-xs text-muted-foreground">
+					A message by the launcher on the pages you choose, once a visit. Opening the
+					chat shows it as the greeting. Not shown to someone in the middle of a chat.
+				</p>
+				{popups.map((p, i) => (
+					<div
+						key={i}
+						className="flex flex-col gap-2 rounded-md border border-border/80 p-2.5"
+					>
+						<div className="flex gap-2">
+							<Textarea
+								aria-label={`Pop-up ${i + 1}`}
+								rows={2}
+								maxLength={300}
+								placeholder="Questions about our plans? We're here."
+								value={p.text}
+								onChange={(e) => setPopup(i, { text: e.target.value })}
+							/>
+							<Button
+								variant="ghost"
+								size="icon"
+								aria-label={`Remove pop-up ${i + 1}`}
+								onClick={() => look({ popups: popups.filter((_, j) => j !== i) })}
+							>
+								<Trash2 className="size-4" />
+							</Button>
+						</div>
+						<div className="grid grid-cols-[1fr_auto] gap-2">
+							<Input
+								aria-label={`Pop-up ${i + 1}'s pages`}
+								placeholder="/pricing, /blog/*"
+								value={p.pages.join(", ")}
+								onChange={(e) => setPopup(i, { pages: [e.target.value] })}
+							/>
+							<Select
+								value={String(p.after ?? 5)}
+								onValueChange={(x) => setPopup(i, { after: Number(x) })}
+							>
+								<SelectTrigger aria-label={`When pop-up ${i + 1} shows`}>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{[0, 3, 5, 10, 20, 30, 60].map((s) => (
+										<SelectItem
+											key={s}
+											value={String(s)}
+										>
+											{s === 0 ? "Right away" : `After ${s} s`}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+					</div>
+				))}
+				<p className="text-xs text-muted-foreground">
+					Pages are paths like /pricing; a * matches the rest (/blog/*).
+				</p>
+				{popups.length < 10 && (
+					<Button
+						variant="outline"
+						size="sm"
+						className="self-start"
+						onClick={() =>
+							look({ popups: [...popups, { text: "", pages: [], after: 5 }] })
+						}
+					>
+						<Plus className="size-4" /> Add a pop-up
 					</Button>
 				)}
 			</Group>
