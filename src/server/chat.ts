@@ -12,6 +12,17 @@ import { bareAddress } from "./aws/mime";
 import { sha256Hex } from "./aws/sigv4";
 import { orgOf } from "./brands";
 import { pushToRoom } from "./chat-room";
+import {
+	deleteFiles,
+	type FileStorage,
+	fileStorageFrom,
+	fileStorageInput,
+	fileStorageView,
+	getFile,
+	placeOf,
+	putFile,
+	testStorage,
+} from "./chat-storage";
 import { db, schema } from "./db";
 import type { ChatAttachment } from "./db/schema";
 import { baseUrl, cfg } from "./env";
@@ -317,6 +328,8 @@ export const settingsInput = z.object({
 	first_agent: z.string().max(100).nullish(),
 	/** The team is emailed about the agent's chats only if it hasn't answered in this long. */
 	agent_wait: z.number().int().min(1).max(120).optional(),
+	/** Files go to the website's own bucket (chat-storage.ts); null: back to Mailroom's. */
+	file_storage: fileStorageInput.nullable().optional(),
 });
 
 /** The agent that answers first must be one of the inbox's credentials that may send. */
@@ -381,6 +394,14 @@ export async function saveChatWidget(
 					),
 				]
 			: (existing?.notify ?? (by.email ? [lower(by.email)] : []));
+	let file_storage = existing?.file_storage ?? null;
+	if (v.file_storage === null) file_storage = null;
+	else if (v.file_storage) {
+		const next = await fileStorageFrom(v.file_storage, file_storage, iso(now));
+		// Saved only once a file can really be written, read and deleted there.
+		if (JSON.stringify(next) !== JSON.stringify(file_storage)) await testStorage(next);
+		file_storage = next;
+	}
 	const design = v.design
 		? Object.fromEntries(
 				Object.entries({ ...(existing?.design ?? {}), ...v.design }).filter(
@@ -407,6 +428,7 @@ export async function saveChatWidget(
 			? [...new Set(v.file_kinds)]
 			: (existing?.file_kinds ?? DEFAULT_FILE_KINDS),
 		file_max_mb: v.file_max_mb ?? existing?.file_max_mb ?? 10,
+		file_storage,
 		identity_secret: existing?.identity_secret ?? null,
 		identity_required: v.identity_required ?? existing?.identity_required ?? false,
 		first_agent:
@@ -510,6 +532,8 @@ export const chatWidgetView = (w: ChatWidget) => ({
 	/** The agent credential (id) that answers new chats first, and how long the team waits on it. */
 	first_agent: w.first_agent,
 	agent_wait: w.agent_wait,
+	/** The website's own bucket the files go to (null: Mailroom's); never its secret. */
+	file_storage: fileStorageView(w.file_storage ?? null),
 	/** Identity verification: whether the secret exists (never its value) and is required. */
 	identity: { configured: !!w.identity_secret, required: w.identity_required },
 	snippet: snippetFor(w),
@@ -1178,13 +1202,37 @@ function fileType(contentType: string, filename: string) {
 	return byExt && (!type || type === "application/octet-stream") ? byExt[0] : type;
 }
 
-/** Stores one file of a chat's in R2 (its type and size checked). */
+/** The chat's own bucket, when it has one (by its inbox). */
+async function ownStorage(inboxId: string | null) {
+	if (!inboxId) return null;
+	const w = await db
+		.select({ s: cw.file_storage })
+		.from(cw)
+		.where(eq(cw.inbox_id, inboxId))
+		.get();
+	return w?.s ?? null;
+}
+
+/** Where a stored file's bytes are: its chat's own bucket (still the same one) or Mailroom's. */
+async function fileBody(a: ChatAttachment, inboxId: string | null) {
+	if (!a.place) return (await bucket()?.get(a.key))?.body ?? null;
+	const own = inboxId ? await ownStorage(inboxId) : null;
+	return own && placeOf(own) === a.place ? getFile(own, a.key) : null;
+}
+
+/**
+ * Stores one file of a chat's (its type, size and content checked): in the chat's own bucket
+ * when it has one, otherwise in Mailroom's R2.
+ */
 export async function storeChatFile(
-	x: Pick<Conversation, "id" | "organization_id">,
+	x: Pick<Conversation, "id" | "organization_id" | "inbox_id">,
 	f: { filename: string; content_type: string; bytes: Uint8Array | ArrayBuffer },
+	own?: FileStorage | null,
 ) {
+	const storage = own === undefined ? await ownStorage(x.inbox_id) : own;
 	const store = bucket();
-	if (!store) throw new ApiError(503, "files_unavailable", "Files can't be stored here");
+	if (!store && !storage)
+		throw new ApiError(503, "files_unavailable", "Files can't be stored here");
 	const type = fileType(f.content_type, f.filename);
 	if (!FILE_TYPES[type])
 		throw validation("file: send an image, a PDF, an XML or an office document");
@@ -1195,14 +1243,26 @@ export async function storeChatFile(
 	const refused = refuseContent(type, f.bytes);
 	if (refused) throw new ApiError(422, "file_refused", refused);
 	const id = crypto.randomUUID();
-	const key = `chat/${x.organization_id}/${x.id}/${id}`;
-	await store.put(key, f.bytes, { httpMetadata: { contentType: type } });
+	let key = `chat/${x.organization_id}/${x.id}/${id}`;
+	let place: string | null = null;
+	if (storage) {
+		key = `${storage.prefix}${x.id}/${id}`;
+		place = placeOf(storage);
+		await putFile(storage, key, new Uint8Array(f.bytes), type);
+	} else await store?.put(key, f.bytes, { httpMetadata: { contentType: type } });
 	const filename =
 		f.filename
 			.replace(/[\\/\0\r\n"]/g, "_")
 			.trim()
 			.slice(0, 150) || `file.${FILE_TYPES[type]}`;
-	return { id, filename, content_type: type, size, key } satisfies ChatAttachment;
+	return {
+		id,
+		filename,
+		content_type: type,
+		size,
+		key,
+		...(place ? { place } : {}),
+	} satisfies ChatAttachment;
 }
 
 /** A visitor's file: a line of its own. */
@@ -1228,7 +1288,7 @@ export async function visitorSendsFile(
 		.get();
 	if ((files?.n ?? 0) >= CHAT_LIMITS.filesPerChat)
 		throw tooMany("That's as many files as one chat takes; email us the rest");
-	const a = await storeChatFile(chat.conversation, f);
+	const a = await storeChatFile(chat.conversation, f, w.file_storage ?? null);
 	return postVisitorLine(
 		chat,
 		{ text: "", client_id: o.client_id ?? null, via: "widget", attachments: [a] },
@@ -1268,10 +1328,19 @@ export async function serveChatFile(path: string, now = Date.now()): Promise<Res
 	if (diff) return gone;
 	const line = await db.select().from(cm).where(eq(cm.id, lineId)).get();
 	const meta = line?.attachments?.find((a) => a.id === fileId);
-	const obj = meta ? await bucket()?.get(meta.key) : null;
-	if (!meta || !obj) return gone;
+	const inboxId = meta?.place
+		? ((
+				await db
+					.select({ inbox: c.inbox_id })
+					.from(c)
+					.where(eq(c.id, line?.conversation_id ?? ""))
+					.get()
+			)?.inbox ?? null)
+		: null;
+	const body = meta ? await fileBody(meta, inboxId) : null;
+	if (!meta || !body) return gone;
 	const inline = INLINE_IMAGES.has(meta.content_type) || meta.content_type === "application/pdf";
-	return new Response(obj.body, {
+	return new Response(body, {
 		headers: {
 			"content-type": meta.content_type,
 			"content-length": String(meta.size),
@@ -2291,13 +2360,25 @@ export async function deleteChatFiles(conversationIds: string[]) {
 	if (!conversationIds.length) return;
 	const store = bucket();
 	const rows = await db
-		.select({ attachments: cm.attachments })
+		.select({ attachments: cm.attachments, inbox: c.inbox_id })
 		.from(cm)
+		.innerJoin(c, eq(c.id, cm.conversation_id))
 		.where(
 			and(inArray(cm.conversation_id, conversationIds), sql`${cm.attachments} IS NOT NULL`),
 		);
-	const keys = rows.flatMap((r) => (r.attachments ?? []).map((a) => a.key));
+	const all = rows.flatMap((r) => (r.attachments ?? []).map((a) => ({ a, inbox: r.inbox })));
+	const keys = all.filter((x) => !x.a.place).map((x) => x.a.key);
 	for (let i = 0; i < keys.length; i += 500) await store?.delete(keys.slice(i, i + 500));
+	// Files in a chat's own bucket go from there (while it's still the bucket they're in).
+	const byInbox = new Map<string | null, ChatAttachment[]>();
+	for (const x of all)
+		if (x.a.place) byInbox.set(x.inbox, [...(byInbox.get(x.inbox) ?? []), x.a]);
+	for (const [inbox, list] of byInbox) {
+		const own = await ownStorage(inbox);
+		if (!own) continue;
+		const here = list.filter((a) => a.place === placeOf(own)).map((a) => a.key);
+		await deleteFiles(own, here).catch((e) => console.warn("chat storage delete", e));
+	}
 }
 
 /** A conversation deleted now ("Delete now" in the dashboard): its files, lines and all. */

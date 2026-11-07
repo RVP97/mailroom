@@ -1,0 +1,1 @@
+ALTER TABLE `chat_widgets` ADD `file_storage` text;

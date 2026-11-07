@@ -11,6 +11,7 @@ import {
 } from "drizzle-orm/sqlite-core";
 import type { BrandKit } from "../../lib/brand-kit";
 import type { Block, EmailDoc } from "../../lib/email-doc";
+import type { FileStorage } from "../chat-storage";
 import { organization } from "./auth-schema";
 
 export * from "./auth-schema";
@@ -635,6 +636,8 @@ export const chatWidgets = sqliteTable(
 		first_agent: text("first_agent"),
 		/** Its chats email the team only if it hasn't answered within this many minutes. */
 		agent_wait: integer("agent_wait").notNull().default(5),
+		/** The website's own bucket for the files (src/server/chat-storage.ts; null: Mailroom's). */
+		file_storage: text("file_storage", { mode: "json" }).$type<FileStorage>(),
 		/** Identity verification (src/server/chat-identity.ts): the secret the website signs who
 		 * its signed-in visitor is with (mrcs_…; null: not set up). */
 		identity_secret: text("identity_secret"),
@@ -654,8 +657,10 @@ export interface ChatAttachment {
 	filename: string;
 	content_type: string;
 	size: number;
-	/** In the INBOUND bucket: chat/<brand>/<conversation>/<id>. */
+	/** In the INBOUND bucket: chat/<brand>/<conversation>/<id> (or in `place`, with its prefix). */
 	key: string;
+	/** In the chat's own bucket (chat-storage.ts placeOf); missing: Mailroom's INBOUND. */
+	place?: string | null;
 	width?: number | null;
 	height?: number | null;
 }

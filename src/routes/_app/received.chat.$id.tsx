@@ -87,6 +87,7 @@ type Fields = {
 	files_enabled: boolean;
 	file_kinds: FileKind[];
 	file_max_mb: string;
+	storage: Storage;
 	retention: string;
 	identity_required: boolean;
 	first_agent: string;
@@ -107,12 +108,54 @@ const fieldsOf = (d: Data): Fields => ({
 	files_enabled: d.widget?.files_enabled ?? true,
 	file_kinds: d.widget?.file_kinds ?? DEFAULT_FILE_KINDS,
 	file_max_mb: String(d.widget?.file_max_mb ?? 10),
+	storage: storageOf(d.widget?.file_storage ?? null),
 	retention: d.retention_days == null ? "default" : String(d.retention_days),
 	identity_required: d.widget?.identity.required ?? false,
 	first_agent: d.widget?.first_agent ?? "none",
 	agent_wait: String(d.widget?.agent_wait ?? 5),
 	design: d.widget?.design ?? d.defaults,
 });
+
+type Where = "mailroom" | "r2" | "s3" | "other";
+type Storage = {
+	where: Where;
+	account_id: string;
+	endpoint: string;
+	region: string;
+	bucket: string;
+	prefix: string;
+	access_key_id: string;
+	/** Typed only to change it; empty keeps the saved one. */
+	secret: string;
+};
+
+const storageOf = (s: Widget["file_storage"]): Storage => ({
+	where: s?.provider ?? "mailroom",
+	account_id: s?.account_id ?? "",
+	endpoint: s?.provider === "other" ? (s.endpoint ?? "") : "",
+	region: s?.provider === "r2" ? "" : (s?.region ?? ""),
+	bucket: s?.bucket ?? "",
+	prefix: s?.prefix ?? "",
+	access_key_id: s?.access_key_id ?? "",
+	secret: "",
+});
+
+/** What saving sends: null back to Mailroom's, nothing when it never left it. */
+const storageInput = (x: Storage, had: boolean) =>
+	x.where === "mailroom"
+		? had
+			? null
+			: undefined
+		: {
+				provider: x.where,
+				...(x.where === "r2" ? { account_id: x.account_id.trim() } : {}),
+				...(x.where === "other" ? { endpoint: x.endpoint.trim() } : {}),
+				...(x.where !== "r2" ? { region: x.region.trim() } : {}),
+				bucket: x.bucket.trim(),
+				prefix: x.prefix.trim(),
+				access_key_id: x.access_key_id.trim(),
+				...(x.secret.trim() ? { secret_access_key: x.secret.trim() } : {}),
+			};
 
 const FILE_KIND_OPTIONS: [FileKind, string, string][] = [
 	["images", "Images", "PNG, JPG, GIF, WebP, HEIC"],
@@ -350,6 +393,7 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 						file_max_mb: Number(v.file_max_mb) || 10,
 						first_agent: v.first_agent === "none" ? null : v.first_agent,
 						agent_wait: Number(v.agent_wait) || 5,
+						file_storage: storageInput(v.storage, !!widget.file_storage),
 						retention_days: v.retention === "default" ? null : Number(v.retention),
 						identity_required: v.identity_required,
 						// A topic still without words isn't one.
@@ -370,7 +414,10 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 					},
 				},
 			});
-			setSaved(JSON.stringify(v));
+			// The secret is never shown again once it's kept.
+			const kept = { ...v, storage: { ...v.storage, secret: "" } };
+			setV(kept);
+			setSaved(JSON.stringify(kept));
 			if (out.turnstile) toast.warning(out.turnstile);
 			else toast.success("Saved. Websites show the changes within a few minutes.");
 			await router.invalidate();
@@ -1886,6 +1933,11 @@ function SettingsPanel({
 								</SelectContent>
 							</Select>
 						</Labeled>
+						<FileStorageFields
+							value={v.storage}
+							connected={data.widget?.file_storage ?? null}
+							onChange={(storage) => set("storage", storage)}
+						/>
 					</>
 				)}
 			</Group>
@@ -2273,5 +2325,157 @@ function InstallPanel({
 				</Group>
 			)}
 		</>
+	);
+}
+
+/** Where the chat's files are kept: Mailroom's storage, or the website's own bucket. */
+function FileStorageFields({
+	value: x,
+	connected,
+	onChange,
+}: {
+	value: Storage;
+	connected: Widget["file_storage"];
+	onChange: (x: Storage) => void;
+}) {
+	const put = (p: Partial<Storage>) => onChange({ ...x, ...p });
+	const same = !!connected && connected.provider === x.where;
+	const keeps = same && connected.access_key_id === x.access_key_id.trim();
+	return (
+		<Field>
+			<FieldLabel>Where files are kept</FieldLabel>
+			<Choice
+				value={x.where === "mailroom" ? "mailroom" : "own"}
+				onChange={(w) =>
+					put({ where: w === "own" ? (connected?.provider ?? "r2") : "mailroom" })
+				}
+				options={[
+					["mailroom", "Mailroom"],
+					["own", "Your own bucket"],
+				]}
+			/>
+			{x.where === "mailroom" ? (
+				<FieldDescription>
+					{connected
+						? "Saving moves new files back to Mailroom. Files already in your bucket stay there, but chats can't show them anymore."
+						: "Kept with the chat, and deleted with it when its time is up."}
+				</FieldDescription>
+			) : (
+				<div className="mt-1 flex flex-col gap-3 rounded-lg border border-border/70 p-3">
+					<FieldDescription>
+						Files still come through Mailroom first, so the checks above apply, then go
+						to your bucket. The bucket can stay private: chats link to files through
+						Mailroom. Deleting a chat deletes its files there too.
+					</FieldDescription>
+					<Labeled label="Service">
+						<Select
+							value={x.where}
+							onValueChange={(where) => put({ where: where as Where })}
+						>
+							<SelectTrigger className="w-full">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="r2">Cloudflare R2</SelectItem>
+								<SelectItem value="s3">Amazon S3</SelectItem>
+								<SelectItem value="other">Another S3-compatible service</SelectItem>
+							</SelectContent>
+						</Select>
+					</Labeled>
+					{x.where === "r2" && (
+						<Field>
+							<FieldLabel htmlFor="fs-account">Cloudflare account ID</FieldLabel>
+							<Input
+								id="fs-account"
+								value={x.account_id}
+								onChange={(e) => put({ account_id: e.target.value })}
+								placeholder="32 letters and numbers, on the R2 overview page"
+								className="font-mono text-xs"
+							/>
+						</Field>
+					)}
+					{x.where === "other" && (
+						<Field>
+							<FieldLabel htmlFor="fs-endpoint">Endpoint</FieldLabel>
+							<Input
+								id="fs-endpoint"
+								value={x.endpoint}
+								onChange={(e) => put({ endpoint: e.target.value })}
+								placeholder="https://s3.us-west-004.backblazeb2.com"
+							/>
+						</Field>
+					)}
+					{x.where !== "r2" && (
+						<Field>
+							<FieldLabel htmlFor="fs-region">Region</FieldLabel>
+							<Input
+								id="fs-region"
+								value={x.region}
+								onChange={(e) => put({ region: e.target.value })}
+								placeholder={
+									x.where === "s3" ? "us-east-1" : "us-east-1 if it doesn't say"
+								}
+							/>
+						</Field>
+					)}
+					<div className="grid gap-3 sm:grid-cols-2">
+						<Field>
+							<FieldLabel htmlFor="fs-bucket">Bucket</FieldLabel>
+							<Input
+								id="fs-bucket"
+								value={x.bucket}
+								onChange={(e) => put({ bucket: e.target.value })}
+								placeholder="chat-files"
+							/>
+						</Field>
+						<Field>
+							<FieldLabel htmlFor="fs-prefix">Folder (optional)</FieldLabel>
+							<Input
+								id="fs-prefix"
+								value={x.prefix}
+								onChange={(e) => put({ prefix: e.target.value })}
+								placeholder="mailroom/"
+							/>
+						</Field>
+					</div>
+					<Field>
+						<FieldLabel htmlFor="fs-key">Access key ID</FieldLabel>
+						<Input
+							id="fs-key"
+							value={x.access_key_id}
+							onChange={(e) => put({ access_key_id: e.target.value })}
+							autoComplete="off"
+							className="font-mono text-xs"
+						/>
+					</Field>
+					<Field>
+						<FieldLabel htmlFor="fs-secret">Secret access key</FieldLabel>
+						<Input
+							id="fs-secret"
+							type="password"
+							value={x.secret}
+							onChange={(e) => put({ secret: e.target.value })}
+							placeholder={keeps ? "Saved. Type a new one to change it" : ""}
+							autoComplete="new-password"
+							className="font-mono text-xs"
+						/>
+						<FieldDescription>
+							{x.where === "r2"
+								? "Make an R2 API token with Object Read & Write, for this bucket only."
+								: "Use a key that can only read, write and delete objects in this bucket."}{" "}
+							Saving writes a small test file there and deletes it, so settings that
+							can't work are never kept.
+						</FieldDescription>
+					</Field>
+					{same && connected && (
+						<FieldDescription>
+							Connected {new Date(connected.connected_at).toLocaleDateString()}: new
+							files go to {connected.bucket}
+							{connected.prefix ? `/${connected.prefix}` : ""}.
+						</FieldDescription>
+					)}
+				</div>
+			)}
+		</Field>
 	);
 }

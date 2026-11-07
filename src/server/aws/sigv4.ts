@@ -51,7 +51,7 @@ export interface Credentials {
 export async function signV4(o: {
 	method: string;
 	url: URL;
-	body: string;
+	body: string | Uint8Array;
 	region: string;
 	service: string;
 	credentials: Credentials;

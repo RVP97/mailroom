@@ -2,6 +2,8 @@ import { eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
 	type ChatSender,
+	chatWidgetView,
+	deleteChatFiles,
 	emailVisitors,
 	notifyTeam,
 	originAllowed,
@@ -1094,5 +1096,135 @@ describe("website chat: an agent answers first", () => {
 				{ hand_off: true },
 			),
 		).rejects.toThrow();
+	});
+});
+
+describe("website chat: files in the website's own bucket", () => {
+	const ACCOUNT = "0123456789abcdef0123456789abcdef";
+	const HOST = `${ACCOUNT}.r2.cloudflarestorage.com`;
+
+	/** A fake R2 (its S3 API) that takes the right key and refuses any other. */
+	function fakeBucket() {
+		const objects = new Map<string, { bytes: Uint8Array; type: string | null }>();
+		const deleted: string[] = [];
+		const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			const req = input instanceof Request ? input : new Request(String(input), init);
+			const url = new URL(req.url);
+			if (url.host !== HOST) return new Response("not here", { status: 500 });
+			if (!req.headers.get("authorization")?.includes("Credential=good-key/"))
+				return new Response("<Error><Code>InvalidAccessKeyId</Code></Error>", {
+					status: 403,
+				});
+			const [, bucket, ...rest] = url.pathname.split("/");
+			if (bucket !== "acme-chat")
+				return new Response("<Error><Code>NoSuchBucket</Code></Error>", { status: 404 });
+			const key = rest.map(decodeURIComponent).join("/");
+			if (req.method === "PUT") {
+				objects.set(key, {
+					bytes: new Uint8Array(await req.arrayBuffer()),
+					type: req.headers.get("content-type"),
+				});
+				return new Response(null, { status: 200 });
+			}
+			if (req.method === "DELETE") {
+				deleted.push(key);
+				objects.delete(key);
+				return new Response(null, { status: 204 });
+			}
+			const o = objects.get(key);
+			return o ? new Response(o.bytes as BodyInit) : new Response("", { status: 404 });
+		});
+		return { objects, deleted, spy };
+	}
+
+	const r2 = (o: Record<string, unknown> = {}) => ({
+		provider: "r2",
+		account_id: ACCOUNT,
+		bucket: "acme-chat",
+		prefix: "support/",
+		access_key_id: "good-key",
+		secret_access_key: "s3cret",
+		...o,
+	});
+
+	it("saves only settings that can write there, and never shows the secret", async () => {
+		const { inbox } = await setUp();
+		const fake = fakeBucket();
+		await expect(
+			saveChatWidget(inbox, { file_storage: r2({ access_key_id: "bad-key" }) }),
+		).rejects.toMatchObject({ code: "storage_refused" });
+		await expect(
+			saveChatWidget(inbox, { file_storage: r2({ bucket: "someone-else" }) }),
+		).rejects.toThrow(/no bucket by that name/);
+		await expect(
+			saveChatWidget(inbox, {
+				file_storage: r2({ provider: "other", endpoint: "http://10.0.0.1" }),
+			}),
+		).rejects.toThrow(/https/);
+		const { widget } = await saveChatWidget(inbox, { file_storage: r2() });
+		// The test file went in and came out again.
+		expect(fake.objects.size).toBe(0);
+		expect(fake.deleted[0]).toMatch(/^support\/mailroom-test-/);
+		const view = chatWidgetView(widget);
+		expect(view.file_storage).toMatchObject({
+			provider: "r2",
+			bucket: "acme-chat",
+			account_id: ACCOUNT,
+			region: "auto",
+		});
+		expect(JSON.stringify(view)).not.toContain("s3cret");
+		expect(widget.file_storage?.secret).not.toContain("s3cret");
+		// Saving other settings (or the same bucket without the secret) keeps it.
+		const again = await saveChatWidget(inbox, {
+			daily_limit: 50,
+			file_storage: r2({ secret_access_key: undefined }),
+		});
+		expect(again.widget.file_storage?.secret).toBe(widget.file_storage?.secret);
+		fake.spy.mockRestore();
+	});
+
+	it("keeps a visitor's file there, serves it by its link and deletes it with the chat", async () => {
+		const { inbox, widget } = await setUp();
+		const fake = fakeBucket();
+		await saveChatWidget(inbox, { file_storage: r2() });
+		const chat = await start(widget.public_key);
+		const form = new FormData();
+		form.append(
+			"file",
+			new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], "photo.png", {
+				type: "image/png",
+			}),
+		);
+		const res = await handleChat(
+			new Request(`https://mailroom.test/chat/${widget.public_key}/files`, {
+				method: "POST",
+				headers: { origin: SITE, authorization: `Bearer ${chat.token}` },
+				body: form,
+			}),
+		);
+		expect(res.status).toBe(201);
+		const { message } = (await res.json()) as Json;
+		const [key] = [...fake.objects.keys()];
+		expect(key).toMatch(new RegExp(`^support/${chat.conversation.id}/`));
+		expect(fake.objects.get(key ?? "")?.type).toBe("image/png");
+		const file = await handleChat(new Request(message.files[0].url));
+		expect(file.status).toBe(200);
+		expect(new Uint8Array(await file.arrayBuffer())[0]).toBe(137);
+		// Its checks still apply: a program called .png never reaches the bucket.
+		const bad = new FormData();
+		bad.append("file", new File(["MZ\x90\x00 program"], "x.png", { type: "image/png" }));
+		const refused = await handleChat(
+			new Request(`https://mailroom.test/chat/${widget.public_key}/files`, {
+				method: "POST",
+				headers: { origin: SITE, authorization: `Bearer ${chat.token}` },
+				body: bad,
+			}),
+		);
+		expect(refused.status).toBe(422);
+		expect(fake.objects.size).toBe(1);
+		await deleteChatFiles([chat.conversation.id]);
+		expect(fake.deleted).toContain(key);
+		expect(fake.objects.size).toBe(0);
+		fake.spy.mockRestore();
 	});
 });
