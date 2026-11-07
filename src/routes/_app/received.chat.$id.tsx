@@ -1008,7 +1008,7 @@ function DesignPanel({
 				{(d.launcher === "hidden" || d.launcher === "auto") && (
 					<p className="text-xs text-muted-foreground">
 						{d.launcher === "auto"
-							? "No button until they open the chat from yours; then the bubble stays, so they can come back to it."
+							? "No button until they open the chat from yours; then the bubble stays, so they can come back to it. They can put it away with its × or «Hide chat» in the ⋯ menu, and it goes by itself when they close a chat that ended; it comes back when they open the chat again or you reply."
 							: "No button:"}{" "}
 						Open it from your own, with{" "}
 						<code className="font-mono">MailroomChat.open()</code> or a link to{" "}

@@ -74,6 +74,8 @@ function mailroomChat(c) {
 		"Write again to reopen it, or:": "Escriba de nuevo para reabrirlo, o bien:",
 		"Start a new chat": "Empezar otro chat",
 		"End chat": "Terminar el chat",
+		"Hide chat": "Ocultar el chat",
+		"More options": "Más opciones",
 		"Download transcript": "Descargar la conversación",
 		"Past conversations": "Conversaciones anteriores",
 		"Your conversations": "Sus conversaciones",
@@ -599,7 +601,18 @@ function mailroomChat(c) {
 			out +=
 				".root:not(.ever) .launcher{display:none!important}.root:not(.ever) .panel{bottom:" +
 				(Number(cfg.offset_y) || 0) +
-				"px}";
+				"px}" +
+				// The × on the bubble's top corner: shown on hover or focus (always on touch screens).
+				".hide{position:fixed;z-index:2147483001;" +
+				(cfg.position === "left" ? "left" : "right") +
+				":" +
+				((cfg.offset_x == null ? 20 : Number(cfg.offset_x)) + L - 18) +
+				"px;bottom:" +
+				((cfg.offset_y == null ? 20 : Number(cfg.offset_y)) + L - 18) +
+				"px;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:var(--panel);color:var(--muted);border:1px solid var(--line);box-shadow:0 2px 8px rgba(17,24,39,.18);opacity:0;transform:scale(.8);transition:opacity .15s,transform .15s}" +
+				".launcher:hover~.hide,.hide:hover,.hide:focus-visible{opacity:1;transform:none}.hide:hover{color:var(--text)}" +
+				"@media (hover:none){.hide{opacity:1;transform:none}}" +
+				".root:not(.ever) .hide,.open .hide{display:none}";
 		if (cfg.hide_mobile)
 			out += "@media (max-width:480px){.launcher,.nudge{display:none!important}}";
 		if (cfg.z_index) out += ".launcher,.panel,.nudge{z-index:" + (cfg.z_index | 0) + "}";
@@ -647,7 +660,7 @@ function mailroomChat(c) {
 			"root" +
 			(dark ? " dark" : "") +
 			(state.open ? " open" : "") +
-			(stored.ever || stored.token ? " ever" : "")
+			((stored.ever || stored.token) && !stored.hidden ? " ever" : "")
 		);
 	}
 	var dark = isDark();
@@ -743,7 +756,7 @@ function mailroomChat(c) {
 	var menuBtn = h("button", {
 		class: "hb",
 		type: "button",
-		"aria-label": "More",
+		"aria-label": T("More options"),
 		"aria-haspopup": "menu",
 		html: svg(ICON.more),
 		onclick: (e) => {
@@ -821,6 +834,23 @@ function mailroomChat(c) {
 	root.appendChild(nudge);
 	root.appendChild(panel);
 	root.appendChild(launcher);
+	// "auto": the page has its own button, so the bubble is only a way back. The visitor can put it
+	// away (it comes back when they open the chat again or the team writes).
+	var hideBtn =
+		cfg.launcher === "auto"
+			? h("button", {
+					class: "hide",
+					type: "button",
+					"aria-label": T("Hide chat"),
+					title: T("Hide chat"),
+					html: svg(ICON.close, 12),
+					onclick: (e) => {
+						e.stopPropagation();
+						hideBubble();
+					},
+				})
+			: null;
+	if (hideBtn) root.appendChild(hideBtn);
 
 	if (cfg.retention)
 		note.textContent = T("Chats are deleted {x} after the last message.").replace(
@@ -1654,6 +1684,14 @@ function mailroomChat(c) {
 					endIt();
 				},
 			});
+		if (cfg.launcher === "auto")
+			items.push({
+				icon: ICON.close,
+				text: T("Hide chat"),
+				run: () => {
+					hideBubble();
+				},
+			});
 		if (hasPast())
 			items.push({
 				icon: ICON.history,
@@ -1728,7 +1766,7 @@ function mailroomChat(c) {
 		if (state.open) return;
 		state.open = true;
 		opener = document.activeElement;
-		if (!stored.ever) stored = save({ ever: true });
+		if (!stored.ever || stored.hidden) stored = save({ ever: true, hidden: false });
 		root.classList.add("open", "ever");
 		launcher.setAttribute("aria-expanded", "true");
 		launcher.setAttribute("aria-label", T("Close chat"));
@@ -1747,9 +1785,28 @@ function mailroomChat(c) {
 		if (window.innerWidth <= 480) lockScroll(true);
 		emit("open");
 	}
+	/** Puts the bubble away ("auto" only) until the chat's opened again or the team writes. */
+	function hideBubble() {
+		if (cfg.launcher !== "auto") return;
+		stored = save({ hidden: true });
+		if (state.open) closePanel();
+		else if (opener && opener.focus && document.contains(opener)) opener.focus();
+		root.className = rootClass();
+		emit("hide");
+	}
+	function showBubble() {
+		if (!stored.hidden) return;
+		stored = save({ hidden: false });
+		root.className = rootClass();
+	}
+
 	function closePanel() {
 		if (!state.open) return;
+		// Nothing to come back to (no chat, or it ended): the bubble goes too.
+		if (cfg.launcher === "auto" && (!state.conversation || ended()) && !stored.hidden)
+			stored = save({ hidden: true });
 		state.open = false;
+		root.className = rootClass();
 		root.classList.remove("open");
 		launcher.setAttribute("aria-expanded", "false");
 		launcher.setAttribute("aria-label", T("Open chat"));
@@ -1757,8 +1814,8 @@ function mailroomChat(c) {
 		lockScroll(false);
 		stopTyping();
 		// Back to what opened it: the launcher, or the page's own button when there's none.
-		if (cfg.launcher === "hidden" && opener && opener.focus && document.contains(opener))
-			opener.focus();
+		var noBubble = cfg.launcher === "hidden" || (cfg.launcher === "auto" && stored.hidden);
+		if (noBubble && opener && opener.focus && document.contains(opener)) opener.focus();
 		else launcher.focus();
 		emit("close");
 	}
@@ -1785,6 +1842,8 @@ function mailroomChat(c) {
 
 	function setUnread(n) {
 		var was = state.unread;
+		// The team wrote: the bubble comes back with the count.
+		if (n > (was || 0)) showBubble();
 		state.unread = n;
 		badge.textContent = n > 9 ? "9+" : String(n);
 		badge.classList.toggle("on", n > 0);
@@ -2749,7 +2808,7 @@ function mailroomChat(c) {
 			closePanel();
 			endChat();
 			// Their chats aren't listed for whoever uses this browser next.
-			stored = save({ email: null, name: null, ever: false, past: [] });
+			stored = save({ email: null, name: null, ever: false, hidden: false, past: [] });
 			root.className = rootClass();
 			setUnread(0);
 		},
