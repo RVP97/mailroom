@@ -76,6 +76,9 @@ export async function runCron(scheduledTime: number) {
 	// Organizations' own SES accounts: moves waiting on their domains, and each account's rate.
 	if (minute % 5 === 0)
 		jobs.push(import("./org-aws-manage").then((m) => m.checkMoves(scheduledTime)));
+	// Live segments: who matches their rules now (src/server/live-segments.ts).
+	if (minute % 5 === 2)
+		jobs.push(import("./live-segments").then((m) => m.refreshLiveSegments(scheduledTime)));
 	if (minute === 7) jobs.push(import("./org-aws-manage").then((m) => m.refreshOwnAccounts()));
 	if (minute === 7)
 		jobs.push(

@@ -8,6 +8,7 @@ import {
 	type Contact,
 	contactValues,
 	getContact,
+	listSegmentOf,
 	segmentOf,
 	upsertContact,
 } from "./contacts";
@@ -186,8 +187,8 @@ async function check(brand: string, t: AutomationTrigger, steps: AutomationStep[
 			if (!s.from && !tpl.published.from)
 				throw validation(`steps[${i}]: give a from (the template has no default From)`);
 		}
-		if ((s.type === "condition" || s.type === "segment") && s.segment_id)
-			await segmentOf(brand, s.segment_id);
+		if (s.type === "condition" && s.segment_id) await segmentOf(brand, s.segment_id);
+		if (s.type === "segment" && s.segment_id) await listSegmentOf(brand, s.segment_id);
 	}
 	if (!eachStep(steps).some(([s]) => s.type === "send"))
 		throw validation("Add a step that sends an email before turning it on");

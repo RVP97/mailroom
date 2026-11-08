@@ -199,23 +199,43 @@ export const AUDIENCE_TOOLS: Tool[] = [
 	// ── Segments, topics and properties ──
 	{
 		name: "save_segment",
-		title: "Create or rename a segment",
+		title: "Create or edit a segment",
 		description:
-			"Creates a segment (a group of contacts broadcasts go to) in a brand, or with `segment` renames one.",
+			"Creates a segment (a group of contacts broadcasts go to) in a brand, or with `segment` renames or changes one. With `rules` it's a live segment: its members are whoever matches, kept up to date by itself (null turns it back into a list). Rules: { match: all|any, conditions: [...] }, each condition one of: { type: property, key, op: is|is_not|contains|set|not_set|gt|lt, value }, { type: email, op: ends_with|contains, value }, { type: subscribed, value: bool }, { type: source, value: form|form:<id>|referral|import|api|dashboard|automation|event }, { type: joined, op: within|before, days }, { type: topic, topic_id, value: opt_in|opt_out }, { type: segment, segment_id (a list segment), value: bool }, { type: engagement, levels: [champion|engaged|cooling|cold|new] }, { type: email_activity, action: received|opened|clicked, did: bool, days, min?, broadcast_id? }, { type: event, name, did: bool, days?, min?, key?, value? (event data key = value) }, { type: poll, broadcast_id, poll_id?, answer (option index) }, { type: referrals, min }, { type: conversation, status: open|any, did: bool, days? }, { type: rating, op: at_most|at_least, value 1–5, days? } (their latest support rating), { type: chatted, page?, days? }. Try rules first with preview_segment.",
 		input: {
 			organization,
 			brand: oneBrand,
-			segment: z.string().optional().describe("Its id, to rename it"),
+			segment: z.string().optional().describe("Its id, to change it"),
 			name: z.string().min(1).max(200),
+			rules: z
+				.unknown()
+				.optional()
+				.describe("A live segment's rules (see the description); null: a list"),
 		},
 		run: async (a, ctx) => {
 			const org = orgAt(ctx, a.organization, "contacts:edit");
 			const b = await brandOf(org.id, a.brand);
+			const fields = { name: a.name, ...(a.rules !== undefined ? { rules: a.rules } : {}) };
 			const s = a.segment
-				? await renameSegment(b, a.segment as string, { name: a.name })
-				: await createSegment(b, { name: a.name });
+				? await renameSegment(b, a.segment as string, fields)
+				: await createSegment(b, fields);
 			await logged(ctx, org, "segment.saved", { type: "segment", id: s.id, name: s.name });
-			return segmentView(s);
+			const n = (await listSegments(b)).find((x) => x.id === s.id)?.contacts ?? 0;
+			return segmentView(s, n);
+		},
+	},
+	{
+		name: "preview_segment",
+		title: "Preview a live segment's rules",
+		description:
+			"How many of a brand's contacts match some rules now (the same rules save_segment takes), and a few of them. Saves nothing.",
+		input: { organization, brand: oneBrand, rules: z.unknown() },
+		readOnly: true,
+		run: async (a, ctx) => {
+			const org = orgAt(ctx, a.organization);
+			const b = await brandOf(org.id, a.brand);
+			const { previewRules } = await import("../live-segments");
+			return previewRules(b, a.rules);
 		},
 	},
 	{

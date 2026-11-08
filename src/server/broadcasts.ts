@@ -625,6 +625,13 @@ async function nextRecipients(x: Broadcast, limit: number) {
  * it from where it was), so two runs never queue the same contacts.
  */
 async function advance(x: Broadcast, now: number) {
+	// A live segment's members are worked out again as the broadcast starts going out.
+	if (x.cursor === null && x.segment_id) {
+		const { freshSegment } = await import("./live-segments");
+		await freshSegment(x.organization_id, x.segment_id, 60_000, now).catch((e) =>
+			console.error("broadcasts: live segment not refreshed", e),
+		);
+	}
 	const page = await nextRecipients(x, CHUNK);
 	const ab = x.ab_test;
 	// An A/B test goes first to its share of the segment; the rest wait for the winner.
@@ -952,6 +959,8 @@ export async function audienceSize(
 	},
 ) {
 	if (!x.segment_id) return 0;
+	const { freshSegment } = await import("./live-segments");
+	await freshSegment(x.organization_id, x.segment_id, 5 * 60_000).catch(() => null);
 	let n = 0;
 	let cursor: string | null = null;
 	// Counted the way it's sent, in chunks.

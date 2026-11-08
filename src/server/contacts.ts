@@ -424,7 +424,7 @@ export async function importContacts(
 	o: { segment?: string | null; now?: number } = {},
 ) {
 	const now = iso(o.now);
-	if (o.segment) await segmentOf(brand, o.segment);
+	if (o.segment) await listSegmentOf(brand, o.segment);
 	const keys = [...new Set(rows.flatMap((r) => Object.keys(r.properties ?? {})))];
 	const declared = await checkProperties(brand, Object.fromEntries(keys.map((k) => [k, null])), {
 		declare: true,
@@ -533,13 +533,27 @@ export async function segmentOf(brand: string, id: string) {
 	return row;
 }
 
-export const segmentView = (s: typeof sg.$inferSelect, contacts?: number) => ({
+export const segmentView = (
+	s: Pick<typeof sg.$inferSelect, "id" | "organization_id" | "name" | "created_at"> &
+		Partial<Pick<typeof sg.$inferSelect, "rules" | "refreshed_at">>,
+	contacts?: number,
+) => ({
 	object: "segment",
 	id: s.id,
 	brand_id: s.organization_id,
 	name: s.name,
 	created_at: s.created_at,
+	/** Live: its members are whoever matches `rules` (src/server/live-segments.ts). */
+	live: !!s.rules,
+	rules: s.rules ?? null,
+	refreshed_at: s.refreshed_at ?? null,
 	...(contacts !== undefined ? { contacts } : {}),
+});
+
+const segmentInput = z.object({
+	name: z.string().trim().min(1).max(120),
+	/** Rules make it a live segment; null makes it a list again (its members stay). */
+	rules: z.unknown().optional(),
 });
 
 export async function listSegments(brand: string) {
@@ -555,22 +569,55 @@ export async function listSegments(brand: string) {
 }
 
 export async function createSegment(brand: string, raw: unknown) {
-	const v = z.object({ name: z.string().trim().min(1).max(120) }).parse(raw);
+	const v = segmentInput.parse(raw);
+	const { checkRules, refreshSegment } = await import("./live-segments");
+	const rules = v.rules ? await checkRules(brand, v.rules) : null;
 	const row = {
 		id: crypto.randomUUID(),
 		organization_id: brand,
 		name: v.name,
 		created_at: iso(),
+		rules,
+		refreshed_at: null,
 	};
 	await db.insert(sg).values(row);
-	return row;
+	if (rules) await refreshSegment(row);
+	return segmentOf(brand, row.id);
 }
 
+/** Renames a segment, and with `rules` makes it live (or, with null, a list again). */
 export async function renameSegment(brand: string, id: string, raw: unknown) {
 	await segmentOf(brand, id);
-	const v = z.object({ name: z.string().trim().min(1).max(120) }).parse(raw);
-	const [row] = await db.update(sg).set({ name: v.name }).where(eq(sg.id, id)).returning();
+	const v = segmentInput.partial({ name: true }).parse(raw);
+	const set: Partial<typeof sg.$inferInsert> = {};
+	if (v.name) set.name = v.name;
+	if (v.rules !== undefined) {
+		const { checkRules } = await import("./live-segments");
+		set.rules = v.rules ? await checkRules(brand, v.rules, id) : null;
+		set.refreshed_at = null;
+	}
+	if (!Object.keys(set).length) return segmentOf(brand, id);
+	const [row] = await db.update(sg).set(set).where(eq(sg.id, id)).returning();
+	if (row?.rules) {
+		const { refreshSegment } = await import("./live-segments");
+		await refreshSegment(row);
+	}
 	return row as typeof sg.$inferSelect;
+}
+
+/** A list segment of the brand (not a live one): what people can be put in. */
+export async function listSegmentOf(brand: string, id: string) {
+	const s = await segmentOf(brand, id);
+	notLive(s);
+	return s;
+}
+
+/** Refuses hand changes to a live segment's members. */
+function notLive(s: typeof sg.$inferSelect) {
+	if (s.rules)
+		throw validation(
+			`${s.name} is a live segment: it fills itself from its rules, so people can't be added or taken out by hand`,
+		);
 }
 
 export async function deleteSegment(brand: string, id: string) {
@@ -595,7 +642,7 @@ export async function addToSegment(
 	segmentId: string,
 	now = Date.now(),
 ) {
-	await segmentOf(brand, segmentId);
+	notLive(await segmentOf(brand, segmentId));
 	await ownContact(brand, contactId);
 	const [row] = await db
 		.insert(cs)
@@ -610,7 +657,7 @@ export async function addToSegment(
 }
 
 export async function removeFromSegment(brand: string, contactId: string, segmentId: string) {
-	await segmentOf(brand, segmentId);
+	notLive(await segmentOf(brand, segmentId));
 	await ownContact(brand, contactId);
 	const r = await db
 		.delete(cs)

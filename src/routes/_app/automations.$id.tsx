@@ -846,7 +846,7 @@ function StepFields({
 						canCreate={!disabled}
 						value={s.segment_id}
 						onChange={(v) => setStep({ segment_id: v })}
-						items={data.segments}
+						items={data.segments.filter((x) => !x.live || x.id === s.segment_id)}
 						none="Pick a segment"
 						noneDisabled
 					/>

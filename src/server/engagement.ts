@@ -217,8 +217,8 @@ export async function cleanUpCold(brand: string, raw: unknown, now = Date.now())
 	for (let i = 0; i < ids.length; i += 90) chunks.push(ids.slice(i, i + 90));
 	if (v.action === "segment") {
 		if (!v.segment_id) throw validation("Pick a segment");
-		const { addToSegment, segmentOf } = await import("./contacts");
-		await segmentOf(brand, v.segment_id);
+		const { addToSegment, listSegmentOf } = await import("./contacts");
+		await listSegmentOf(brand, v.segment_id);
 		for (const id of ids) await addToSegment(brand, id, v.segment_id, now);
 	} else if (v.action === "unsubscribe") {
 		const { syncGlobalUnsubscribe } = await import("./contacts");

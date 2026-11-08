@@ -71,6 +71,10 @@ An organization that should be fully apart can optionally use its own SES accoun
   published copy sends use, a live preview in the dashboard, sent with `template: { id, variables }`.
 - **Contacts, segments and topics** like Resend's, per brand: import a CSV, group contacts in
   segments, and let people choose topics; unsubscribe links keep each contact's choices.
+- **Live segments**: a segment can be rules instead of a list (a property, what they did in your
+  app, what they opened or clicked, engagement, topics, other segments, poll answers, referrals,
+  conversations, ratings, chats), matching all or any. Mailroom keeps its members current every
+  few minutes and right before a broadcast goes out, and people joining start its automations.
 - **Broadcasts** like Resend's: one email to a segment, now or scheduled, written in the dashboard
   or copied from a template, filled in per contact (`{{{FIRST_NAME}}}`, `{{{contact.city}}}`).
   Unsubscribed, topic-excluded and suppressed contacts are left out; the unsubscribe page lets

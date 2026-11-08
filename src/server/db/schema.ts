@@ -12,6 +12,7 @@ import {
 import type { BrandKit } from "../../lib/brand-kit";
 import type { Block, EmailDoc } from "../../lib/email-doc";
 import type { FileStorage } from "../chat-storage";
+import type { SegmentRules } from "../live-segments";
 import { organization } from "./auth-schema";
 
 export * from "./auth-schema";
@@ -1435,6 +1436,13 @@ export const segments = sqliteTable(
 		organization_id: orgId(),
 		name: text("name").notNull(),
 		created_at: text("created_at").notNull(),
+		/**
+		 * A live segment's rules (src/server/live-segments.ts): who matches them is its members,
+		 * kept up to date by the cron and before each send; null: a list people are put in.
+		 */
+		rules: text("rules", { mode: "json" }).$type<SegmentRules>(),
+		/** When its members were last worked out again. */
+		refreshed_at: text("refreshed_at"),
 	},
 	(t) => [index("segments_org_idx").on(t.organization_id)],
 );

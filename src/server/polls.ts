@@ -69,8 +69,8 @@ export async function votersToSegment(
 	segmentId: string,
 	now = Date.now(),
 ) {
-	const { segmentOf } = await import("./contacts");
-	await segmentOf(brand, segmentId);
+	const { listSegmentOf } = await import("./contacts");
+	await listSegmentOf(brand, segmentId);
 	const res =
 		await db.run(sql`INSERT OR IGNORE INTO contact_segments (contact_id, segment_id, created_at)
 		SELECT pv.contact_id, ${segmentId}, ${iso(now)} FROM poll_votes pv

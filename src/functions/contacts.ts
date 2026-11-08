@@ -65,6 +65,11 @@ export const contactsPageFn = createServerFn({ method: "GET" })
 	)
 	.handler(async ({ data, context }) => {
 		const brand = await brandOf(context.organizationId, data.brand);
+		// A live segment picked: its members as of now (at most a few minutes old).
+		if (data.segment) {
+			const { freshSegment } = await import("@/server/live-segments");
+			await call(() => freshSegment(brand, data.segment as string, 5 * 60_000));
+		}
 		const [{ brands }, page, counts, segments, topics, properties] = await Promise.all([
 			viewScope(context.organizationId),
 			listContacts(brand, {
@@ -134,6 +139,7 @@ export const getContactFn = createServerFn({ method: "GET" })
 				segments: segments.map((s) => ({
 					id: s.id,
 					name: s.name,
+					live: !!s.rules,
 					member: member.has(s.id),
 				})),
 				topics,
@@ -277,14 +283,57 @@ export const importContactsFn = createServerFn({ method: "POST" })
 
 export const saveSegmentFn = createServerFn({ method: "POST" })
 	.middleware([can("contacts:edit")])
-	.validator(z.object({ ...brandInput, id: z.string().optional(), name: z.string() }))
+	.validator(
+		z.object({
+			...brandInput,
+			id: z.string().optional(),
+			name: z.string(),
+			/** A live segment's rules; null: a list (undefined leaves it as it is). */
+			rules: z.unknown().optional(),
+		}),
+	)
 	.handler(({ data, context }) =>
 		call(async () => {
 			const brand = await brandOf(context.organizationId, data.brand);
+			const fields = {
+				name: data.name,
+				...(data.rules !== undefined ? { rules: data.rules } : {}),
+			};
 			const s = data.id
-				? await renameSegment(brand, data.id, { name: data.name })
-				: await createSegment(brand, { name: data.name });
+				? await renameSegment(brand, data.id, fields)
+				: await createSegment(brand, fields);
 			return { id: s.id };
+		}),
+	);
+
+/** Who a live segment's rules match now: how many, and a few of them. */
+export const previewSegmentFn = createServerFn({ method: "POST" })
+	.middleware([orgMiddleware])
+	.validator(z.object({ ...brandInput, rules: z.unknown() }))
+	.handler(({ data, context }) =>
+		call(async () => {
+			const brand = await brandOf(context.organizationId, data.brand);
+			const { previewRules } = await import("@/server/live-segments");
+			const p = await previewRules(brand, data.rules);
+			return {
+				count: p.count,
+				sample: p.sample.map((c) => ({
+					...c,
+					email: context.masked ? maskDigits(c.email) : c.email,
+				})),
+			};
+		}),
+	);
+
+/** What live segments' rules can pick from: the brand's event names, forms and recent polls. */
+export const segmentOptionsFn = createServerFn({ method: "GET" })
+	.middleware([orgMiddleware])
+	.validator(z.object({ ...brandInput }))
+	.handler(({ data, context }) =>
+		call(async () => {
+			const brand = await brandOf(context.organizationId, data.brand);
+			const { segmentOptions } = await import("@/server/live-segments");
+			return segmentOptions(brand);
 		}),
 	);
 

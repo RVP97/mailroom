@@ -393,7 +393,7 @@ function ContactPage() {
 										<div className="flex items-center gap-2.5 text-sm">
 											<Checkbox
 												id={`seg-${s.id}`}
-												disabled={!canManage}
+												disabled={!canManage || s.live}
 												checked={s.member}
 												onCheckedChange={(v) =>
 													run(() =>
@@ -409,6 +409,14 @@ function ContactPage() {
 												}
 											/>
 											<label htmlFor={`seg-${s.id}`}>{s.name}</label>
+											{s.live && (
+												<span
+													className="ml-auto text-xs text-muted-foreground"
+													title="Live segments follow their rules, so people can't be added by hand."
+												>
+													Live
+												</span>
+											)}
 										</div>
 									</li>
 								))}

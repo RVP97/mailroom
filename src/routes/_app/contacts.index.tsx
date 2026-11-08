@@ -1,5 +1,14 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { FileUp, MoreHorizontal, Plus, Tags, Trash2, Users, UsersRound } from "lucide-react";
+import {
+	FileUp,
+	MoreHorizontal,
+	Plus,
+	Sparkles,
+	Tags,
+	Trash2,
+	Users,
+	UsersRound,
+} from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -8,11 +17,12 @@ import { BrandFilter } from "@/components/brand-filter";
 import { Confirm } from "@/components/confirm";
 import { ContactsHeader } from "@/components/contacts-tabs";
 import { EngagementMeter } from "@/components/engagement";
-import { ListSelect, NameDialog, TopicDialog } from "@/components/list-dialogs";
+import { ListSelect, TopicDialog } from "@/components/list-dialogs";
 import { Page, TableCard, TablePager } from "@/components/page";
 import { Stamp } from "@/components/record";
 import { RowsPending } from "@/components/route-states";
 import { SearchBox } from "@/components/search-box";
+import { type EditedSegment, SegmentDialog } from "@/components/segment-dialog";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -66,7 +76,6 @@ import {
 	importContactsFn,
 	saveContactFn,
 	savePropertyFn,
-	saveSegmentFn,
 } from "@/functions/contacts";
 import { parseCsv } from "@/lib/csv";
 import { errorMessage } from "@/lib/errors";
@@ -453,7 +462,7 @@ function Segments({
 	canManage: boolean;
 	onOpen: (id: string) => void;
 }) {
-	const [editing, setEditing] = useState<{ id?: string; name: string } | null>(null);
+	const [editing, setEditing] = useState<EditedSegment | null>(null);
 	const [deleting, setDeleting] = useState<Data["segments"][number] | null>(null);
 	const remove = useDelete(
 		() => deleteSegmentFn({ data: { brand, id: deleting?.id ?? "" } }),
@@ -465,7 +474,7 @@ function Segments({
 				<div className="flex justify-end">
 					<Button
 						variant="outline"
-						onClick={() => setEditing({ name: "" })}
+						onClick={() => setEditing({ name: "", rules: null })}
 					>
 						<Plus /> New segment
 					</Button>
@@ -511,6 +520,18 @@ function Segments({
 										>
 											{s.name}
 										</button>
+										{s.live && (
+											<span
+												className="ml-2 inline-flex items-center gap-1 align-middle text-xs font-normal text-muted-foreground"
+												title={
+													s.refreshed_at
+														? `Updated ${formatDateTime(s.refreshed_at)}`
+														: undefined
+												}
+											>
+												<Sparkles className="size-3" /> Live
+											</span>
+										)}
 									</TableCell>
 									<TableCell className="text-right tabular-nums">
 										{s.contacts}
@@ -523,10 +544,14 @@ function Segments({
 											<RowMenu label={`${s.name} actions`}>
 												<DropdownMenuItem
 													onSelect={() =>
-														setEditing({ id: s.id, name: s.name })
+														setEditing({
+															id: s.id,
+															name: s.name,
+															rules: s.rules,
+														})
 													}
 												>
-													Rename
+													{s.live ? "Edit rules" : "Rename"}
 												</DropdownMenuItem>
 												<DropdownMenuItem
 													variant="destructive"
@@ -543,12 +568,10 @@ function Segments({
 					</Table>
 				)}
 			</TableCard>
-			<NameDialog
-				open={!!editing}
+			<SegmentDialog
+				segment={editing}
 				onOpenChange={(v) => !v && setEditing(null)}
-				title={editing?.id ? "Rename segment" : "New segment"}
-				initial={editing?.name ?? ""}
-				save={(name) => saveSegmentFn({ data: { brand, id: editing?.id, name } })}
+				brand={brand}
 			/>
 			<Confirm
 				open={!!deleting}
@@ -1111,7 +1134,7 @@ function ImportContacts({ brand, segments }: { brand?: string; segments: Data["s
 								brand={brand}
 								value={segment === "none" ? "" : segment}
 								onChange={(x) => setSegment(x || "none")}
-								items={segments}
+								items={segments.filter((s) => !s.live)}
 								none="No segment"
 							/>
 						</Field>

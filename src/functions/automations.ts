@@ -65,7 +65,7 @@ export const getAutomationFn = createServerFn({ method: "GET" })
 				automation: automationView(x),
 				brand: brands.find((b) => b.id === x.organization_id) ?? null,
 				...runs,
-				segments: segments.map((s) => ({ id: s.id, name: s.name })),
+				segments: segments.map((s) => ({ id: s.id, name: s.name, live: !!s.rules })),
 				topics: topics.map((t) => ({ id: t.id, name: t.name })),
 				properties: properties.map((p) => ({ key: p.key, type: p.type })),
 				broadcasts: broadcasts
