@@ -128,6 +128,14 @@ An organization that should be fully apart can optionally use its own SES accoun
   (in a segment, a property, opened or clicked the last email) into yes and no paths, add to or
   take out of segments, set properties, and send templates filled in with the contact's values
   and the event's (`{{{event.room}}}`). Runs are kept in D1 and moved on by the cron every minute.
+  They also start when someone signs up on a form, unsubscribes, changes a topic or a property,
+  on a date (a birthday every year, a trial's end), when a contact stops engaging, and when a
+  conversation starts, is resolved or rated. Steps can wait for something the contact does (or
+  time out), split contacts at random for an A/B path, write a quick email without a template,
+  add to a score, change topics and newsletters, tell the team, tag, prioritize, assign or resolve
+  the contact's conversation, and call a webhook. A goal event ends runs as conversions, and new
+  automations can start from recipes (welcome series, finish the booking, birthday, win-back,
+  unhappy customers, follow up after support…).
 - **Webhooks** in Resend's shape, signed the Standard Webhooks / Svix way, retried on Svix's schedule.
 - **Receiving**, like Resend's: turn it on for a domain and Mailroom takes its email through SES,
   checked for spam and viruses, kept whole in R2, listed at `GET /api/emails/receiving` and sent

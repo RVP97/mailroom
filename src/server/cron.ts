@@ -90,6 +90,10 @@ export async function runCron(scheduledTime: number) {
 	if (minute === 23) jobs.push(runFeeds(scheduledTime));
 	if (at.getUTCHours() === 3 && minute === 0) jobs.push(purge(scheduledTime));
 	if (at.getUTCHours() === 4 && minute === 17) jobs.push(runDeliverabilityWatch(scheduledTime));
+	// Automations on dates (birthdays, trials ending) and on contacts who stopped engaging: once a
+	// day, in the morning in the Americas.
+	if (at.getUTCHours() === 15 && minute === 13)
+		jobs.push(import("./automations").then((m) => m.runDailyTriggers(scheduledTime)));
 	if (at.getUTCHours() % 6 === 5 && minute === 27) jobs.push(syncPostmaster(scheduledTime));
 	if (at.getUTCDay() === 1 && at.getUTCHours() === 14 && minute === 37)
 		jobs.push(runWeeklyDigest(scheduledTime));

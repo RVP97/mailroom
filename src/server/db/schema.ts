@@ -1815,7 +1815,27 @@ export type AutomationTrigger =
 	| { type: "event"; event: string }
 	/** The contact opened (or clicked a link in) a broadcast: any, or one; for clicks, maybe one link. */
 	| { type: "email.opened"; broadcast_id?: string | null }
-	| { type: "email.clicked"; broadcast_id?: string | null; link?: string | null };
+	| { type: "email.clicked"; broadcast_id?: string | null; link?: string | null }
+	/** Someone confirmed their sign-up on a form (any form, or one). */
+	| { type: "form.submitted"; form_id?: string | null }
+	/** The contact unsubscribed from all broadcasts. */
+	| { type: "unsubscribed" }
+	/** The contact opted in to (or out of) a topic. */
+	| { type: "topic.changed"; topic_id: string; value: "opt_in" | "opt_out" }
+	/** One of the contact's properties changed (to any value, or to one). */
+	| { type: "property.changed"; key: string; equals?: string | null }
+	/**
+	 * A date in one of the contact's properties comes round: `offset_days` before (negative) or
+	 * after it, every year (a birthday) or once (a trial's end).
+	 */
+	| { type: "date"; key: string; offset_days: number; yearly: boolean }
+	/** The contact engaged before but hasn't opened or clicked anything for `days`. */
+	| { type: "inactive"; days: number }
+	/** A conversation with the contact started, in any inbox or one (chats too). */
+	| { type: "conversation.opened"; inbox_id?: string | null; channel?: "email" | "chat" | null }
+	| { type: "conversation.resolved"; inbox_id?: string | null }
+	/** The contact rated a conversation, at most (or at least) so many stars. */
+	| { type: "conversation.rated"; op: "at_most" | "at_least"; rating: number };
 
 /** One step of an automation, done in order for each contact. */
 export type AutomationStep =
@@ -1843,7 +1863,32 @@ export type AutomationStep =
 	/** Adds the contact to a segment, or takes them out of it. */
 	| { type: "segment"; action: "add" | "remove"; segment_id: string }
 	/** Sets one of the contact's properties. */
-	| { type: "property"; key: string; value: string | number };
+	| { type: "property"; key: string; value: string | number }
+	/**
+	 * Waits until the contact does `event` (then goes on) or `minutes` pass (then takes the "no"
+	 * steps, or ends when there are none).
+	 */
+	| { type: "wait_event"; event: string; minutes: number; no?: AutomationStep[] | null }
+	/** Sends `percent` of contacts on and the rest down the "no" steps (an A/B path). */
+	| { type: "split"; percent: number; no?: AutomationStep[] | null }
+	/** Emails people on the team about the contact. */
+	| { type: "notify"; to: string[]; message: string }
+	/** Tags, prioritizes, assigns or resolves the contact's latest open conversation. */
+	| {
+			type: "conversation";
+			action: "tag" | "priority" | "assign" | "resolve";
+			value?: string | null;
+	  }
+	/** Opts the contact in to (or out of) a topic. */
+	| { type: "topic"; topic_id: string; value: "opt_in" | "opt_out" }
+	/** Subscribes the contact to a newsletter (its segment and topic), or takes them off it. */
+	| { type: "newsletter"; newsletter_id: string; action: "subscribe" | "remove" }
+	/** Posts the contact (and the event's data) to a URL. */
+	| { type: "webhook"; url: string }
+	/** Sends a short email written right here, without a template. */
+	| { type: "email"; from: string; subject: string; body: string }
+	/** Adds to (or takes from) a number property: a score. */
+	| { type: "score"; key: string; add: number };
 
 /**
  * Automations, like Resend's: a trigger (a contact added, a segment joined, or an event an app
@@ -1861,6 +1906,8 @@ export const automations = sqliteTable(
 		steps: text("steps", { mode: "json" }).$type<AutomationStep[]>().notNull(),
 		/** Start again for a contact who already went through it (events only). */
 		reentry: integer("reentry", { mode: "boolean" }).notNull().default(false),
+		/** Its goal: when the contact does this event, their run ends as having reached it. */
+		goal_event: text("goal_event"),
 		created_at: text("created_at").notNull(),
 		updated_at: text("updated_at").notNull(),
 	},
@@ -1895,6 +1942,11 @@ export const automationRuns = sqliteTable(
 		data: text("data", { mode: "json" }).$type<Record<string, unknown>>(),
 		/** The last email it sent (for an "engaged" condition). */
 		last_email_id: text("last_email_id"),
+		/** A "wait for an event" step under way: the event, and since when it waits. */
+		waiting_for: text("waiting_for"),
+		waiting_since: text("waiting_since"),
+		/** When the contact reached the automation's goal (the run ended there). */
+		converted_at: text("converted_at"),
 		error: text("error"),
 		created_at: text("created_at").notNull(),
 		updated_at: text("updated_at").notNull(),
@@ -1902,6 +1954,9 @@ export const automationRuns = sqliteTable(
 	(t) => [
 		index("automation_runs_due_idx").on(t.next_at).where(sql`status = 'active'`),
 		index("automation_runs_automation_idx").on(t.automation_id, t.contact_id),
+		index("automation_runs_waiting_idx")
+			.on(t.contact_id, t.waiting_for)
+			.where(sql`waiting_for IS NOT NULL`),
 	],
 );
 

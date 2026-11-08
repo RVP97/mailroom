@@ -54,13 +54,63 @@ const trigger = z.discriminatedUnion("type", [
 		broadcast_id: z.string().nullish(),
 		link: z.string().trim().max(2000).nullish(),
 	}),
+	z.object({ type: z.literal("form.submitted"), form_id: z.string().nullish() }),
+	z.object({ type: z.literal("unsubscribed") }),
+	z.object({
+		type: z.literal("topic.changed"),
+		topic_id: z.string().min(1, "pick a topic"),
+		value: z.enum(["opt_in", "opt_out"]),
+	}),
+	z.object({
+		type: z.literal("property.changed"),
+		key: z.string().trim().min(1, "pick a property").max(100),
+		equals: z.string().max(500).nullish(),
+	}),
+	z.object({
+		type: z.literal("date"),
+		key: z.string().trim().min(1, "pick a property").max(100),
+		offset_days: z.number().int().min(-365).max(365),
+		yearly: z.boolean(),
+	}),
+	z.object({ type: z.literal("inactive"), days: z.number().int().min(7).max(365) }),
+	z.object({
+		type: z.literal("conversation.opened"),
+		inbox_id: z.string().nullish(),
+		channel: z.enum(["email", "chat"]).nullish(),
+	}),
+	z.object({ type: z.literal("conversation.resolved"), inbox_id: z.string().nullish() }),
+	z.object({
+		type: z.literal("conversation.rated"),
+		op: z.enum(["at_most", "at_least"]),
+		rating: z.number().int().min(1).max(5),
+	}),
 ]);
 
 /** Steps in all, counting each condition's "no" steps, and how deep conditions may nest. */
 const MAX_STEPS = 40;
 const MAX_DEPTH = 4;
 
-type StepIn = z.input<typeof leaf> | (z.input<typeof conditionStep> & { no?: StepIn[] | null });
+type Branching =
+	| z.input<typeof conditionStep>
+	| z.input<typeof waitEventStep>
+	| z.input<typeof splitStep>;
+type StepIn = z.input<typeof leaf> | (Branching & { no?: StepIn[] | null });
+/** Waits for an event; on time out, the "no" steps. */
+const waitEventStep = z.object({
+	type: z.literal("wait_event"),
+	event: z.string().regex(EVENT_NAME, "event: letters, numbers, _ . : and - (up to 100)"),
+	minutes: z.number().int().min(1).max(MAX_WAIT_MINUTES).optional(),
+	hours: z
+		.number()
+		.min(0)
+		.max(MAX_WAIT_MINUTES / 60)
+		.optional(),
+	days: z.number().min(0).max(90).optional(),
+});
+const splitStep = z.object({
+	type: z.literal("split"),
+	percent: z.number().int().min(1).max(99),
+});
 const conditionStep = z.object({
 	type: z.literal("condition"),
 	segment_id: z.string().nullish(),
@@ -94,13 +144,58 @@ const leaf = z.discriminatedUnion("type", [
 	}),
 	z.object({
 		type: z.literal("property"),
-		key: z.string().trim().min(1).max(100),
+		key: z.string().trim().min(1, "pick a property").max(100),
 		value: z.union([z.string().max(2000), z.number()]),
+	}),
+	z.object({
+		type: z.literal("notify"),
+		to: z.array(z.string().trim().email()).min(1).max(10),
+		message: z.string().trim().min(1).max(2000),
+	}),
+	z.object({
+		type: z.literal("conversation"),
+		action: z.enum(["tag", "priority", "assign", "resolve"]),
+		value: z.string().trim().max(100).nullish(),
+	}),
+	z.object({
+		type: z.literal("topic"),
+		topic_id: z.string().min(1, "pick a topic"),
+		value: z.enum(["opt_in", "opt_out"]),
+	}),
+	z.object({
+		type: z.literal("newsletter"),
+		newsletter_id: z.string().min(1),
+		action: z.enum(["subscribe", "remove"]),
+	}),
+	z.object({
+		type: z.literal("webhook"),
+		url: z
+			.string()
+			.trim()
+			.url()
+			.max(2000)
+			.refine((u) => u.startsWith("https://"), "the URL must use https"),
+	}),
+	z.object({
+		type: z.literal("email"),
+		from: z.string().trim().min(3).max(320),
+		subject: z.string().trim().min(1).max(998),
+		body: z.string().trim().min(1).max(20_000),
+	}),
+	z.object({
+		type: z.literal("score"),
+		key: z.string().trim().min(1, "pick a property").max(100),
+		add: z.number().min(-1_000_000).max(1_000_000),
 	}),
 ]);
 
 const step: z.ZodType<StepIn> = z.lazy(() =>
-	z.union([leaf, conditionStep.extend({ no: z.array(step).nullish() })]),
+	z.union([
+		leaf,
+		conditionStep.extend({ no: z.array(step).nullish() }),
+		waitEventStep.extend({ no: z.array(step).nullish() }),
+		splitStep.extend({ no: z.array(step).nullish() }),
+	]),
 );
 
 export const automationInput = z.object({
@@ -109,15 +204,28 @@ export const automationInput = z.object({
 	trigger,
 	steps: z.array(step).max(MAX_STEPS),
 	reentry: z.boolean().optional(),
+	/** The goal: when the contact does this event, their run ends there, as reached. */
+	goal_event: z
+		.string()
+		.regex(EVENT_NAME, "goal_event: letters, numbers, _ . : and - (up to 100)")
+		.nullish(),
 });
+
+/** The steps with a "no" path of their own. */
+export type BranchStep = Extract<AutomationStep, { type: "condition" | "wait_event" | "split" }>;
+export const branches = (s: AutomationStep | undefined): s is BranchStep =>
+	s?.type === "condition" || s?.type === "wait_event" || s?.type === "split";
 
 /** Every step, the "no" steps of conditions too. */
 export function eachStep(steps: AutomationStep[], at: number[] = []): [AutomationStep, number[]][] {
 	return steps.flatMap((s, i) => [
 		[s, [...at, i]] as [AutomationStep, number[]],
-		...(s.type === "condition" && s.no ? eachStep(s.no, [...at, i]) : []),
+		...(branches(s) && s.no ? eachStep(s.no, [...at, i]) : []),
 	]);
 }
+
+const minutesOf = (s: { minutes?: number; hours?: number; days?: number }) =>
+	Math.round((s.minutes ?? 0) + (s.hours ?? 0) * 60 + (s.days ?? 0) * 24 * 60);
 
 function normalizeAll(list: StepIn[], depth = 0): AutomationStep[] {
 	if (depth > MAX_DEPTH) throw validation(`Conditions go ${MAX_DEPTH} deep at most`);
@@ -130,11 +238,38 @@ function normalizeAll(list: StepIn[], depth = 0): AutomationStep[] {
 /** A step as stored: waits in minutes. */
 function normalize(s: StepIn, depth: number): AutomationStep {
 	if (s.type === "wait") {
-		const minutes = Math.round(
-			(s.minutes ?? 0) + (s.hours ?? 0) * 60 + (s.days ?? 0) * 24 * 60,
-		);
+		const minutes = minutesOf(s);
 		if (minutes < 1) throw validation("A wait step needs minutes, hours or days");
 		return { type: "wait", minutes: Math.min(minutes, MAX_WAIT_MINUTES) };
+	}
+	const no = (list?: StepIn[] | null) =>
+		list?.length ? { no: normalizeAll(list, depth + 1) } : {};
+	if (s.type === "wait_event") {
+		const minutes = minutesOf(s);
+		if (minutes < 1) throw validation("A wait for an event needs how long to wait at most");
+		return {
+			type: "wait_event",
+			event: s.event,
+			minutes: Math.min(minutes, MAX_WAIT_MINUTES),
+			...no(s.no),
+		};
+	}
+	if (s.type === "split") return { type: "split", percent: s.percent, ...no(s.no) };
+	if (
+		s.type === "notify" ||
+		s.type === "topic" ||
+		s.type === "newsletter" ||
+		s.type === "webhook" ||
+		s.type === "email" ||
+		s.type === "score"
+	)
+		return s;
+	if (s.type === "conversation") {
+		if (s.action !== "resolve" && !s.value)
+			throw validation(`A ${s.action} step needs a value`);
+		if (s.action === "priority" && !["urgent", "high", "normal", "low"].includes(s.value ?? ""))
+			throw validation("priority: urgent, high, normal or low");
+		return { type: "conversation", action: s.action, value: s.value || null };
 	}
 	if (s.type === "send")
 		return {
@@ -155,7 +290,7 @@ function normalize(s: StepIn, depth: number): AutomationStep {
 		property: s.property || null,
 		equals: s.equals ?? null,
 		engaged: s.engaged ?? null,
-		...(s.no?.length ? { no: normalizeAll(s.no, depth + 1) } : {}),
+		...no(s.no),
 	};
 }
 
@@ -168,6 +303,7 @@ export const automationView = (x: Automation) => ({
 	trigger: x.trigger,
 	steps: x.steps,
 	reentry: x.reentry,
+	goal_event: x.goal_event ?? null,
 	created_at: x.created_at,
 	updated_at: x.updated_at,
 });
@@ -189,9 +325,46 @@ async function check(brand: string, t: AutomationTrigger, steps: AutomationStep[
 		}
 		if (s.type === "condition" && s.segment_id) await segmentOf(brand, s.segment_id);
 		if (s.type === "segment" && s.segment_id) await listSegmentOf(brand, s.segment_id);
+		if (s.type === "topic")
+			await owned(schema.topics, brand, s.topic_id, `steps[${i}].topic_id`);
+		if (s.type === "notify") {
+			const team = await teamAddresses(brand, s.to);
+			const outside = s.to.filter((t) => !team.includes(t));
+			if (outside.length)
+				throw validation(`steps[${i}].to: ${outside.join(", ")} isn't on your team`);
+		}
+		if (s.type === "newsletter")
+			await owned(schema.newsletters, brand, s.newsletter_id, `steps[${i}].newsletter_id`);
+		if (s.type === "email") {
+			const { domainFor, orgContext } = await import("./org");
+			const { bareAddress } = await import("./aws/mime");
+			const d = domainFor(await orgContext(brand), bareAddress(s.from));
+			if (!d?.verified)
+				throw validation(
+					`steps[${i}].from: send from one of this brand's verified domains`,
+				);
+		}
 	}
-	if (!eachStep(steps).some(([s]) => s.type === "send"))
-		throw validation("Add a step that sends an email before turning it on");
+	if (!steps.length) throw validation("Add a step before turning it on");
+}
+
+/** Refuses an id that isn't one of the brand's rows of `table`. */
+async function owned(
+	table:
+		| typeof schema.topics
+		| typeof schema.newsletters
+		| typeof schema.signupForms
+		| typeof schema.inboxes,
+	brand: string,
+	id: string,
+	field: string,
+) {
+	const row = await db
+		.select({ id: table.id })
+		.from(table)
+		.where(and(eq(table.id, id), eq(table.organization_id, brand)))
+		.get();
+	if (!row) throw validation(`${field}: no such one in this brand`);
 }
 
 async function checkTrigger(brand: string, t: AutomationTrigger) {
@@ -210,6 +383,12 @@ async function checkTrigger(brand: string, t: AutomationTrigger) {
 			.get();
 		if (!b) throw validation(`trigger.broadcast_id: no broadcast ${t.broadcast_id}`);
 	}
+	if (t.type === "form.submitted" && t.form_id)
+		await owned(schema.signupForms, brand, t.form_id, "trigger.form_id");
+	if (t.type === "topic.changed")
+		await owned(schema.topics, brand, t.topic_id, "trigger.topic_id");
+	if ((t.type === "conversation.opened" || t.type === "conversation.resolved") && t.inbox_id)
+		await owned(schema.inboxes, brand, t.inbox_id, "trigger.inbox_id");
 }
 
 export async function listAutomations(brands: string[]) {
@@ -248,6 +427,7 @@ export async function createAutomation(brand: string, raw: unknown, now = Date.n
 			trigger: v.trigger as AutomationTrigger,
 			steps,
 			reentry: v.reentry ?? false,
+			goal_event: v.goal_event || null,
 			created_at: iso(now),
 			updated_at: iso(now),
 		})
@@ -303,6 +483,7 @@ export async function updateAutomation(brand: string, id: string, raw: unknown, 
 			trigger: t,
 			steps,
 			reentry: v.reentry ?? x.reentry,
+			goal_event: v.goal_event === undefined ? x.goal_event : v.goal_event || null,
 			updated_at: iso(now),
 		})
 		.where(eq(a.id, id))
@@ -319,8 +500,7 @@ export function sameShape(before: AutomationStep[], after: AutomationStep[]): bo
 	return before.every((s, i) => {
 		const t = after[i];
 		if (!t || t.type !== s.type) return false;
-		if (s.type === "condition" && t.type === "condition")
-			return sameShape(s.no ?? [], t.no ?? []);
+		if (branches(s) && branches(t)) return sameShape(s.no ?? [], t.no ?? []);
 		return true;
 	});
 }
@@ -341,6 +521,14 @@ export const REENTERS = new Set<AutomationTrigger["type"]>([
 	"event",
 	"email.opened",
 	"email.clicked",
+	"form.submitted",
+	"topic.changed",
+	"property.changed",
+	"date",
+	"inactive",
+	"conversation.opened",
+	"conversation.resolved",
+	"conversation.rated",
 ]);
 
 /** Starts it for a contact (once, unless it re-enters); the cron does the first step. */
@@ -451,6 +639,318 @@ export async function onEngaged(
 	return started;
 }
 
+/** Starts the brand's active automations whose trigger fits, for the contact. */
+async function startWhere(
+	brand: string,
+	contactId: string,
+	fits: (t: AutomationTrigger) => boolean,
+	data: Record<string, unknown> | null,
+	now: number,
+) {
+	let started = 0;
+	for (const x of await active(brand))
+		if (fits(x.trigger) && (await start(x, contactId, data, now))) started++;
+	return started;
+}
+
+/** Someone confirmed their sign-up on a form. */
+export const onFormSubmitted = (
+	brand: string,
+	contactId: string,
+	formId: string,
+	now = Date.now(),
+) =>
+	startWhere(
+		brand,
+		contactId,
+		(t) => t.type === "form.submitted" && (!t.form_id || t.form_id === formId),
+		{ form_id: formId },
+		now,
+	);
+
+/** A topic choice changed. */
+export const onTopicChanged = (
+	brand: string,
+	contactId: string,
+	topicId: string,
+	value: "opt_in" | "opt_out",
+	now = Date.now(),
+) =>
+	startWhere(
+		brand,
+		contactId,
+		(t) => t.type === "topic.changed" && t.topic_id === topicId && t.value === value,
+		{ topic_id: topicId, value },
+		now,
+	);
+
+/** A contact changed (by the API, the dashboard, a step or a link): unsubscribing, properties. */
+export async function onContactChanged(
+	before: Pick<Contact, "unsubscribed" | "properties">,
+	after: Contact,
+	now = Date.now(),
+) {
+	const brand = after.organization_id;
+	if (!before.unsubscribed && after.unsubscribed)
+		await startWhere(brand, after.id, (t) => t.type === "unsubscribed", null, now);
+	const was = before.properties ?? {};
+	const is = after.properties ?? {};
+	const changed = Object.keys({ ...was, ...is }).filter(
+		(k) => String(was[k] ?? "") !== String(is[k] ?? ""),
+	);
+	for (const key of changed)
+		await startWhere(
+			brand,
+			after.id,
+			(t) =>
+				t.type === "property.changed" &&
+				t.key === key &&
+				(!t.equals || String(is[key] ?? "").toLowerCase() === t.equals.toLowerCase()),
+			{ property: key, value: is[key] ?? null, previous: was[key] ?? null },
+			now,
+		);
+}
+
+/**
+ * A conversation started, was resolved or rated: automations on it start for its contact (the
+ * brand's contact of that address; a visitor who isn't one starts nothing).
+ */
+export async function onConversation(
+	conversationId: string,
+	kind: "opened" | "resolved" | "rated",
+	now = Date.now(),
+) {
+	const x = await db
+		.select()
+		.from(schema.conversations)
+		.where(eq(schema.conversations.id, conversationId))
+		.get();
+	if (!x?.contact_address) return 0;
+	const type = `conversation.${kind}` as const;
+	const list = (await active(x.organization_id)).filter((y) => y.trigger.type === type);
+	if (!list.length) return 0;
+	const contact = await db
+		.select({ id: schema.contacts.id })
+		.from(schema.contacts)
+		.where(
+			and(
+				eq(schema.contacts.organization_id, x.organization_id),
+				eq(schema.contacts.email, x.contact_address),
+			),
+		)
+		.get();
+	if (!contact) return 0;
+	const fits = (t: AutomationTrigger) => {
+		if (t.type === "conversation.opened")
+			return (
+				(!t.inbox_id || t.inbox_id === x.inbox_id) &&
+				(!t.channel || t.channel === x.channel)
+			);
+		if (t.type === "conversation.resolved") return !t.inbox_id || t.inbox_id === x.inbox_id;
+		if (t.type === "conversation.rated") {
+			const n = x.csat_rating;
+			if (!n) return false;
+			return t.op === "at_most" ? n <= t.rating : n >= t.rating;
+		}
+		return false;
+	};
+	let started = 0;
+	for (const y of list)
+		if (
+			fits(y.trigger) &&
+			(await start(
+				y,
+				contact.id,
+				{
+					conversation_id: x.id,
+					subject: x.subject ?? "",
+					channel: x.channel,
+					...(x.csat_rating ? { rating: x.csat_rating } : {}),
+				},
+				now,
+			))
+		)
+			started++;
+	return started;
+}
+
+/** The day (YYYY-MM-DD, UTC) a property's value names, if it's a date. */
+export function dayOf(v: unknown): string | null {
+	if (typeof v !== "string" && typeof v !== "number") return null;
+	const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v).trim());
+	if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+	const t = typeof v === "number" ? v : Date.parse(String(v));
+	return Number.isFinite(t) && t > 0 ? new Date(t).toISOString().slice(0, 10) : null;
+}
+
+/**
+ * The cron, once a day: date triggers (a birthday, a trial's end) and "stopped engaging" ones.
+ * Each starts at most once a day per contact (a yearly date once a year).
+ */
+export async function runDailyTriggers(now = Date.now()) {
+	const list = (await db.select().from(a).where(eq(a.status, "active"))).filter(
+		(x) => x.trigger.type === "date" || x.trigger.type === "inactive",
+	);
+	let started = 0;
+	for (const x of list) {
+		const t = x.trigger;
+		try {
+			if (t.type === "date") started += await startDates(x, t, now);
+			if (t.type === "inactive") started += await startInactive(x, t.days, now);
+		} catch (e) {
+			console.error("automations: daily trigger failed", x.id, e);
+		}
+	}
+	return started;
+}
+
+async function startDates(
+	x: Automation,
+	t: Extract<AutomationTrigger, { type: "date" }>,
+	now: number,
+) {
+	// The property's day that makes today the day: `offset_days` after it.
+	const target = new Date(now - t.offset_days * 86_400_000).toISOString().slice(0, 10);
+	const path = `$."${t.key.replace(/"/g, "")}"`;
+	const v = sql`substr(json_extract(${schema.contacts.properties}, ${path}), 1, 10)`;
+	const rows = await db
+		.select({
+			id: schema.contacts.id,
+			value: sql<string>`json_extract(${schema.contacts.properties}, ${path})`,
+		})
+		.from(schema.contacts)
+		.where(
+			and(
+				eq(schema.contacts.organization_id, x.organization_id),
+				t.yearly ? sql`substr(${v}, 6, 5) = ${target.slice(5)}` : sql`${v} = ${target}`,
+			),
+		)
+		.limit(5000);
+	let started = 0;
+	for (const c of rows) {
+		if (dayOf(c.value) === null) continue;
+		if (await startOnce(x, c.id, t.yearly ? 300 : null, { date: c.value }, now)) started++;
+	}
+	return started;
+}
+
+async function startInactive(x: Automation, days: number, now: number) {
+	const e = schema.emails;
+	const from = iso(now - (days + 1) * 86_400_000);
+	const to = iso(now - days * 86_400_000);
+	// Their last open or click fell on that day, and they got something since.
+	const rows = await db
+		.select({ address: e.recipient })
+		.from(e)
+		.where(
+			and(
+				eq(e.organization_id, x.organization_id),
+				sql`${e.recipient} IS NOT NULL`,
+				sql`coalesce(${e.clicked_at}, ${e.opened_at}) IS NOT NULL`,
+			),
+		)
+		.groupBy(e.recipient)
+		.having(
+			and(
+				sql`max(coalesce(${e.clicked_at}, ${e.opened_at})) >= ${from}`,
+				sql`max(coalesce(${e.clicked_at}, ${e.opened_at})) < ${to}`,
+			),
+		)
+		.limit(5000);
+	let started = 0;
+	for (const r0 of rows) {
+		if (!r0.address) continue;
+		const c = await db
+			.select({ id: schema.contacts.id })
+			.from(schema.contacts)
+			.where(
+				and(
+					eq(schema.contacts.organization_id, x.organization_id),
+					eq(schema.contacts.email, r0.address),
+					eq(schema.contacts.unsubscribed, false),
+				),
+			)
+			.get();
+		if (c && (await startOnce(x, c.id, x.reentry ? 1 : null, { days }, now))) started++;
+	}
+	return started;
+}
+
+/**
+ * Starts it unless the contact went through it already: ever (`withinDays` null), or in the
+ * last `withinDays` days.
+ */
+async function startOnce(
+	x: Automation,
+	contactId: string,
+	withinDays: number | null,
+	data: Record<string, unknown>,
+	now: number,
+) {
+	const res = await raw(
+		`INSERT INTO automation_runs (id, automation_id, organization_id, contact_id, step, status, next_at, data, created_at, updated_at)
+		SELECT ?1, ?2, ?3, ?4, 0, 'active', ?5, ?6, ?5, ?5
+		WHERE NOT EXISTS (SELECT 1 FROM automation_runs WHERE automation_id = ?2 AND contact_id = ?4 AND (?7 IS NULL OR created_at >= ?7))`,
+		crypto.randomUUID(),
+		x.id,
+		x.organization_id,
+		contactId,
+		iso(now),
+		JSON.stringify(data),
+		withinDays === null ? null : iso(now - withinDays * 86_400_000),
+	).run();
+	return (res.meta?.changes ?? 0) > 0;
+}
+
+/**
+ * An event came in for a contact: runs waiting for it wake up, and automations whose goal it is
+ * count it (runs under way end there, as reached).
+ */
+async function eventArrived(brand: string, contactId: string, event: string, now: number) {
+	await db
+		.update(r)
+		.set({ next_at: iso(now) })
+		.where(
+			and(
+				eq(r.contact_id, contactId),
+				eq(r.status, "active"),
+				eq(r.waiting_for, event),
+				eq(r.organization_id, brand),
+			),
+		);
+	const goals = await db
+		.select({ id: a.id })
+		.from(a)
+		.where(and(eq(a.organization_id, brand), eq(a.goal_event, event)));
+	if (!goals.length) return;
+	const ids = goals.map((g) => g.id);
+	// Within 30 days of starting: a run that finished counts too.
+	await db
+		.update(r)
+		.set({ converted_at: iso(now) })
+		.where(
+			and(
+				inArray(r.automation_id, ids),
+				eq(r.contact_id, contactId),
+				isNull(r.converted_at),
+				sql`${r.created_at} >= ${iso(now - 30 * 86_400_000)}`,
+			),
+		);
+	await db
+		.update(r)
+		.set({
+			status: "done",
+			next_at: null,
+			waiting_for: null,
+			waiting_since: null,
+			locked_until: null,
+			updated_at: iso(now),
+		})
+		.where(
+			and(inArray(r.automation_id, ids), eq(r.contact_id, contactId), eq(r.status, "active")),
+		);
+}
+
 export const eventInput = z.object({
 	event: z.string().regex(EVENT_NAME, "event: letters, numbers, _ . : and - (up to 100)"),
 	email: z.string().max(320).optional(),
@@ -482,6 +982,7 @@ export async function recordEvent(
 	}
 	const data = v.data ? boundedData(v.data) : null;
 	const stored = await storeEvent(brand, contact.id, v.event, data, source, now);
+	await eventArrived(brand, contact.id, v.event, now);
 	let started = 0;
 	for (const x of await active(brand))
 		if (x.trigger.type === "event" && x.trigger.event === v.event)
@@ -610,27 +1111,310 @@ export function stepsAt(steps: AutomationStep[], path: number[]): AutomationStep
 	let list = steps;
 	for (const i of path.slice(0, -1)) {
 		const s = list[i];
-		if (s?.type !== "condition" || !s.no) return null;
+		if (!branches(s) || !s.no) return null;
 		list = s.no;
 	}
 	return list;
 }
 
-/** Does a segment or property step for the contact. */
+/** The steps that do one thing for the contact and go on. */
+type ActStep = Extract<
+	AutomationStep,
+	{
+		type:
+			| "segment"
+			| "property"
+			| "notify"
+			| "conversation"
+			| "topic"
+			| "newsletter"
+			| "webhook"
+			| "score";
+	}
+>;
+const ACTS = new Set<AutomationStep["type"]>([
+	"segment",
+	"property",
+	"notify",
+	"conversation",
+	"topic",
+	"newsletter",
+	"webhook",
+	"score",
+]);
+const isAct = (s: AutomationStep): s is ActStep => ACTS.has(s.type);
+
+/** Does one of those steps for the contact. */
 async function actStep(
 	x: Automation,
+	run: AutomationRun,
 	contact: Contact,
-	s: Extract<AutomationStep, { type: "segment" | "property" }>,
+	s: ActStep,
 	now: number,
 ) {
-	const { addToSegment, removeFromSegment, updateContact } = await import("./contacts");
-	if (s.type === "segment") {
-		if (s.action === "add")
-			await addToSegment(x.organization_id, contact.id, s.segment_id, now);
-		else await removeFromSegment(x.organization_id, contact.id, s.segment_id);
-		return;
+	const brand = x.organization_id;
+	const { addToSegment, removeFromSegment, updateContact, setTopics } = await import(
+		"./contacts"
+	);
+	switch (s.type) {
+		case "segment":
+			if (s.action === "add") await addToSegment(brand, contact.id, s.segment_id, now);
+			else await removeFromSegment(brand, contact.id, s.segment_id);
+			return;
+		case "property":
+			await updateContact(brand, contact.id, { properties: { [s.key]: s.value } }, now);
+			return;
+		case "score": {
+			const was = Number(contact.properties?.[s.key] ?? 0);
+			const value = (Number.isFinite(was) ? was : 0) + s.add;
+			await updateContact(brand, contact.id, { properties: { [s.key]: value } }, now);
+			return;
+		}
+		case "topic":
+			await setTopics(brand, contact.id, [{ id: s.topic_id, subscription: s.value }], now);
+			return;
+		case "newsletter": {
+			const n = await db
+				.select()
+				.from(schema.newsletters)
+				.where(
+					and(
+						eq(schema.newsletters.id, s.newsletter_id),
+						eq(schema.newsletters.organization_id, brand),
+					),
+				)
+				.get();
+			if (!n) throw new Error("The newsletter was deleted");
+			if (n.segment_id) {
+				const seg = await segmentOf(brand, n.segment_id).catch(() => null);
+				if (seg && !seg.rules) {
+					if (s.action === "subscribe")
+						await addToSegment(brand, contact.id, n.segment_id, now);
+					else await removeFromSegment(brand, contact.id, n.segment_id);
+				}
+			}
+			if (n.topic_id)
+				await setTopics(
+					brand,
+					contact.id,
+					[
+						{
+							id: n.topic_id,
+							subscription: s.action === "subscribe" ? "opt_in" : "opt_out",
+						},
+					],
+					now,
+				);
+			return;
+		}
+		case "notify":
+			await notifyTeam(x, run, contact, s);
+			return;
+		case "conversation":
+			await conversationStep(brand, contact, s, now);
+			return;
+		case "webhook":
+			await callWebhook(x, run, contact, s.url, now);
+			return;
 	}
-	await updateContact(x.organization_id, contact.id, { properties: { [s.key]: s.value } }, now);
+}
+
+/** What the automation page picks from beyond segments and templates. */
+export async function automationOptions(brand: string) {
+	const org = await orgOf(brand);
+	const { member, user } = await import("./db/auth-schema");
+	const { eventNames } = await import("./contact-events");
+	const own = <T extends { organization_id: unknown }>(t: T) =>
+		eq(t.organization_id as never, brand);
+	const [forms, newsletters, inboxes, team, events] = await Promise.all([
+		db
+			.select({ id: schema.signupForms.id, name: schema.signupForms.name })
+			.from(schema.signupForms)
+			.where(own(schema.signupForms)),
+		db
+			.select({ id: schema.newsletters.id, name: schema.newsletters.name })
+			.from(schema.newsletters)
+			.where(own(schema.newsletters)),
+		db
+			.select({ id: schema.inboxes.id, name: schema.inboxes.name })
+			.from(schema.inboxes)
+			.where(own(schema.inboxes)),
+		db
+			.select({ id: user.id, name: user.name, email: user.email })
+			.from(member)
+			.innerJoin(user, eq(user.id, member.userId))
+			.where(eq(member.organizationId, org)),
+		eventNames(brand),
+	]);
+	return { forms, newsletters, inboxes, team, events };
+}
+
+/** The team's addresses among `to`: only members of the brand's organization get it. */
+async function teamAddresses(brand: string, to: string[]) {
+	const org = await orgOf(brand);
+	const { member, user } = await import("./db/auth-schema");
+	const rows = await db
+		.select({ email: user.email })
+		.from(member)
+		.innerJoin(user, eq(user.id, member.userId))
+		.where(eq(member.organizationId, org));
+	const team = new Set(rows.map((r) => r.email.toLowerCase()));
+	return to.filter((t) => team.has(t.toLowerCase()));
+}
+
+async function notifyTeam(
+	x: Automation,
+	run: AutomationRun,
+	contact: Contact,
+	s: Extract<AutomationStep, { type: "notify" }>,
+) {
+	const to = await teamAddresses(x.organization_id, s.to);
+	if (!to.length) return;
+	const values = await runValues(x, run, contact);
+	const { sendSystemEmail, systemLayout } = await import("./system-email");
+	const { baseUrl } = await import("./env");
+	const subject = `${x.name}: ${contact.email}`;
+	const body = systemLayout({
+		title: subject,
+		lines: fill(s.message, values).split(/\n+/).filter(Boolean),
+		button: { label: "Open the contact", url: `${baseUrl()}/contacts/${contact.id}` },
+	});
+	for (const address of to) await sendSystemEmail({ to: address, subject, ...body });
+}
+
+/** The contact's latest open conversation gets the step: tagged, prioritized, assigned or resolved. */
+async function conversationStep(
+	brand: string,
+	contact: Contact,
+	s: Extract<AutomationStep, { type: "conversation" }>,
+	now: number,
+) {
+	const cv = schema.conversations;
+	const x = await db
+		.select()
+		.from(cv)
+		.where(
+			and(
+				eq(cv.organization_id, brand),
+				eq(cv.contact_address, contact.email.toLowerCase()),
+				eq(cv.status, "open"),
+			),
+		)
+		.orderBy(desc(cv.last_message_at))
+		.get();
+	if (!x) return;
+	const at = iso(now);
+	if (s.action === "tag") {
+		const tags = [...new Set([...(x.tags ?? []), (s.value ?? "").toLowerCase()])].filter(
+			Boolean,
+		);
+		await db.update(cv).set({ tags, updated_at: at }).where(eq(cv.id, x.id));
+	} else if (s.action === "priority")
+		await db
+			.update(cv)
+			.set({ priority: s.value ?? "normal", updated_at: at })
+			.where(eq(cv.id, x.id));
+	else if (s.action === "assign") {
+		const { user } = await import("./db/auth-schema");
+		const u = await db
+			.select({ id: user.id, name: user.name, email: user.email })
+			.from(user)
+			.where(eq(user.id, s.value ?? ""))
+			.get();
+		if (!u) return;
+		await db
+			.update(cv)
+			.set({
+				assignee: `user:${u.id}`,
+				assignee_name: u.name || u.email,
+				claimed_until: null,
+				updated_at: at,
+			})
+			.where(eq(cv.id, x.id));
+	} else
+		await db
+			.update(cv)
+			.set({ status: "resolved", resolved_at: at, updated_at: at })
+			.where(eq(cv.id, x.id));
+}
+
+/** Posts the contact and the run's event data to the step's URL; a refusal fails the run. */
+async function callWebhook(
+	x: Automation,
+	run: AutomationRun,
+	contact: Contact,
+	url: string,
+	now: number,
+) {
+	const res = await fetch(url, {
+		method: "POST",
+		headers: { "content-type": "application/json", "user-agent": "Mailroom-Automations" },
+		body: JSON.stringify({
+			type: "automation.step",
+			created_at: iso(now),
+			automation: { id: x.id, name: x.name },
+			run_id: run.id,
+			contact: {
+				id: contact.id,
+				email: contact.email,
+				first_name: contact.first_name,
+				last_name: contact.last_name,
+				properties: contact.properties ?? {},
+			},
+			data: run.data ?? null,
+		}),
+		redirect: "manual",
+		signal: AbortSignal.timeout(10_000),
+	});
+	if (res.status < 200 || res.status >= 300)
+		throw new Error(`The webhook answered ${res.status}`);
+}
+
+/** The values a run's emails are filled in with: the contact's and the event's. */
+async function runValues(x: Automation, run: AutomationRun, contact: Contact) {
+	const event: Record<string, string | number> = {};
+	for (const [k, v] of Object.entries(run.data ?? {}))
+		if (typeof v === "string" || typeof v === "number") event[`event.${k}`] = v;
+	return { ...(await contactValues(x.organization_id, contact)), ...event };
+}
+
+/** A short email written in the step: its paragraphs, filled in, with the unsubscribe link. */
+async function emailStep(
+	x: Automation,
+	run: AutomationRun,
+	contact: Contact,
+	s: Extract<AutomationStep, { type: "email" }>,
+) {
+	const values = await runValues(x, run, contact);
+	const text = fill(s.body, values);
+	const html = `<!doctype html><html><body style="margin:0;padding:24px 16px;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1c1c1a"><div style="max-width:560px;margin:0 auto">${text
+		.split(/\n{2,}/)
+		.map((p) => `<p style="margin:0 0 14px">${escapeHtml(p).replace(/\n/g, "<br>")}</p>`)
+		.join("")}</div></body></html>`;
+	const input = parseSend({
+		from: s.from,
+		to: contact.email,
+		subject: fill(s.subject, values),
+		html,
+		text,
+		unsubscribe_group: ALL_BROADCASTS_GROUP,
+		tags: [{ name: "automation", value: x.id }],
+	});
+	const { kickDispatcher } = await import("./dispatcher");
+	const [res] = await createEmails(x.organization_id, [input], {
+		source: "automation",
+		queue: true,
+		kick: kickDispatcher,
+	});
+	if (res?.error) throw res.error;
+	return res?.id ?? null;
+}
+
+/** The same contact and run always take the same side of a split. */
+export function splitSide(runId: string, path: number[], percent: number) {
+	let h = 7;
+	for (const ch of `${runId}:${path.join(".")}`) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+	return h % 100 < percent;
 }
 
 /**
@@ -661,6 +1445,8 @@ async function advance(x: Automation, run: AutomationRun, now: number) {
 	// Where it got to, kept even when a later step fails (its emails sent are recorded).
 	let path = run.path?.length ? [...run.path] : [run.step];
 	let lastEmail = run.last_email_id;
+	let waitingFor = run.waiting_for;
+	let waitingSince = run.waiting_since;
 	try {
 		const contact = await db
 			.select()
@@ -712,12 +1498,48 @@ async function advance(x: Automation, run: AutomationRun, now: number) {
 				next();
 				continue;
 			}
-			if (s.type === "segment" || s.type === "property") {
-				await actStep(x, contact as Contact, s, now);
+			if (s.type === "email") {
+				if (contact?.unsubscribed) {
+					status = "exited";
+					error = "The contact unsubscribed";
+					break;
+				}
+				if (!(await renewClaim(run, now))) return;
+				lastEmail = await emailStep(x, run, contact as Contact, s);
 				next();
 				continue;
 			}
-			if (await holds({ ...run, last_email_id: lastEmail }, contact as Contact, s)) next();
+			if (isAct(s)) {
+				await actStep(x, run, contact as Contact, s, now);
+				next();
+				continue;
+			}
+			let yes: boolean;
+			if (s.type === "wait_event") {
+				if (!waitingSince) {
+					// Starts waiting: an event wakes it sooner (recordEvent), or the time runs out.
+					waitingFor = s.event;
+					waitingSince = iso(now);
+					nextAt = iso(now + s.minutes * 60_000);
+					break;
+				}
+				const did = await db
+					.select({ id: schema.contactEvents.id })
+					.from(schema.contactEvents)
+					.where(
+						and(
+							eq(schema.contactEvents.contact_id, run.contact_id),
+							eq(schema.contactEvents.name, s.event),
+							sql`${schema.contactEvents.created_at} >= ${waitingSince}`,
+						),
+					)
+					.get();
+				waitingFor = null;
+				waitingSince = null;
+				yes = !!did;
+			} else if (s.type === "split") yes = splitSide(run.id, path, s.percent);
+			else yes = await holds({ ...run, last_email_id: lastEmail }, contact as Contact, s);
+			if (yes) next();
 			else if (s.no?.length) path = [...path, 0];
 			else {
 				status = "exited";
@@ -731,6 +1553,8 @@ async function advance(x: Automation, run: AutomationRun, now: number) {
 			status,
 			next_at: status === "active" ? nextAt : null,
 			last_email_id: lastEmail,
+			waiting_for: status === "active" ? waitingFor : null,
+			waiting_since: status === "active" ? waitingSince : null,
 			error,
 		});
 	} catch (e) {
@@ -829,6 +1653,12 @@ export async function automationRuns(id: string, limit = 50) {
 	]);
 	const by: Record<string, number> = { active: 0, done: 0, exited: 0, failed: 0, canceled: 0 };
 	for (const c of counts) by[c.status] = Number(c.n);
+	const reached = await db
+		.select({ n: sql<number>`COUNT(*)` })
+		.from(r)
+		.where(and(eq(r.automation_id, id), sql`${r.converted_at} IS NOT NULL`))
+		.get();
+	by.converted = Number(reached?.n ?? 0);
 	return {
 		counts: by,
 		runs: latest,

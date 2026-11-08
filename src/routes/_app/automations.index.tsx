@@ -12,6 +12,14 @@ import { Stamp } from "@/components/record";
 import { RowActions, useRowAction } from "@/components/row-menu";
 import { Button } from "@/components/ui/button";
 import {
+	Dialog,
+	DialogBody,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
+import {
 	Empty,
 	EmptyContent,
 	EmptyDescription,
@@ -34,6 +42,7 @@ import {
 	duplicateAutomationFn,
 	listAutomationsFn,
 } from "@/functions/automations";
+import { RECIPES } from "@/lib/automation-recipes";
 import { errorMessage } from "@/lib/errors";
 import { formatAgo, formatDateTime } from "@/lib/format";
 import { useMe } from "@/lib/me";
@@ -76,6 +85,7 @@ function AutomationsSketch() {
 						trigger: { type: "contact.created" },
 						steps: [],
 						reentry: false,
+						goal_event: null,
 						created_at: ago(60 * 24 * (i + 2)),
 						updated_at: ago(60 * 24 * (i + 1)),
 						brand: null,
@@ -91,26 +101,86 @@ function AutomationsSketch() {
 
 function NewAutomation({ brand }: { brand?: string }) {
 	const router = useRouter();
-	const [busy, setBusy] = useState(false);
+	const [open, setOpen] = useState(false);
+	const [busy, setBusy] = useState<string | null>(null);
+	const make = async (recipe: string | null) => {
+		setBusy(recipe ?? "blank");
+		try {
+			const { id } = await createAutomationFn({ data: { brand, recipe } });
+			await router.invalidate();
+			setOpen(false);
+			await router.navigate({ to: "/automations/$id", params: { id } });
+		} catch (error) {
+			toast.error(await errorMessage(error));
+		} finally {
+			setBusy(null);
+		}
+	};
+	const groups = ["Marketing", "Sales", "Support"] as const;
 	return (
-		<Button
-			disabled={busy}
-			onClick={async () => {
-				setBusy(true);
-				try {
-					const { id } = await createAutomationFn({ data: { brand } });
-					await router.invalidate();
-					await router.navigate({ to: "/automations/$id", params: { id } });
-				} catch (error) {
-					toast.error(await errorMessage(error));
-				} finally {
-					setBusy(false);
-				}
-			}}
+		<Dialog
+			open={open}
+			onOpenChange={setOpen}
 		>
-			{busy ? <Spinner /> : <Plus />}
-			New automation
-		</Button>
+			<Button onClick={() => setOpen(true)}>
+				<Plus />
+				New automation
+			</Button>
+			<DialogContent className="sm:max-w-2xl">
+				<DialogHeader>
+					<DialogTitle>New automation</DialogTitle>
+					<DialogDescription>
+						Start from a recipe with the words already written, or from scratch. It
+						starts as a draft: nothing goes out until you turn it on.
+					</DialogDescription>
+				</DialogHeader>
+				<DialogBody className="gap-5">
+					<button
+						type="button"
+						disabled={!!busy}
+						onClick={() => make(null)}
+						className="flex items-center gap-3 rounded-lg border border-dashed px-4 py-3 text-left transition-colors outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+					>
+						{busy === "blank" ? <Spinner /> : <Plus className="size-4" />}
+						<span className="flex flex-col">
+							<span className="text-sm font-medium">Start from scratch</span>
+							<span className="text-xs text-muted-foreground">
+								Pick a trigger and add steps yourself.
+							</span>
+						</span>
+					</button>
+					{groups.map((g) => (
+						<section
+							key={g}
+							className="flex flex-col gap-2"
+						>
+							<h3 className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+								{g}
+							</h3>
+							<div className="grid gap-2 sm:grid-cols-2">
+								{RECIPES.filter((r) => r.group === g).map((r) => (
+									<button
+										key={r.id}
+										type="button"
+										disabled={!!busy}
+										onClick={() => make(r.id)}
+										className="flex flex-col gap-1 rounded-lg px-4 py-3 text-left shadow-[0_0_0_1px_var(--border)] transition-shadow outline-none hover:shadow-[0_0_0_1px_var(--border-strong)] focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+									>
+										<span className="flex items-center gap-2 text-sm font-medium">
+											{busy === r.id && <Spinner className="size-3.5" />}
+											{r.name}
+										</span>
+										<span className="text-xs text-muted-foreground">
+											{r.description}
+										</span>
+									</button>
+								))}
+							</div>
+						</section>
+					))}
+				</DialogBody>
+			</DialogContent>
+		</Dialog>
 	);
 }
 
@@ -149,7 +219,7 @@ function Automations() {
 			/>
 			<PageHeader
 				title="Automations"
-				description="Emails that go by themselves: when a contact is added, joins a segment or your app sends an event, Mailroom waits, checks and sends your templates, one contact at a time."
+				description="Work that does itself: when a contact signs up, does something in your app, goes quiet, has a birthday or rates a conversation, Mailroom waits, checks, emails, tags and tells your team, one contact at a time."
 				actions={
 					<>
 						<ApiDrawer

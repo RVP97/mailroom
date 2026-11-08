@@ -1,6 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { RECIPES } from "@/lib/automation-recipes";
 import {
+	automationOptions,
 	automationRuns,
 	automationView,
 	cancelRun,
@@ -19,6 +21,21 @@ import { listTemplates, templateView } from "@/server/templates";
 import { call } from "./call";
 
 /** The Automations pages. */
+
+/** A recipe's From (the brand's first verified domain) and who on the team it tells (you). */
+async function recipeContext(brand: string, userId: string) {
+	const { orgContext } = await import("@/server/org");
+	const { db } = await import("@/server/db");
+	const { user } = await import("@/server/db/auth-schema");
+	const { eq } = await import("drizzle-orm");
+	const ctx = await orgContext(brand);
+	const domain = ctx.domains.find((d) => d.verified)?.name;
+	const me = await db.select({ email: user.email }).from(user).where(eq(user.id, userId)).get();
+	return {
+		from: domain ? `hello@${domain}` : "hello@example.com",
+		team: me ? [me.email] : [],
+	};
+}
 
 async function brandsOf(organizationId: string) {
 	const { brands } = await viewScope(organizationId);
@@ -53,15 +70,19 @@ export const getAutomationFn = createServerFn({ method: "GET" })
 		call(async () => {
 			const { brands, ids } = await brandsOf(context.organizationId);
 			const x = await getAutomation(ids, data.id);
-			const [runs, segments, topics, templates, properties, broadcasts] = await Promise.all([
-				automationRuns(x.id, 50),
-				listSegments(x.organization_id),
-				listTopics(x.organization_id),
-				listTemplates(context.organizationId),
-				listProperties(x.organization_id),
-				listBroadcasts([x.organization_id], { limit: 100 }),
-			]);
+			const [runs, segments, topics, templates, properties, broadcasts, more] =
+				await Promise.all([
+					automationRuns(x.id, 50),
+					listSegments(x.organization_id),
+					listTopics(x.organization_id),
+					listTemplates(context.organizationId),
+					listProperties(x.organization_id),
+					listBroadcasts([x.organization_id], { limit: 100 }),
+					automationOptions(x.organization_id),
+				]);
 			return {
+				...more,
+				events: more.events.map((e) => e.name),
 				automation: automationView(x),
 				brand: brands.find((b) => b.id === x.organization_id) ?? null,
 				...runs,
@@ -85,17 +106,23 @@ export const getAutomationFn = createServerFn({ method: "GET" })
 
 export const createAutomationFn = createServerFn({ method: "POST" })
 	.middleware([can("automations:edit")])
-	.validator(z.object({ brand: z.string().nullish() }))
+	.validator(z.object({ brand: z.string().nullish(), recipe: z.string().nullish() }))
 	.handler(({ data, context }) =>
 		call(async () => {
 			const brand = data.brand
 				? await brandIn(context.organizationId, data.brand)
 				: context.organizationId;
-			const x = await createAutomation(brand, {
-				name: "Untitled automation",
-				trigger: { type: "contact.created" },
-				steps: [],
-			});
+			const recipe = data.recipe ? RECIPES.find((r) => r.id === data.recipe) : null;
+			const x = await createAutomation(
+				brand,
+				recipe
+					? recipe.build(await recipeContext(brand, context.userId))
+					: {
+							name: "Untitled automation",
+							trigger: { type: "contact.created" },
+							steps: [],
+						},
+			);
 			return { id: x.id };
 		}),
 	);
@@ -112,6 +139,7 @@ export const saveAutomationFn = createServerFn({ method: "POST" })
 				trigger: z.record(z.string(), z.unknown()).optional(),
 				steps: z.array(z.record(z.string(), z.unknown())).optional(),
 				reentry: z.boolean().optional(),
+				goal_event: z.string().nullish(),
 			}),
 		}),
 	)

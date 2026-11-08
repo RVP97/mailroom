@@ -2018,6 +2018,21 @@ export async function inboxEvent(
 		{ conversation_id: x.id, inbox_id: x.inbox_id, subject: x.subject, ...data },
 		now,
 	).catch((error) => console.error("conversations: event not sent", type, error));
+	// Automations on conversations, for the brand's contact who wrote.
+	const kind =
+		type === "inbox.conversation.created"
+			? "opened"
+			: type === "inbox.conversation.resolved"
+				? "resolved"
+				: type === "inbox.csat.received"
+					? "rated"
+					: null;
+	if (kind) {
+		const { onConversation } = await import("./automations");
+		await onConversation(x.id, kind, now).catch((error) =>
+			console.error("conversations: automations not started", type, error),
+		);
+	}
 }
 
 // ── Retention ──────────────────────────────────────────────────────────────

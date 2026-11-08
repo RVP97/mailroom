@@ -285,6 +285,7 @@ export async function upsertContact(brand: string, raw: unknown, now = Date.now(
 	if (v.topics?.length) await setTopics(brand, contact.id, v.topics, now);
 	if (v.unsubscribed !== undefined) await syncGlobalUnsubscribe(contact, v.unsubscribed);
 	if (!existing) await contactAdded(brand, contact, segmentIds, now);
+	else await contactChanged(existing, contact, now);
 	return { contact, created: !existing };
 }
 
@@ -292,6 +293,16 @@ export async function upsertContact(brand: string, raw: unknown, now = Date.now(
 async function contactAdded(brand: string, c: Contact, segments: string[], now: number) {
 	const { onContactAdded } = await import("./automations");
 	await onContactAdded(brand, c, segments, now);
+}
+
+/** A contact changed: automations on unsubscribing or a property changing hear it. */
+async function contactChanged(
+	before: Pick<Contact, "unsubscribed" | "properties">,
+	after: Contact,
+	now: number,
+) {
+	const { onContactChanged } = await import("./automations");
+	await onContactChanged(before, after, now);
 }
 
 export const contactPatch = contactInput.omit({ email: true }).extend({ email: email.optional() });
@@ -327,6 +338,7 @@ export async function updateContact(brand: string, ref: string, raw: unknown, no
 	for (const s of v.segments ?? []) await addToSegment(brand, contact.id, s, now);
 	if (v.topics?.length) await setTopics(brand, contact.id, v.topics, now);
 	if (v.unsubscribed !== undefined) await syncGlobalUnsubscribe(contact, v.unsubscribed);
+	await contactChanged(c, contact, now);
 	return contact;
 }
 
@@ -773,6 +785,11 @@ export async function setTopics(
 	if (!contact || contact.organization_id !== brand) throw notFound("Contact");
 	for (const c of choices) {
 		await topicOf(brand, c.id);
+		const was = await db
+			.select({ subscription: ctp.subscription })
+			.from(ctp)
+			.where(and(eq(ctp.contact_id, contactId), eq(ctp.topic_id, c.id)))
+			.get();
 		await db
 			.insert(ctp)
 			.values({
@@ -787,6 +804,10 @@ export async function setTopics(
 			});
 		// The unsubscribe group behind the topic's links follows.
 		await syncGroup(brand, topicGroup(c.id), contact.email, c.subscription === "opt_out");
+		if (was?.subscription !== c.subscription) {
+			const { onTopicChanged } = await import("./automations");
+			await onTopicChanged(brand, contactId, c.id, c.subscription, now);
+		}
 	}
 }
 
@@ -826,7 +847,7 @@ export async function unsubscribeSync(brand: string, group: string, address: str
 		.get();
 	if (!contact) return;
 	const now = iso();
-	if (group === ALL_BROADCASTS_GROUP)
+	if (group === ALL_BROADCASTS_GROUP) {
 		await db
 			.update(ct)
 			.set({
@@ -839,7 +860,9 @@ export async function unsubscribeSync(brand: string, group: string, address: str
 				updated_at: now,
 			})
 			.where(eq(ct.id, contact.id));
-	else if (group.startsWith("topic:")) {
+		if (out && !contact.unsubscribed)
+			await contactChanged(contact, { ...contact, unsubscribed: true }, Date.parse(now));
+	} else if (group.startsWith("topic:")) {
 		const topicId = group.slice("topic:".length);
 		const topic = await db
 			.select({ id: tp.id })
@@ -847,18 +870,28 @@ export async function unsubscribeSync(brand: string, group: string, address: str
 			.where(and(eq(tp.id, topicId), eq(tp.organization_id, brand)))
 			.get();
 		if (!topic) return;
+		const value = out ? "opt_out" : "opt_in";
+		const was = await db
+			.select({ subscription: ctp.subscription })
+			.from(ctp)
+			.where(and(eq(ctp.contact_id, contact.id), eq(ctp.topic_id, topicId)))
+			.get();
 		await db
 			.insert(ctp)
 			.values({
 				contact_id: contact.id,
 				topic_id: topicId,
-				subscription: out ? "opt_out" : "opt_in",
+				subscription: value,
 				updated_at: now,
 			})
 			.onConflictDoUpdate({
 				target: [ctp.topic_id, ctp.contact_id],
-				set: { subscription: out ? "opt_out" : "opt_in", updated_at: now },
+				set: { subscription: value, updated_at: now },
 			});
+		if (was?.subscription !== value) {
+			const { onTopicChanged } = await import("./automations");
+			await onTopicChanged(brand, contact.id, topicId, value, Date.parse(now));
+		}
 	}
 }
 

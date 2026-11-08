@@ -1,12 +1,26 @@
 import {
+	BellRing,
+	CalendarDays,
 	CircleCheck,
+	ClipboardCheck,
 	Clock,
+	Gauge,
 	GitBranch,
+	Hash,
+	Hourglass,
 	type LucideIcon,
 	Mail,
 	MailOpen,
+	MailX,
+	MessageSquareCheck,
+	MessagesSquare,
 	MousePointerClick,
+	Newspaper,
+	PenLine,
 	Plus,
+	Snowflake,
+	Split as SplitIcon,
+	Star,
 	TagIcon,
 	UserMinus,
 	UserPlus,
@@ -50,7 +64,25 @@ const TONES = {
 		ring: "ring-emerald-500",
 	},
 	property: { tile: "bg-teal-500/12 text-teal-600 dark:text-teal-400", ring: "ring-teal-500" },
+	team: { tile: "bg-pink-500/12 text-pink-600 dark:text-pink-400", ring: "ring-pink-500" },
 } satisfies Record<string, Tone>;
+
+const TONE_OF: Record<StepType, keyof typeof TONES> = {
+	send: "send",
+	email: "send",
+	wait: "wait",
+	wait_event: "wait",
+	condition: "condition",
+	split: "condition",
+	segment: "segment",
+	topic: "segment",
+	newsletter: "segment",
+	property: "property",
+	score: "property",
+	notify: "team",
+	conversation: "team",
+	webhook: "team",
+};
 
 export const TRIGGER_ICON: Record<TriggerType, LucideIcon> = {
 	"contact.created": UserPlus,
@@ -58,30 +90,109 @@ export const TRIGGER_ICON: Record<TriggerType, LucideIcon> = {
 	event: Webhook,
 	"email.opened": MailOpen,
 	"email.clicked": MousePointerClick,
+	"form.submitted": ClipboardCheck,
+	unsubscribed: MailX,
+	"topic.changed": Hash,
+	"property.changed": TagIcon,
+	date: CalendarDays,
+	inactive: Snowflake,
+	"conversation.opened": MessagesSquare,
+	"conversation.resolved": MessageSquareCheck,
+	"conversation.rated": Star,
 };
 
 export function stepIcon(s: Pick<Step, "type" | "action">): LucideIcon {
 	if (s.type === "segment") return s.action === "remove" ? UserMinus : UserPlus;
-	return { wait: Clock, send: Mail, condition: GitBranch, property: TagIcon, segment: Users }[
-		s.type
-	];
+	return {
+		wait: Clock,
+		send: Mail,
+		email: PenLine,
+		condition: GitBranch,
+		wait_event: Hourglass,
+		split: SplitIcon,
+		property: TagIcon,
+		score: Gauge,
+		segment: Users,
+		topic: Hash,
+		newsletter: Newspaper,
+		notify: BellRing,
+		conversation: MessagesSquare,
+		webhook: Webhook,
+	}[s.type];
 }
 
-export const stepTone = (t: StepType | "trigger"): Tone => TONES[t];
+export const stepTone = (t: StepType | "trigger"): Tone =>
+	t === "trigger" ? TONES.trigger : TONES[TONE_OF[t]];
 
-export const STEP_KINDS: {
+export type StepKind = {
 	type: StepType;
 	action?: "add" | "remove";
 	label: string;
 	hint: string;
-}[] = [
-	{ type: "send", label: "Send an email", hint: "A published template" },
-	{ type: "wait", label: "Wait", hint: "Minutes, hours or days" },
-	{ type: "condition", label: "If / else", hint: "Split into yes and no" },
-	{ type: "segment", action: "add", label: "Add to a segment", hint: "Tag the contact" },
-	{ type: "segment", action: "remove", label: "Remove from a segment", hint: "Untag them" },
-	{ type: "property", label: "Set a property", hint: "Update the contact" },
+	group: string;
+};
+
+export const STEP_KINDS: StepKind[] = [
+	{ type: "send", label: "Send a template", hint: "A published template", group: "Email" },
+	{
+		type: "email",
+		label: "Write a quick email",
+		hint: "Plain words, no template",
+		group: "Email",
+	},
+	{ type: "wait", label: "Wait", hint: "Minutes, hours or days", group: "Timing and paths" },
+	{
+		type: "wait_event",
+		label: "Wait for something they do",
+		hint: "An event, or time runs out",
+		group: "Timing and paths",
+	},
+	{
+		type: "condition",
+		label: "If / else",
+		hint: "Split into yes and no",
+		group: "Timing and paths",
+	},
+	{ type: "split", label: "Random split", hint: "A/B test two paths", group: "Timing and paths" },
+	{
+		type: "segment",
+		action: "add",
+		label: "Add to a segment",
+		hint: "Tag the contact",
+		group: "The contact",
+	},
+	{
+		type: "segment",
+		action: "remove",
+		label: "Remove from a segment",
+		hint: "Untag them",
+		group: "The contact",
+	},
+	{ type: "property", label: "Set a property", hint: "Update the contact", group: "The contact" },
+	{ type: "score", label: "Add to a score", hint: "A number property", group: "The contact" },
+	{ type: "topic", label: "Change a topic", hint: "Opt in or out", group: "The contact" },
+	{
+		type: "newsletter",
+		label: "Subscribe to a newsletter",
+		hint: "Or take them off one",
+		group: "The contact",
+	},
+	{ type: "notify", label: "Tell the team", hint: "An email to teammates", group: "Team" },
+	{
+		type: "conversation",
+		label: "Update their conversation",
+		hint: "Tag, prioritize, assign",
+		group: "Team",
+	},
+	{ type: "webhook", label: "Call a webhook", hint: "Post to your app", group: "Team" },
 ];
+
+/** What a branching step's two paths are called. */
+export const PATH_LABELS: Partial<Record<StepType, [string, string]>> = {
+	condition: ["Yes", "No"],
+	wait_event: ["Did it", "Time ran out"],
+	split: ["A", "B"],
+};
 
 type Props = {
 	form: Form;
@@ -162,15 +273,17 @@ function Flow(p: Props & { list: Step[]; at: ListPath; from: number }) {
 				detail={detail}
 				needs={stepNeeds(s)}
 				count={waiting ?? at}
-				countLabel={waiting ? "waiting" : "here"}
+				countLabel={waiting || s.type === "wait_event" ? "waiting" : "here"}
 				selected={p.selected === s.key}
 				onSelect={() => p.onSelect(s.key)}
 			/>,
 		);
-		if (s.type === "condition") {
+		const labels = PATH_LABELS[s.type];
+		if (labels) {
 			out.push(
-				<Split
+				<Paths
 					key={`split-${s.key}`}
+					labels={labels}
 					yes={
 						<Flow
 							{...p}
@@ -205,10 +318,19 @@ function Flow(p: Props & { list: Step[]; at: ListPath; from: number }) {
 
 const STEP_EYEBROW: Record<StepType, string> = {
 	send: "Send email",
+	email: "Quick email",
 	wait: "Wait",
+	wait_event: "Wait for",
 	condition: "If / else",
+	split: "Random split",
 	segment: "Segment",
 	property: "Property",
+	score: "Score",
+	topic: "Topic",
+	newsletter: "Newsletter",
+	notify: "Tell the team",
+	conversation: "Conversation",
+	webhook: "Webhook",
 };
 
 function Node({
@@ -311,16 +433,19 @@ function Line({
 					</DropdownMenuTrigger>
 					<DropdownMenuContent
 						align="center"
-						className="w-60"
+						className="max-h-[min(70vh,560px)] w-64 overflow-y-auto"
 					>
-						<DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-							Add a step
-						</DropdownMenuLabel>
 						{STEP_KINDS.map((k, i) => {
 							const Icon = stepIcon({ type: k.type, action: k.action ?? "add" });
+							const first = STEP_KINDS[i - 1]?.group !== k.group;
 							return (
 								<div key={k.label}>
-									{i === 3 && <DropdownMenuSeparator />}
+									{first && i > 0 && <DropdownMenuSeparator />}
+									{first && (
+										<DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+											{k.group}
+										</DropdownMenuLabel>
+									)}
 									<DropdownMenuItem
 										onSelect={() => onAdd(k)}
 										className="h-auto min-h-0 items-center gap-3 py-1.5"
@@ -350,20 +475,20 @@ function Line({
 	);
 }
 
-function Split({ yes, no }: { yes: ReactNode; no: ReactNode }) {
+function Paths({ yes, no, labels }: { yes: ReactNode; no: ReactNode; labels: [string, string] }) {
 	return (
 		<div className="flex flex-col items-center">
 			<div className="h-6 w-px bg-border-strong" />
 			<div className="flex items-start">
 				<Branch
 					side="yes"
-					label="Yes"
+					label={labels[0]}
 				>
 					{yes}
 				</Branch>
 				<Branch
 					side="no"
-					label="No"
+					label={labels[1]}
 				>
 					{no}
 				</Branch>

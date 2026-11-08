@@ -60,7 +60,7 @@ import { checkDomainHealth, healthView } from "../deliverability";
 import { kickDispatcher, rateGate } from "../dispatcher";
 import { dmarcSummary } from "../dmarc-reports";
 import { baseUrl } from "../env";
-import { ApiError, notFound } from "../errors";
+import { ApiError, notFound, validation } from "../errors";
 import { getFirewall, setFirewall } from "../firewall";
 import {
 	getReceived,
@@ -1881,7 +1881,7 @@ export const TOOLS: Tool[] = [
 		name: "save_automation",
 		title: "Create or change an automation",
 		description:
-			"Creates an automation (no `automation`) or changes one. trigger: { type: contact.created, segment_id? } | { type: segment.joined, segment_id } | { type: event, event } | { type: email.opened, broadcast_id? } | { type: email.clicked, broadcast_id?, link? }. steps, in order: { type: wait, minutes|hours|days } | { type: send, template_id, from?, subject?, variables? } | { type: segment, action: add|remove, segment_id } | { type: property, key, value } | { type: condition, segment_id? | property + equals? | engaged: opened|clicked, no?: steps } (when it holds the run goes on; otherwise it takes the `no` steps, or ends without them). status: draft, active or paused. Emails use the contact's values and {{{event.<key>}}} from the event's data.",
+			"Creates an automation (no `automation`) or changes one. trigger: { type: contact.created, segment_id? } | { type: segment.joined, segment_id } | { type: event, event } (Mailroom's own: poll.answered, referral.milestone…) | { type: email.opened, broadcast_id? } | { type: email.clicked, broadcast_id?, link? } | { type: form.submitted, form_id? } | { type: unsubscribed } | { type: topic.changed, topic_id, value: opt_in|opt_out } | { type: property.changed, key, equals? } | { type: date, key (a date property), offset_days (-365..365: before or after), yearly } | { type: inactive, days (no open or click for that long) } | { type: conversation.opened, inbox_id?, channel?: email|chat } | { type: conversation.resolved, inbox_id? } | { type: conversation.rated, op: at_most|at_least, rating 1-5 }. steps, in order: { type: wait, minutes|hours|days } | { type: send, template_id, from?, subject?, variables? } | { type: email, from, subject, body } (written here, no template) | { type: segment, action: add|remove, segment_id } | { type: property, key, value } | { type: score, key, add } | { type: topic, topic_id, value } | { type: newsletter, newsletter_id, action: subscribe|remove } | { type: notify, to: team members' emails, message } | { type: conversation, action: tag|priority|assign|resolve, value? (a tag; urgent|high|normal|low; a user id) } on their latest open conversation | { type: webhook, url (https) } | { type: condition, segment_id? | property + equals? | engaged: opened|clicked, no?: steps } | { type: wait_event, event, minutes|hours|days (at most), no?: steps } (goes on when they do it; on time out the `no` steps) | { type: split, percent, no?: steps } (percent go on, the rest take `no`). Without `no` steps, a step that doesn't hold ends the run. goal_event: when the contact does it, their run ends as reached (counted as a conversion). status: draft, active or paused. Emails use the contact's values and {{{event.<key>}}} from the event's data.",
 		input: {
 			organization,
 			brand: oneBrand,
@@ -1891,10 +1891,14 @@ export const TOOLS: Tool[] = [
 			trigger: z.record(z.string(), z.unknown()).optional(),
 			steps: z.array(z.record(z.string(), z.unknown())).optional(),
 			reentry: z.boolean().optional(),
+			goal_event: z.string().nullish(),
+			/** New ones only: start from a recipe (welcome, welcome_ab, abandoned, nurture,
+			 * birthday, winback, review, unhappy, followup); other fields given override it. */
+			recipe: z.string().optional(),
 		},
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization, "manage");
-			const { organization: _o, brand: b, automation: id, ...fields } = a;
+			const { organization: _o, brand: b, automation: id, recipe, ...fields } = a;
 			// Turning one on or off is its own permission.
 			if (fields.status === "active" || fields.status === "paused")
 				requires(org, "automations:activate");
@@ -1908,12 +1912,21 @@ export const TOOLS: Tool[] = [
 				});
 				return automationView(row);
 			}
-			const row = await createAutomation(await brandOf(org.id, b), {
+			const brandId = await brandOf(org.id, b);
+			let base: Record<string, unknown> = {
 				name: "Untitled automation",
 				trigger: { type: "contact.created" },
 				steps: [],
-				...fields,
-			});
+			};
+			if (recipe) {
+				const { RECIPES } = await import("../../lib/automation-recipes");
+				const r = RECIPES.find((x) => x.id === recipe);
+				if (!r) throw validation(`recipe: one of ${RECIPES.map((x) => x.id).join(", ")}`);
+				const { orgContext } = await import("../org");
+				const domain = (await orgContext(brandId)).domains.find((d) => d.verified)?.name;
+				base = r.build({ from: domain ? `hello@${domain}` : "hello@example.com", team: [] });
+			}
+			const row = await createAutomation(brandId, { ...base, ...fields });
 			await logged(ctx, org, "automation.created", {
 				type: "automation",
 				id: row.id,

@@ -597,6 +597,8 @@ async function confirm(token: string, now: number) {
 		},
 		now,
 	);
+	const { onFormSubmitted } = await import("./automations");
+	await onFormSubmitted(f.organization_id, contact.id, f.id, now);
 	if (created) {
 		await db
 			.update(t)
