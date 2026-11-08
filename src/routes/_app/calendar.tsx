@@ -1,5 +1,14 @@
 import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
-import { CalendarDays, ChevronLeft, ChevronRight, Flag, Newspaper, Plus } from "lucide-react";
+import {
+	CalendarDays,
+	ChevronLeft,
+	ChevronRight,
+	Flag,
+	Newspaper,
+	Plus,
+	Rss,
+	Workflow,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -138,6 +147,47 @@ function Chip({
 			) : null}
 			{item.time && <span className="shrink-0 tabular-nums opacity-70">{item.time}</span>}
 			<span className="truncate">{item.name}</span>
+		</Link>
+	);
+}
+
+type AutoDay = Data["automations"][number];
+type Expected = Data["expected"][number];
+
+/** An automation's emails on a day: sent, or due from runs waiting on that day. */
+function AutoChip({ a }: { a: AutoDay }) {
+	const label = `${a.emails} ${a.state === "due" ? "due" : "sent"}`;
+	return (
+		<Link
+			to="/automations/$id"
+			params={{ id: a.automation_id }}
+			title={`${a.name}${a.brand ? ` (${a.brand})` : ""}: ${a.emails} ${a.emails === 1 ? "email" : "emails"} ${a.state === "due" ? "due to go out" : "sent"} this day`}
+			className={cn(
+				"flex items-center gap-1 truncate rounded-md border px-1.5 py-0.5 text-xs leading-5 transition-colors hover:brightness-95",
+				a.state === "due"
+					? "border-violet-500/40 bg-background text-violet-800 dark:text-violet-300"
+					: "border-transparent bg-violet-500/10 text-violet-800 dark:text-violet-300",
+			)}
+		>
+			<Workflow className="size-3 shrink-0 opacity-70" />
+			<span className="truncate">{a.name}</span>
+			<span className="ml-auto shrink-0 tabular-nums opacity-70">{label}</span>
+		</Link>
+	);
+}
+
+/** A newsletter's next issue from its RSS feed, guessed from how often the feed posts. */
+function ExpectedChip({ e }: { e: Expected }) {
+	return (
+		<Link
+			to="/newsletters/$id"
+			params={{ id: e.newsletter_id }}
+			title={`${e.name}${e.brand ? ` (${e.brand})` : ""}: its feed has made an issue about every ${e.every_days === 1 ? "day" : `${e.every_days} days`}, so one is likely ${e.mode === "send" ? "to go out" : "to wait as a draft"} around now`}
+			className="flex items-center gap-1 truncate rounded-md border border-dashed border-orange-500/50 px-1.5 py-0.5 text-xs leading-5 text-orange-800 transition-colors hover:bg-orange-500/5 dark:text-orange-300"
+		>
+			<Rss className="size-3 shrink-0 opacity-70" />
+			<span className="truncate">{e.name}</span>
+			<span className="ml-auto shrink-0 opacity-70">likely</span>
 		</Link>
 	);
 }
@@ -350,6 +400,8 @@ function CalendarPage() {
 	const items = data.items.map((x) => (moved[x.id] ? { ...x, day: moved[x.id] as string } : x));
 	const byDay = new Map<string, Item[]>();
 	for (const x of items) byDay.set(x.day, [...(byDay.get(x.day) ?? []), x]);
+	const autosOn = (day: string) => data.automations.filter((a) => a.day === day);
+	const expectedOn = (day: string) => data.expected.filter((e) => e.day === day);
 	const campaignsOn = (day: string) =>
 		data.campaigns
 			.map((c, i) => ({ ...c, color: BARS[i % BARS.length] as string }))
@@ -386,7 +438,11 @@ function CalendarPage() {
 		scheduled: items.filter((x) => x.state === "scheduled").length,
 		planned: items.filter((x) => x.state === "planned").length,
 	};
-	const agenda = days.filter((d) => d.startsWith(month) && (byDay.get(d)?.length ?? 0) > 0);
+	const agenda = days.filter(
+		(d) =>
+			d.startsWith(month) &&
+			((byDay.get(d)?.length ?? 0) > 0 || autosOn(d).length > 0 || expectedOn(d).length > 0),
+	);
 	return (
 		<Page>
 			<PlanDialog
@@ -397,7 +453,7 @@ function CalendarPage() {
 			/>
 			<PageHeader
 				title="Calendar"
-				description="Every broadcast and newsletter issue on its day: what went out, what's scheduled and the drafts you've planned. Drag a planned draft to move it; campaigns run along the days they cover."
+				description="Every broadcast and newsletter issue on its day: what went out, what's scheduled and the drafts you've planned, plus the emails your automations sent or will send and when RSS newsletters are likely to go out. Drag a planned draft to move it; campaigns run along the days they cover."
 			/>
 			<div className="flex flex-wrap items-center gap-2">
 				<div className="flex items-center gap-1">
@@ -539,6 +595,18 @@ function CalendarPage() {
 										onDragStart={setDragging}
 									/>
 								))}
+								{expectedOn(day).map((e) => (
+									<ExpectedChip
+										key={`${e.newsletter_id}-${e.day}`}
+										e={e}
+									/>
+								))}
+								{autosOn(day).map((a) => (
+									<AutoChip
+										key={`${a.state}-${a.automation_id}`}
+										a={a}
+									/>
+								))}
 							</div>
 						);
 					})}
@@ -576,6 +644,18 @@ function CalendarPage() {
 								item={x}
 								draggable={false}
 								onDragStart={() => {}}
+							/>
+						))}
+						{expectedOn(day).map((e) => (
+							<ExpectedChip
+								key={`${e.newsletter_id}-${e.day}`}
+								e={e}
+							/>
+						))}
+						{autosOn(day).map((a) => (
+							<AutoChip
+								key={`${a.state}-${a.automation_id}`}
+								a={a}
 							/>
 						))}
 					</Card>

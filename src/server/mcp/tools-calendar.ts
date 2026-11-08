@@ -9,7 +9,7 @@ export const CALENDAR_TOOLS: Tool[] = [
 		name: "get_calendar",
 		title: "Content calendar",
 		description:
-			"What's on the content calendar from `from` to `to` (days, YYYY-MM-DD, both included, at most 62 days apart; the deployment's time zone), across the organization's brands (or one): each broadcast and newsletter issue on the day it went out (sent / sending), goes out (scheduled, with its time) or is planned for (a draft's planned_on), and the campaigns running in those days. Plan a draft on a day with save_broadcast's planned_on.",
+			"What's on the content calendar from `from` to `to` (days, YYYY-MM-DD, both included, at most 62 days apart; the deployment's time zone), across the organization's brands (or one): each broadcast and newsletter issue on the day it went out (sent / sending), goes out (scheduled, with its time) or is planned for (a draft's planned_on), and the campaigns running in those days. Also `automations`: per day, the emails each automation sent (state sent) or will send from runs waiting on that day with an email step next (state due); and `expected`: days a newsletter made from an RSS feed is likely to have its next issue (from how often its feed made one lately; mode send goes out, draft waits as a draft). Plan a draft on a day with save_broadcast's planned_on.",
 		input: {
 			organization,
 			brand,

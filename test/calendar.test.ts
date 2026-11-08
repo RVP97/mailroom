@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createBroadcast, updateBroadcast } from "@/server/broadcasts";
 import { contentCalendar, dayOf } from "@/server/calendar";
 import { db, schema } from "@/server/db";
-import { seedOrg } from "./helpers";
+import { seedOrg, uid } from "./helpers";
 
 describe("content calendar", () => {
 	it("puts sent, scheduled and planned broadcasts on their days", async () => {
@@ -92,5 +92,107 @@ describe("content calendar", () => {
 			}),
 		).rejects.toThrow(/YYYY-MM-DD/);
 		expect(dayOf("2026-11-08T05:59:00.000Z", "America/Mexico_City").day).toBe("2026-11-07");
+	});
+
+	it("shows automation emails sent and due, and when RSS issues are likely", async () => {
+		const org = await seedOrg();
+		const tz = "UTC";
+		const DAY = 86_400_000;
+		const now = Date.now();
+		const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+		const at = new Date(now).toISOString();
+		const auto = `au-${uid()}`;
+		await db.insert(schema.automations).values({
+			id: auto,
+			organization_id: org.id,
+			name: "Welcome series",
+			status: "active",
+			trigger: { type: "contact.created" },
+			steps: [
+				{ type: "wait", minutes: 2880 },
+				{ type: "send", template_id: "t1" },
+				{ type: "wait", minutes: 60 },
+				{ type: "segment", action: "add", segment_id: "s1" },
+			],
+			created_at: at,
+			updated_at: at,
+		});
+		const run = (step: number, next: number) => ({
+			id: `run-${uid()}`,
+			automation_id: auto,
+			organization_id: org.id,
+			contact_id: `ct-${uid()}`,
+			step,
+			status: "active" as const,
+			next_at: new Date(next).toISOString(),
+			created_at: at,
+			updated_at: at,
+		});
+		await db.insert(schema.automationRuns).values([
+			run(1, now + 2 * DAY),
+			run(1, now + 2 * DAY + 60_000),
+			// Waiting before a segment step: no email.
+			run(3, now + 2 * DAY),
+		]);
+		await db.insert(schema.emails).values(
+			[1, 2].map(() => ({
+				id: crypto.randomUUID(),
+				organization_id: org.id,
+				from: "hola@hotel.test",
+				to: ["ana@example.com"],
+				subject: "Welcome",
+				status: "delivered" as const,
+				source: "automation",
+				tags: [{ name: "automation", value: auto }],
+				created_at: new Date(now - DAY).toISOString(),
+			})),
+		);
+		// A newsletter whose feed made an issue every 7 days.
+		const news = `nl-${uid()}`;
+		await db.insert(schema.newsletters).values({
+			id: news,
+			organization_id: org.id,
+			name: "Harbor Blog",
+			slug: `blog-${uid()}`,
+			rss_url: "https://blog.test/feed",
+			rss_mode: "send",
+			created_at: at,
+			updated_at: at,
+		});
+		for (const ago of [15, 8, 1]) {
+			const x = await createBroadcast(org.id, org.id, { name: `Posts ${ago}`, html: "" });
+			await db
+				.update(schema.broadcasts)
+				.set({
+					newsletter_id: news,
+					rss_items: ["https://blog.test/p"],
+					status: "sent",
+					started_at: new Date(now - ago * DAY).toISOString(),
+				})
+				.where(eq(schema.broadcasts.id, x.id));
+		}
+		const cal = await contentCalendar(
+			{
+				brands: [org.id],
+				names: new Map(),
+				from: day(now - 3 * DAY),
+				to: day(now + 20 * DAY),
+			},
+			tz,
+		);
+		expect(cal.automations).toEqual([
+			expect.objectContaining({ day: day(now - DAY), state: "sent", emails: 2 }),
+			expect.objectContaining({
+				name: "Welcome series",
+				day: day(now + 2 * DAY),
+				state: "due",
+				emails: 2,
+			}),
+		]);
+		expect(cal.expected.map((e) => [e.day, e.every_days, e.mode])).toEqual([
+			[day(now + 6 * DAY), 7, "send"],
+			[day(now + 13 * DAY), 7, "send"],
+			[day(now + 20 * DAY), 7, "send"],
+		]);
 	});
 });

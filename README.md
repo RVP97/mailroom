@@ -178,7 +178,10 @@ An organization that should be fully apart can optionally use its own SES accoun
 - **Calendar**: every broadcast and newsletter issue on its day, by month: what went out, what's
   scheduled (with its time) and drafts planned for a day. Plan an email on a day (a draft with
   its name, newsletter and campaign), drag a planned draft to another day, and see campaigns run
-  across the days they cover. On a phone it's a list of days (MCP `get_calendar`, and
+  across the days they cover. It also shows how many emails each automation sent each day and
+  how many its waiting contacts will get on the days ahead, and the days a newsletter made from
+  an RSS feed is likely to have its next issue (from how often the feed has posted lately). On a
+  phone it's a list of days (MCP `get_calendar`, and
   `save_broadcast`'s `planned_on`).
 - **Search everything** with ⌘K: contacts (address or name), conversations, broadcasts and
   issues, templates, segments, automations, newsletters, campaigns, surveys, help articles and
