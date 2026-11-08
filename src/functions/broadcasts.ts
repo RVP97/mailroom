@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { maskDigits } from "@/lib/roles";
 import { fill, htmlToText } from "@/lib/template-fill";
 import { logActivity } from "@/server/activity";
 import { brandIn, viewScope } from "@/server/brands";
@@ -144,12 +145,36 @@ export const getBroadcastFn = createServerFn({ method: "GET" })
 				newsletters: newsletters.map((n) => newsletterView(n)),
 				campaigns: campaigns.map(campaignView),
 				polls,
+				/** The replies it got: support's to answer (they're in the inbox too). */
+				replies: went
+					? await import("@/server/conversations").then(async (m) => {
+							const r = await m.broadcastReplies(x.id);
+							return {
+								count: r.count,
+								latest: r.latest.map((l) => ({
+									...l,
+									from: context.masked ? maskDigits(l.from) : l.from,
+								})),
+							};
+						})
+					: { count: 0, latest: [] },
 				/** Its web version (an issue's archive page once sent). */
 				web_url: went ? webUrl(x, newsletter) : null,
 				/** For a sent one: how many didn't open it (a resend's audience). */
 				nonOpeners,
 				report,
 				audience,
+				/** About how many of the segment quiet mode and the frequency cap leave out now. */
+				held_out:
+					audience !== null && x.segment_id
+						? await import("@/server/marketing-rules").then(async (m) =>
+								m.heldOutCount(
+									brand,
+									x.segment_id as string,
+									await m.marketingRules(brand),
+								),
+							)
+						: 0,
 				segments: segments.map((s) => segmentView(s, s.contacts)),
 				topics: topics.map(topicView),
 				templates: templates

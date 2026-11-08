@@ -121,7 +121,17 @@ An organization that should be fully apart can optionally use its own SES accoun
   they went through and the friends they brought. Beside every conversation and chat, the team
   sees who they're talking to: whether they get your email, how engaged they are, the
   newsletters, segments and topics they're in, their last broadcasts, their latest events and the
-  last rating they gave. Two contacts of the same person can be merged.
+  last rating they gave. From there they can make them a contact, put them in a segment,
+  subscribe them to a newsletter or start an automation for them. Two contacts of the same person
+  can be merged.
+- **Support and marketing together**: replies to a broadcast become conversations tagged
+  "broadcast reply" and are listed on the broadcast's page; inbox rules can check whether the
+  sender is a contact and which segments they're in (VIPs first). Two optional rules in Settings
+  keep promotional email in its place: quiet mode (someone with an urgent open conversation, or
+  who rated support 2 or less in the last 14 days, gets no broadcasts or automation emails for
+  now) and a frequency cap (at most N broadcasts per person in D days; automation emails count but
+  always go). The send dialog says how many sit a broadcast out. Transactional email is never
+  held.
   `GET /api/contacts/:id/timeline` and `GET /api/contacts/:id/events` (`?event=`) read them.
 - **Automations**, built on a canvas: when a contact is added, joins a segment, opens a broadcast,
   clicks a link in one, or your app sends an event (`POST /api/events`), wait, branch on a check

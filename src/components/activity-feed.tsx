@@ -85,6 +85,7 @@ const VERB: Record<string, string> = {
 	"settings.logo_changed": "changed the organization's logo",
 	"settings.archive_changed": "changed the archive setting",
 	"settings.digest_changed": "changed the weekly digest",
+	"settings.marketing_rules_changed": "changed quiet mode or the frequency cap",
 	"settings.approval_required": "made approval required before sending",
 	"settings.approval_not_required": "stopped requiring approval before sending",
 };

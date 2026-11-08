@@ -168,7 +168,7 @@ const WORKFLOW_TOOLS: Tool[] = [
 		name: "save_inbox_rule",
 		title: "Create or change an inbox rule",
 		description:
-			"Creates a rule that runs on each new message in an inbox (or changes one, with id): when its conditions match, it tags, sets priority, assigns, snoozes, resolves, auto-replies, leaves a note, holds the message or notifies someone. Rules run in order (order_inbox_rules). Changing a rule replaces it whole.",
+			"Creates a rule that runs on each new message in an inbox (or changes one, with id): when its conditions match, it tags, sets priority, assigns, snoozes, resolves, auto-replies, leaves a note, holds the message or notifies someone. Conditions can also be about the sender as a contact: { field: is_contact, value: yes|no } or { field: segment, op: is|is_not, value: <segment id> } (live segments too, so VIPs or unhappy customers get handled first). Rules run in order (order_inbox_rules). Changing a rule replaces it whole.",
 		input: { organization, inbox: z.string(), id: z.string().optional(), ...ruleShape },
 		run: async (a, ctx) => {
 			const org = orgAt(ctx, a.organization, "inbox:agents");

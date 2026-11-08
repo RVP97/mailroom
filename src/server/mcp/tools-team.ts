@@ -33,6 +33,7 @@ import {
 	saveKit,
 	saveSection,
 } from "../library";
+import { marketingRules, setMarketingRules } from "../marketing-rules";
 import { uploadMedia } from "../media";
 import {
 	approvalRequired,
@@ -292,17 +293,18 @@ export const TEAM_TOOLS: Tool[] = [
 		name: "get_organization_settings",
 		title: "Organization settings",
 		description:
-			"The organization's own settings: name, whether broadcasts need approval, the weekly digest, the long-term archive (and how long Mailroom keeps emails, bodies and received mail), and what the deployment's sending limits do to it (alert or pause per stream).",
+			"The organization's own settings: name, whether broadcasts need approval, the weekly digest, the long-term archive (and how long Mailroom keeps emails, bodies and received mail), quiet mode and the frequency cap for broadcasts, and what the deployment's sending limits do to it (alert or pause per stream).",
 		input: { organization },
 		readOnly: true,
 		run: async (a, ctx) => {
 			const org = orgAt(ctx, a.organization);
-			const [approval, digest, archive, limits, actions] = await Promise.all([
+			const [approval, digest, archive, limits, actions, rules] = await Promise.all([
 				approvalRequired(org.id),
 				digestEnabled(org.id),
 				archiveEnabled(org.id),
 				getSendingLimits(),
 				organizationActions(org.id),
+				marketingRules(org.id),
 			]);
 			return {
 				id: org.id,
@@ -311,6 +313,8 @@ export const TEAM_TOOLS: Tool[] = [
 				approval_required: approval,
 				weekly_digest: digest,
 				archive: { available: !!archiveBucket(), on: archive },
+				quiet_mode: rules.quiet_mode,
+				frequency_cap: rules.cap,
 				retention_days: {
 					email_bodies: bodyRetentionDays(),
 					emails: logRetentionDays(),
@@ -324,13 +328,21 @@ export const TEAM_TOOLS: Tool[] = [
 		name: "update_organization_settings",
 		title: "Change organization settings",
 		description:
-			"Renames the organization, or turns on or off: approval before broadcasts send (approval_required; API sends aren't gated), the weekly digest to owners and admins (weekly_digest), and keeping emails in the long-term R2 archive (archive). Only what's given changes.",
+			"Renames the organization, or turns on or off: approval before broadcasts send (approval_required; API sends aren't gated), the weekly digest to owners and admins (weekly_digest), and keeping emails in the long-term R2 archive (archive). Also quiet_mode (people with an urgent open conversation or a rating of 2 or less in 14 days get no broadcasts or automation emails) and frequency_cap ({count, days}: at most that many broadcasts per person; null turns it off; automation emails count but always go). Transactional email is never held. Only what's given changes.",
 		input: {
 			organization,
 			name: z.string().trim().min(1).max(80).optional(),
 			approval_required: z.boolean().optional(),
 			weekly_digest: z.boolean().optional(),
 			archive: z.boolean().optional(),
+			quiet_mode: z.boolean().optional(),
+			frequency_cap: z
+				.object({
+					count: z.number().int().min(1).max(100),
+					days: z.number().int().min(1).max(90),
+				})
+				.nullable()
+				.optional(),
 		},
 		run: async (a, ctx) => {
 			const org = orgAt(ctx, a.organization, "settings:manage");
@@ -370,11 +382,24 @@ export const TEAM_TOOLS: Tool[] = [
 					id: org.id,
 				});
 			}
+			if (a.quiet_mode !== undefined || a.frequency_cap !== undefined) {
+				await setMarketingRules(org.id, {
+					quiet_mode: a.quiet_mode as boolean | undefined,
+					cap: a.frequency_cap as { count: number; days: number } | null | undefined,
+				});
+				await logged(ctx, org, "settings.marketing_rules_changed", {
+					type: "organization",
+					id: org.id,
+				});
+			}
+			const rules = await marketingRules(org.id);
 			return {
 				name: a.name ?? org.name,
 				approval_required: await approvalRequired(org.id),
 				weekly_digest: await digestEnabled(org.id),
 				archive: await archiveEnabled(org.id),
+				quiet_mode: rules.quiet_mode,
+				frequency_cap: rules.cap,
 			};
 		},
 	},

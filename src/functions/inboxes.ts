@@ -733,3 +733,74 @@ export const createInboxWebhookFn = createServerFn({ method: "POST" })
 			return hook;
 		}),
 	);
+
+const personAction = z.discriminatedUnion("type", [
+	z.object({ type: z.literal("contact") }),
+	z.object({
+		type: z.literal("segment"),
+		segment_id: z.string(),
+		action: z.enum(["add", "remove"]),
+	}),
+	z.object({
+		type: z.literal("newsletter"),
+		newsletter_id: z.string(),
+		action: z.enum(["subscribe", "unsubscribe"]),
+	}),
+	z.object({ type: z.literal("automation"), automation_id: z.string() }),
+]);
+
+/** What the person panel can put someone in: list segments, newsletters, automations that are on. */
+export const personActionOptionsFn = createServerFn({ method: "GET" })
+	.middleware([can("contacts:edit")])
+	.validator(z.object({ conversation_id: z.string() }))
+	.handler(({ data, context }) =>
+		call(async () => {
+			const { c } = await conversationFor(await personOf(context), data.conversation_id);
+			const brand = c.organization_id;
+			const [segments, newsletters, automations] = await Promise.all([
+				db
+					.select({
+						id: schema.segments.id,
+						name: schema.segments.name,
+						rules: schema.segments.rules,
+					})
+					.from(schema.segments)
+					.where(eq(schema.segments.organization_id, brand))
+					.orderBy(schema.segments.name),
+				db
+					.select({ id: schema.newsletters.id, name: schema.newsletters.name })
+					.from(schema.newsletters)
+					.where(eq(schema.newsletters.organization_id, brand))
+					.orderBy(schema.newsletters.name),
+				db
+					.select({ id: schema.automations.id, name: schema.automations.name })
+					.from(schema.automations)
+					.where(
+						and(
+							eq(schema.automations.organization_id, brand),
+							eq(schema.automations.status, "active"),
+						),
+					)
+					.orderBy(schema.automations.name),
+			]);
+			return {
+				segments: segments.filter((s) => !s.rules).map((s) => ({ id: s.id, name: s.name })),
+				newsletters,
+				automations,
+			};
+		}),
+	);
+
+/** Does one of those for whoever the conversation is with (they become a contact first). */
+export const personActionFn = createServerFn({ method: "POST" })
+	.middleware([can("contacts:edit")])
+	.validator(z.object({ conversation_id: z.string(), action: personAction }))
+	.handler(({ data, context }) =>
+		call(async () => {
+			const { c } = await conversationFor(await personOf(context), data.conversation_id);
+			if (!c.contact_address)
+				throw new Response("This conversation has no email address", { status: 422 });
+			const { actForPerson } = await import("@/server/automations");
+			return actForPerson(c.organization_id, c.contact_address, data.action);
+		}),
+	);

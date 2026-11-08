@@ -298,12 +298,15 @@ export async function personPanel(brand: string, address: string, conversationId
 		)
 		.orderBy(desc(cv.csat_at))
 		.get();
+	const { personHolds } = await import("./marketing-rules");
 	const base = {
 		email: a,
 		suppressed: suppressed ? suppressed.reason : null,
 		broadcasts,
 		others,
 		last_rating: rating?.rating ? { rating: rating.rating, at: rating.at } : null,
+		/** Quiet mode or the frequency cap holds them out of broadcasts now. */
+		holds: await personHolds(brand, a),
 	};
 	if (!contact) return { ...base, contact: null };
 	const { engagementOf } = await import("./engagement");

@@ -127,6 +127,7 @@ const LOGGED: Record<string, [action: string, subject: string]> = {
 	createInboxWebhookFn: ["webhook.created", "inbox"],
 	setArchiveFn: ["settings.archive_changed", "organization"],
 	setDigestFn: ["settings.digest_changed", "organization"],
+	setMarketingRulesFn: ["settings.marketing_rules_changed", "organization"],
 	saveSectionFn: ["section.saved", "section"],
 	deleteSectionFn: ["section.deleted", "section"],
 	saveKitFn: ["brand_kit.edited", "brand"],

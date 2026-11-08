@@ -18,6 +18,11 @@ export type Person = {
 		created_at: string;
 	}[];
 	last_rating: { rating: number; at: string | null } | null;
+	holds?: {
+		quiet: boolean;
+		capped: boolean;
+		cap: { count: number; days: number; sent: number } | null;
+	};
 	contact: {
 		id: string;
 		first_name: string | null;
@@ -69,6 +74,15 @@ export function PersonFacts({ p, brand }: { p: Person; brand: string }) {
 						</span>
 					) : c?.unsubscribed ? (
 						"Unsubscribed from broadcasts"
+					) : c && p.holds?.quiet ? (
+						<span className="text-warning">
+							Quiet for now: no broadcasts or automation emails until this is sorted
+						</span>
+					) : c && p.holds?.capped ? (
+						<span>
+							Sits out broadcasts: got {p.holds.cap?.sent} in {p.holds.cap?.days} days
+							(the cap is {p.holds.cap?.count})
+						</span>
 					) : c ? (
 						"Gets your broadcasts"
 					) : (

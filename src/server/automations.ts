@@ -1144,6 +1144,46 @@ const ACTS = new Set<AutomationStep["type"]>([
 ]);
 const isAct = (s: AutomationStep): s is ActStep => ACTS.has(s.type);
 
+/**
+ * From a conversation's person panel (or the assistant): put someone in a segment, subscribe them
+ * to a newsletter, or start an automation for them. Not a contact yet: they become one first
+ * (source "conversation"). Returns the contact and, for an automation, whether it started.
+ */
+export async function actForPerson(
+	brand: string,
+	address: string,
+	v:
+		| { type: "contact" }
+		| { type: "segment"; segment_id: string; action: "add" | "remove" }
+		| { type: "newsletter"; newsletter_id: string; action: "subscribe" | "unsubscribe" }
+		| { type: "automation"; automation_id: string },
+	now = Date.now(),
+) {
+	const { upsertContact, segmentOf } = await import("./contacts");
+	const email = address.trim().toLowerCase();
+	if (!email.includes("@")) throw validation("That conversation has no email address");
+	let contact = await db
+		.select()
+		.from(schema.contacts)
+		.where(and(eq(schema.contacts.organization_id, brand), eq(schema.contacts.email, email)))
+		.get();
+	if (!contact)
+		contact = (await upsertContact(brand, { email, source: "conversation" }, now)).contact;
+	if (v.type === "contact") return { contact_id: contact.id, started: null };
+	if (v.type === "automation") {
+		const x = await getAutomation(brand, v.automation_id);
+		if (x.status !== "active") throw validation("Turn the automation on first");
+		return { contact_id: contact.id, started: await start(x, contact.id, null, now) };
+	}
+	if (v.type === "segment") {
+		const seg = await segmentOf(brand, v.segment_id);
+		if (seg.rules) throw validation("A live segment picks its people by its rules");
+	}
+	const fake = { organization_id: brand } as Automation;
+	await actStep(fake, {} as AutomationRun, contact as Contact, v as ActStep, now);
+	return { contact_id: contact.id, started: null };
+}
+
 /** Does one of those steps for the contact. */
 async function actStep(
 	x: Automation,
@@ -1439,6 +1479,12 @@ async function renewClaim(run: AutomationRun, now: number) {
 	return true;
 }
 
+/** Quiet mode holds this person out of the automation's emails now (they're skipped). */
+async function quietNow(x: Automation, contact: Contact, now: number) {
+	const { automationHold } = await import("./marketing-rules");
+	return (await automationHold(x.organization_id, contact.email, now)) !== null;
+}
+
 /** Moves one run on: steps until a wait or the end. */
 async function advance(x: Automation, run: AutomationRun, now: number) {
 	const set: Partial<AutomationRun> = { locked_until: null, updated_at: iso(now) };
@@ -1489,6 +1535,10 @@ async function advance(x: Automation, run: AutomationRun, now: number) {
 				}
 				// Still this claim's (renewed): one that ran out was taken by another cron, which sends it.
 				if (!(await renewClaim(run, now))) return;
+				if (await quietNow(x, contact as Contact, now)) {
+					next();
+					continue;
+				}
 				lastEmail = await sendStep(
 					x,
 					{ ...run, last_email_id: lastEmail },
@@ -1505,7 +1555,9 @@ async function advance(x: Automation, run: AutomationRun, now: number) {
 					break;
 				}
 				if (!(await renewClaim(run, now))) return;
-				lastEmail = await emailStep(x, run, contact as Contact, s);
+				// Quiet mode: someone with an urgent conversation or a low rating skips this email.
+				if (!(await quietNow(x, contact as Contact, now)))
+					lastEmail = await emailStep(x, run, contact as Contact, s);
 				next();
 				continue;
 			}

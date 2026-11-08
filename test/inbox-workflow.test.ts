@@ -1,7 +1,12 @@
 import { eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { handleApi } from "@/server/api";
+import { actForPerson } from "@/server/automations";
+import { createBroadcast, runBroadcasts, sendBroadcast } from "@/server/broadcasts";
+import { createSegment, upsertContact } from "@/server/contacts";
 import {
+	BROADCAST_REPLY_TAG,
+	broadcastReplies,
 	getConversation,
 	listConversations,
 	sendReply,
@@ -26,7 +31,14 @@ import {
 	wakeSnoozed,
 } from "@/server/inbox-workflow";
 import { createCredential, createInbox, type Inbox, type InboxActor } from "@/server/inboxes";
+import {
+	heldOutCount,
+	marketingRules,
+	personHolds,
+	setMarketingRules,
+} from "@/server/marketing-rules";
 import { setSetting } from "@/server/settings";
+import { iso } from "@/server/time";
 import { fakeOutside, seedOrg, uid, useTopic } from "./helpers";
 
 vi.mock("cloudflare:workers", async (original) => ({
@@ -587,5 +599,152 @@ describe("replies", () => {
 		expect(after?.csat_rating).toBe(5);
 		expect(after?.csat_comment).toBe("Fast and kind");
 		void org;
+	});
+});
+
+describe("support and marketing together", () => {
+	it("rules see who's a contact and their segments", async () => {
+		const { org, support } = await setUp();
+		const vip = await createSegment(org.id, { name: "VIP" });
+		await upsertContact(org.id, { email: "ana@guest.test", segments: [vip.id] });
+		await upsertContact(org.id, { email: "luis@guest.test" });
+		await saveRule(support, {
+			name: "VIPs first",
+			conditions: [{ field: "segment", op: "is", value: vip.id }],
+			actions: [{ type: "set_priority", value: "high" }],
+		});
+		await saveRule(support, {
+			name: "Strangers",
+			conditions: [{ field: "is_contact", op: "is", value: "false" }],
+			actions: [{ type: "add_tag", value: "new person" }],
+		});
+		const fake = fakeAws();
+		const to = [support.address];
+		for (const from of ["Ana <ana@guest.test>", "Luis <luis@guest.test>", "Zoe <zoe@else.test>"])
+			await arrive(fake, mail({ to, from, id: `s-${uid()}@guest.test` }), to);
+		const rows = await db
+			.select()
+			.from(schema.conversations)
+			.where(eq(schema.conversations.inbox_id, support.id));
+		const of = (a: string) => rows.find((r) => r.contact_address === a);
+		expect(of("ana@guest.test")?.priority).toBe("high");
+		expect(of("luis@guest.test")?.priority).toBe("normal");
+		expect(of("ana@guest.test")?.tags ?? []).not.toContain("new person");
+		expect(of("zoe@else.test")?.tags).toContain("new person");
+	});
+
+	it("tags replies to a broadcast and counts them on it", async () => {
+		const { org, support } = await setUp();
+		const broadcastId = `b_${uid()}`;
+		await db.insert(schema.emails).values({
+			id: crypto.randomUUID(),
+			organization_id: org.id,
+			from: support.address,
+			to: ["ana@guest.test"],
+			recipient: "ana@guest.test",
+			subject: "Our winter rates",
+			status: "sent",
+			source: "broadcast",
+			broadcast_id: broadcastId,
+			message_id: "0100-winter",
+			created_at: new Date().toISOString(),
+		});
+		const fake = fakeAws();
+		const to = [support.address];
+		await arrive(
+			fake,
+			mail({
+				to,
+				id: `w-${uid()}@guest.test`,
+				subject: "Re: Our winter rates",
+				inReplyTo: "0100-winter@email.amazonses.com",
+				text: "Is breakfast included?",
+			}),
+			to,
+		);
+		const x = await firstConversation(support.id);
+		expect(x?.tags).toContain(BROADCAST_REPLY_TAG);
+		const r = await broadcastReplies(broadcastId);
+		expect(r.count).toBe(1);
+		expect(r.latest[0]?.conversation_id).toBe(x?.id);
+	});
+
+	it("quiet mode and the cap hold people out of broadcasts, never the person panel's actions", async () => {
+		const { org, support } = await setUp();
+		const seg = await createSegment(org.id, { name: "All" });
+		for (const e of ["ana@guest.test", "luis@guest.test", "eva@guest.test"])
+			await upsertContact(org.id, { email: e, segments: [seg.id] });
+		const now = Date.now();
+		// Ana has an urgent conversation open, Luis rated support 1 of 5 yesterday.
+		const conversation = (address: string, extra: Record<string, unknown>) =>
+			db.insert(schema.conversations).values({
+				id: `cv_${uid()}`,
+				organization_id: org.id,
+				inbox_id: support.id,
+				subject: "Help",
+				contact: address,
+				contact_address: address,
+				last_message_at: iso(now),
+				created_at: iso(now),
+				updated_at: iso(now),
+				...extra,
+			});
+		await conversation("ana@guest.test", { priority: "urgent" });
+		await conversation("luis@guest.test", {
+			status: "resolved",
+			csat_rating: 1,
+			csat_at: iso(now - 86_400_000),
+		});
+		const make = () =>
+			createBroadcast(org.id, org.id, {
+				name: "News",
+				segment_id: seg.id,
+				from: `Hotel <news@${org.domain}>`,
+				subject: "News",
+				html: "<p>Hi</p>",
+			});
+		const sentTo = async (id: string) =>
+			(await db.select().from(schema.emails).where(eq(schema.emails.broadcast_id, id)))
+				.map((e) => e.recipient)
+				.sort();
+
+		const off = await make();
+		await sendBroadcast(org.id, off.id, null, now);
+		await runBroadcasts(now, off.id);
+		expect(await sentTo(off.id)).toEqual(["ana@guest.test", "eva@guest.test", "luis@guest.test"]);
+
+		await setMarketingRules(org.id, { quiet_mode: true });
+		const quiet = await make();
+		expect(await heldOutCount(org.id, seg.id, await marketingRules(org.id))).toBe(2);
+		await sendBroadcast(org.id, quiet.id, null, now);
+		await runBroadcasts(now, quiet.id);
+		expect(await sentTo(quiet.id)).toEqual(["eva@guest.test"]);
+		expect((await personHolds(org.id, "ana@guest.test")).quiet).toBe(true);
+
+		// Eva got 2 in the window: a cap of 2 holds her out of the third.
+		await setMarketingRules(org.id, { quiet_mode: false, cap: { count: 2, days: 7 } });
+		const capped = await make();
+		await sendBroadcast(org.id, capped.id, null, now);
+		await runBroadcasts(now, capped.id);
+		expect(await sentTo(capped.id)).toEqual(["ana@guest.test", "luis@guest.test"]);
+		expect(await personHolds(org.id, "eva@guest.test")).toMatchObject({
+			capped: true,
+			cap: { count: 2, days: 7, sent: 2 },
+		});
+		await expect(
+			setMarketingRules(org.id, { cap: { count: 0, days: 7 } }),
+		).rejects.toThrow();
+
+		// From the conversation: Zoe becomes a contact and joins the segment.
+		const r = await actForPerson(org.id, "Zoe@Else.test", {
+			type: "segment",
+			segment_id: seg.id,
+			action: "add",
+		});
+		const zoe = await db
+			.select()
+			.from(schema.contactSegments)
+			.where(eq(schema.contactSegments.contact_id, r.contact_id));
+		expect(zoe.map((z) => z.segment_id)).toEqual([seg.id]);
 	});
 });

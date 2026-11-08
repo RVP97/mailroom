@@ -7,6 +7,7 @@ import { AccessLogCard } from "@/components/access-log-card";
 import { ArchiveCard } from "@/components/archive-card";
 import { DigestCard } from "@/components/digest-card";
 import { FirewallCard, FirewallsOverview } from "@/components/firewall-card";
+import { MarketingRulesCard } from "@/components/marketing-rules-card";
 import { OrgAvatar } from "@/components/org-avatar";
 import { OrgLogoCard } from "@/components/org-logo-card";
 import { Page, PageHeader } from "@/components/page";
@@ -219,6 +220,7 @@ function Settings() {
 					) : (
 						<FirewallsOverview firewalls={firewalls} />
 					)}
+					<MarketingRulesCard canManage={canManage} />
 					<OrganizationLimitsCard />
 					<SesAccountCard />
 				</TabsContent>

@@ -393,6 +393,13 @@
       "when": 1794155199526,
       "tag": "0055_automation_steps",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "6",
+      "when": 1794156908509,
+      "tag": "0056_marketing_rules",
+      "breakpoints": true
     }
   ]
 }

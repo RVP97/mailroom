@@ -581,6 +581,15 @@ async function nextRecipients(x: Broadcast, limit: number) {
 		),
 	];
 	if (x.cursor) where.push(gt(ct.id, x.cursor));
+	// Quiet mode and the frequency cap (src/server/marketing-rules.ts).
+	const { broadcastHolds, marketingRules } = await import("./marketing-rules");
+	where.push(
+		...broadcastHolds(
+			x.organization_id,
+			await marketingRules(x.organization_id),
+			sql`${ct.email}`,
+		),
+	);
 	if (x.campaign_id && x.campaign_dedupe)
 		where.push(
 			sql`NOT EXISTS (SELECT 1 FROM emails AS o JOIN broadcasts AS ob ON ob.id = o.broadcast_id WHERE ob.campaign_id = ${x.campaign_id} AND ob.id <> ${x.id} AND o.status NOT IN ('canceled', 'failed', 'suppressed') AND lower(json_extract(o."to", '$[0]')) = ${ct.email})`,

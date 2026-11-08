@@ -39,7 +39,7 @@ import {
 } from "../contacts";
 import { db, schema } from "../db";
 import { cleanUpCold, coldContacts, engagementOverview } from "../engagement";
-import { ApiError } from "../errors";
+import { ApiError, validation } from "../errors";
 import { growth } from "../growth";
 import {
 	checkFeed,
@@ -374,6 +374,62 @@ export const AUDIENCE_TOOLS: Tool[] = [
 				contact_id: c.id,
 				segments: (await segmentsOfContact(c.id)).map((s) => ({ id: s.id, name: s.name })),
 			};
+		},
+	},
+	{
+		name: "add_person_to",
+		title: "Subscribe someone or start an automation for them",
+		description:
+			"For one address (say, someone who wrote to support): makes them a contact (action contact), puts them in or takes them out of a list segment (segment + segment_action add|remove), subscribes or unsubscribes them from a newsletter (newsletter + newsletter_action subscribe|unsubscribe), or starts an automation that's on for them (automation; started false means they've been through it and it doesn't let people in twice). Not a contact yet: they become one first.",
+		input: {
+			organization,
+			brand: oneBrand,
+			email: z.string().email(),
+			action: z.enum(["contact", "segment", "newsletter", "automation"]),
+			segment: z.string().optional().describe("A list segment's id"),
+			segment_action: z.enum(["add", "remove"]).optional(),
+			newsletter: z.string().optional().describe("A newsletter's id"),
+			newsletter_action: z.enum(["subscribe", "unsubscribe"]).optional(),
+			automation: z.string().optional().describe("An automation's id"),
+		},
+		run: async (a, ctx) => {
+			const org = orgAt(ctx, a.organization, "contacts:edit");
+			const b = await brandOf(org.id, a.brand);
+			const need = (v: unknown, what: string) => {
+				if (typeof v !== "string" || !v) throw validation(`Give the ${what}`);
+				return v;
+			};
+			const { actForPerson } = await import("../automations");
+			const r = await actForPerson(
+				b,
+				a.email as string,
+				a.action === "segment"
+					? {
+							type: "segment",
+							segment_id: need(a.segment, "segment"),
+							action: (a.segment_action as "add" | "remove") ?? "add",
+						}
+					: a.action === "newsletter"
+						? {
+								type: "newsletter",
+								newsletter_id: need(a.newsletter, "newsletter"),
+								action:
+									(a.newsletter_action as "subscribe" | "unsubscribe") ??
+									"subscribe",
+							}
+						: a.action === "automation"
+							? {
+									type: "automation",
+									automation_id: need(a.automation, "automation"),
+								}
+							: { type: "contact" },
+			);
+			await logged(ctx, org, "contact.edited", {
+				type: "contact",
+				id: r.contact_id,
+				name: a.email as string,
+			});
+			return r;
 		},
 	},
 	{

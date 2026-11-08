@@ -17,6 +17,7 @@ import {
 	Moon,
 	MoreHorizontal,
 	Repeat2,
+	Reply,
 	Send,
 	Smartphone,
 	Sun,
@@ -48,6 +49,7 @@ import { ListSelect } from "@/components/list-dialogs";
 import { LiveFrame } from "@/components/live-frame";
 import { Page } from "@/components/page";
 import { Fact, Facts, IdChip, RecordHeader } from "@/components/record";
+import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -94,7 +96,7 @@ import { kitTheme } from "@/lib/brand-kit";
 import { checkContent } from "@/lib/content-check";
 import { type EmailDoc, renderEmail } from "@/lib/email-doc";
 import { errorMessage } from "@/lib/errors";
-import { formatDateTime, formatRelative } from "@/lib/format";
+import { formatAgo, formatDateTime, formatRelative } from "@/lib/format";
 import { CLIENTS, type InboxClient, simulate } from "@/lib/inbox-preview";
 import { useMe } from "@/lib/me";
 import { contactGroups, SAMPLE_VALUES, sampleFill, type VariableGroup } from "@/lib/merge-tags";
@@ -176,6 +178,7 @@ function BroadcastSketch() {
 					newsletters: [],
 					campaigns: [],
 					polls: [],
+					replies: { count: 0, latest: [] },
 					web_url: null,
 					nonOpeners: null,
 					report: null,
@@ -194,6 +197,7 @@ function BroadcastSketch() {
 						canceled: 0,
 					},
 					audience: 0,
+					held_out: 0,
 					properties: [],
 					segments: [],
 					topics: [],
@@ -541,6 +545,7 @@ function BroadcastPage() {
 				onOpenChange={setSending}
 				broadcast={saved}
 				audience={data.audience}
+				heldOut={data.held_out}
 				segment={segment?.name}
 				newsletter={data.newsletters.find((n) => n.id === saved.newsletter_id) ?? null}
 			/>
@@ -704,6 +709,7 @@ function BroadcastPage() {
 					canManage={canManage}
 				/>
 			)}
+			{data.replies.count > 0 && <Replies replies={data.replies} />}
 			{data.report && (
 				<BroadcastReport
 					report={data.report}
@@ -1397,6 +1403,7 @@ function SendDialog({
 	onOpenChange,
 	broadcast,
 	audience,
+	heldOut,
 	segment,
 	newsletter,
 }: {
@@ -1404,6 +1411,7 @@ function SendDialog({
 	onOpenChange: (v: boolean) => void;
 	broadcast: Broadcast;
 	audience: number | null;
+	heldOut: number;
 	segment?: string;
 	newsletter: Data["newsletters"][number] | null;
 }) {
@@ -1483,6 +1491,13 @@ function SendDialog({
 							{segment
 								? `To ${n.toLocaleString()} ${n === 1 ? "contact" : "contacts"} in ${segment}${broadcast.resend_of ? " who didn't open the first one" : ""}, from ${broadcast.from || "…"}.`
 								: "Pick a segment first."}
+							{segment && heldOut > 0 && (
+								<>
+									{" "}
+									{heldOut.toLocaleString()} more {heldOut === 1 ? "sits" : "sit"}{" "}
+									this one out (quiet mode or the frequency cap in Settings).
+								</>
+							)}
 						</DialogDescription>
 					</DialogHeader>
 					<DialogBody className="gap-6">
@@ -2009,6 +2024,58 @@ function Checklist({
 }
 
 /** How each poll in a sent broadcast was answered, and those who answered into a segment. */
+/** The replies it got, each in its conversation for support to answer. */
+function Replies({ replies }: { replies: Data["replies"] }) {
+	return (
+		<Card className="gap-0 p-0">
+			<div className="flex items-start gap-3 px-5 py-5">
+				<span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/12 text-emerald-600 dark:text-emerald-400">
+					<Reply className="size-[18px]" />
+				</span>
+				<div className="min-w-0 flex-1">
+					<h2 className="font-semibold">
+						{replies.count.toLocaleString()} {replies.count === 1 ? "reply" : "replies"}
+					</h2>
+					<p className="text-sm text-muted-foreground">
+						People who answered this email. They're conversations in your inbox, tagged
+						“broadcast reply”.
+					</p>
+				</div>
+			</div>
+			<ul className="border-t border-border/70">
+				{replies.latest.map((r) => (
+					<li
+						key={r.id}
+						className="relative flex items-center gap-3 border-b border-border/50 px-5 py-3 text-sm last:border-0 hover:bg-muted/40"
+					>
+						<div className="min-w-0 flex-1">
+							<Link
+								to={r.conversation_id ? "/received/$id" : "/received"}
+								params={{ id: r.conversation_id ?? "" }}
+								className="block truncate font-medium outline-none after:absolute after:inset-0"
+							>
+								<Ph>{r.from}</Ph>
+							</Link>
+							<span className="block truncate text-xs text-muted-foreground">
+								{r.snippet || r.subject}
+							</span>
+						</div>
+						{r.status && (
+							<StatusBadge
+								status={r.status === "open" ? "sending" : "delivered"}
+								label={r.status === "open" ? "Open" : "Resolved"}
+							/>
+						)}
+						<span className="w-16 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
+							{formatAgo(r.created_at)}
+						</span>
+					</li>
+				))}
+			</ul>
+		</Card>
+	);
+}
+
 function PollResults({
 	broadcastId,
 	polls,

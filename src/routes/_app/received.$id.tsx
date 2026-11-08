@@ -50,6 +50,7 @@ import {
 } from "@/components/inbox-triage";
 import { CopyMenuItem, MoreMenu } from "@/components/more-menu";
 import { Page, Section } from "@/components/page";
+import { PersonActions } from "@/components/person-actions";
 import { PersonFacts } from "@/components/person-panel";
 import { IdChip, RecordHeader } from "@/components/record";
 import { StatusBadge, StatusDot } from "@/components/status-badge";
@@ -1137,6 +1138,8 @@ function ContactCard({ data, live }: { data: Data; live: Live | null }) {
 			nameOf(c.contact);
 	const email = chat ? (c.visitor?.email ?? null) : (data.contact?.email ?? c.contact);
 	const others = data.contact?.others ?? [];
+	const me = useMe();
+	const canEditContacts = allows(me.active?.access, "contacts:edit");
 	return (
 		<section
 			aria-label="Who wrote"
@@ -1239,6 +1242,20 @@ function ContactCard({ data, live }: { data: Data; live: Live | null }) {
 				<PersonFacts
 					p={data.contact}
 					brand={c.brand_id}
+				/>
+			)}
+			{data.contact && !data.contact.suppressed && canEditContacts && (
+				<PersonActions
+					conversationId={c.id}
+					isContact={!!person}
+					inSegments={
+						"segments" in data.contact ? data.contact.segments.map((s) => s.id) : []
+					}
+					inNewsletters={
+						"newsletters" in data.contact
+							? data.contact.newsletters.map((n) => n.id)
+							: []
+					}
 				/>
 			)}
 			{others.length > 0 && (

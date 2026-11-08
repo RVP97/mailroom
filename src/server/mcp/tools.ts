@@ -1657,7 +1657,7 @@ export const TOOLS: Tool[] = [
 		name: "get_broadcast",
 		title: "Get a broadcast",
 		description:
-			"One broadcast with its content (html, text and its block design when made in the editor) and what happened to its emails (sent, delivered, opened, clicked, bounced, unsubscribed); before it goes, its audience size; once sent, its report (clicks per link, by provider), A/B variants, poll results, how many didn't open (a resend's audience) and its web version; and whether it needs and has approval.",
+			"One broadcast with its content (html, text and its block design when made in the editor) and what happened to its emails (sent, delivered, opened, clicked, bounced, unsubscribed); before it goes, its audience size (and held_out: about how many quiet mode and the frequency cap leave out); once sent, its report (clicks per link, by provider), A/B variants, poll results, how many didn't open (a resend's audience), the replies it got (each a conversation tagged \"broadcast reply\") and its web version; and whether it needs and has approval.",
 		input: { organization, broadcast: z.string().describe("Its id") },
 		readOnly: true,
 		run: async (a, ctx) => {
@@ -1682,10 +1682,23 @@ export const TOOLS: Tool[] = [
 				...broadcastView(x),
 				stats,
 				audience,
+				held_out:
+					!went && x.segment_id
+						? await import("../marketing-rules").then(async (m) =>
+								m.heldOutCount(
+									x.organization_id,
+									x.segment_id as string,
+									await m.marketingRules(x.organization_id),
+								),
+							)
+						: undefined,
 				variants,
 				report,
 				polls,
 				did_not_open: nonOpeners,
+				replies: went
+					? await import("../conversations").then((m) => m.broadcastReplies(x.id))
+					: undefined,
 				web_url: went ? webUrl(x, newsletter) : null,
 				approval: {
 					required: needsApproval,
@@ -1924,7 +1937,10 @@ export const TOOLS: Tool[] = [
 				if (!r) throw validation(`recipe: one of ${RECIPES.map((x) => x.id).join(", ")}`);
 				const { orgContext } = await import("../org");
 				const domain = (await orgContext(brandId)).domains.find((d) => d.verified)?.name;
-				base = r.build({ from: domain ? `hello@${domain}` : "hello@example.com", team: [] });
+				base = r.build({
+					from: domain ? `hello@${domain}` : "hello@example.com",
+					team: [],
+				});
 			}
 			const row = await createAutomation(brandId, { ...base, ...fields });
 			await logged(ctx, org, "automation.created", {

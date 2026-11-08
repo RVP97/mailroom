@@ -115,6 +115,7 @@ function WorkflowSketch() {
 		rules: [],
 		people: [],
 		saved: [],
+		segments: [],
 		brand: null,
 		timezone: "UTC",
 		catalog: { fields: [], ops: [], actions: [] },
@@ -1023,8 +1024,16 @@ const FIELD_LABEL: Record<string, string> = {
 	new_conversation: "Starts a conversation",
 	suspicious: "Looks suspicious",
 	business_hours: "Arrives in business hours",
+	is_contact: "Sender is a contact",
+	segment: "Sender's segment",
 };
-const BOOLEAN_FIELDS = ["has_attachments", "new_conversation", "suspicious", "business_hours"];
+const BOOLEAN_FIELDS = [
+	"has_attachments",
+	"new_conversation",
+	"suspicious",
+	"business_hours",
+	"is_contact",
+];
 const OP_LABEL: Record<string, string> = {
 	contains: "contains",
 	not_contains: "doesn't contain",
@@ -1084,7 +1093,9 @@ function summary(r: Pick<Draft, "match" | "conditions" | "actions">, data: Data)
 				.map((c) =>
 					BOOLEAN_FIELDS.includes(c.field)
 						? `${c.value === "false" ? "not " : ""}${FIELD_LABEL[c.field]?.toLowerCase()}`
-						: `${FIELD_LABEL[c.field]?.toLowerCase()} ${OP_LABEL[c.op]} “${c.value}”`,
+						: c.field === "segment"
+							? `sender ${c.op === "is_not" ? "isn't" : "is"} in ${data.segments.find((s) => s.id === c.value)?.name ?? "a segment"}`
+							: `${FIELD_LABEL[c.field]?.toLowerCase()} ${OP_LABEL[c.op]} “${c.value}”`,
 				)
 				.join(r.match === "any" ? " or " : " and ")
 		: "every message";
@@ -1383,6 +1394,9 @@ function RuleDialog({
 											...(field === "channel"
 												? { op: "is", value: "email" }
 												: {}),
+											...(field === "segment"
+												? { op: "is", value: data.segments[0]?.id ?? "" }
+												: {}),
 										})
 									}
 								>
@@ -1419,6 +1433,54 @@ function RuleDialog({
 											<SelectItem value="false">No</SelectItem>
 										</SelectContent>
 									</Select>
+								) : c.field === "segment" ? (
+									<>
+										<Select
+											value={c.op === "is_not" ? "is_not" : "is"}
+											onValueChange={(op) => patchCond(i, { op })}
+										>
+											<SelectTrigger
+												aria-label="In or not in"
+												className="w-32"
+											>
+												<SelectValue />
+											</SelectTrigger>
+											<SelectContent>
+												<SelectItem value="is">is in</SelectItem>
+												<SelectItem value="is_not">isn't in</SelectItem>
+											</SelectContent>
+										</Select>
+										<Select
+											value={c.value || "none"}
+											onValueChange={(value) => patchCond(i, { value })}
+										>
+											<SelectTrigger
+												aria-label="Segment"
+												className="w-48"
+											>
+												<SelectValue placeholder="Pick a segment" />
+											</SelectTrigger>
+											<SelectContent>
+												{data.segments.length === 0 && (
+													<SelectItem
+														value="none"
+														disabled
+													>
+														No segments yet
+													</SelectItem>
+												)}
+												{data.segments.map((sg) => (
+													<SelectItem
+														key={sg.id}
+														value={sg.id}
+													>
+														{sg.name}
+														{sg.live ? " (live)" : ""}
+													</SelectItem>
+												))}
+											</SelectContent>
+										</Select>
+									</>
 								) : c.field === "channel" ? (
 									<Select
 										value={c.value || "email"}

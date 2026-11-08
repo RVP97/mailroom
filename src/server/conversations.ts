@@ -104,6 +104,42 @@ export interface Threadable {
 	held?: boolean;
 }
 
+/** The tag a conversation that started as a reply to a broadcast gets. */
+export const BROADCAST_REPLY_TAG = "broadcast reply";
+
+/**
+ * The replies a broadcast got (received emails answering one of its emails): how many, and the
+ * latest with their conversations.
+ */
+export async function broadcastReplies(broadcastId: string, limit = 10) {
+	const answers = inArray(
+		re.answers_email_id,
+		db
+			.select({ id: schema.emails.id })
+			.from(schema.emails)
+			.where(eq(schema.emails.broadcast_id, broadcastId)),
+	);
+	const [count, latest] = await Promise.all([
+		db.select({ n: sql<number>`count(*)` }).from(re).where(answers).get(),
+		db
+			.select({
+				id: re.id,
+				from: re.from,
+				subject: re.subject,
+				created_at: re.created_at,
+				conversation_id: re.conversation_id,
+				snippet: c.snippet,
+				status: c.status,
+			})
+			.from(re)
+			.leftJoin(c, eq(c.id, re.conversation_id))
+			.where(answers)
+			.orderBy(desc(re.created_at))
+			.limit(limit),
+	]);
+	return { count: Number(count?.n ?? 0), latest };
+}
+
 /**
  * Puts a received email in its conversation (a new one when no header names a known one).
  * Safe to run again for the same email: it's counted once.
@@ -151,6 +187,14 @@ export async function threadReceived(
 	if (!conversationId) {
 		conversationId = crypto.randomUUID();
 		created = true;
+		// A reply to a broadcast is tagged so: marketing's replies are support's to answer too.
+		const fromBroadcast = row.answers_email_id
+			? await db
+					.select({ id: schema.emails.broadcast_id })
+					.from(schema.emails)
+					.where(eq(schema.emails.id, row.answers_email_id))
+					.get()
+			: null;
 		await db.insert(c).values({
 			id: conversationId,
 			organization_id: row.organization_id,
@@ -164,6 +208,7 @@ export async function threadReceived(
 			last_message_at: row.created_at,
 			last_inbound_at: row.created_at,
 			held_at: row.held ? iso(now) : null,
+			...(fromBroadcast?.id ? { tags: [BROADCAST_REPLY_TAG] } : {}),
 			created_at: iso(now),
 			updated_at: iso(now),
 		});

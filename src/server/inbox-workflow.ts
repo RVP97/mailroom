@@ -1092,6 +1092,10 @@ export const RULE_FIELDS = [
 	"new_conversation",
 	"suspicious",
 	"business_hours",
+	/** Whether the sender is one of the brand's contacts ("yes" / "no"). */
+	"is_contact",
+	/** The sender is (is) or isn't (is_not) in this segment of the brand (its id; live ones too). */
+	"segment",
 ] as const;
 export const RULE_OPS = [
 	"contains",
@@ -1250,6 +1254,8 @@ export interface RuleMessage {
 	at: number;
 	/** A website chat started from one of its topics: tagged, and given to someone. */
 	topic?: { tag?: string | null; assignee?: string | null } | null;
+	/** Who wrote, as the brand's contact: the segments they're in (live ones too); null: not one. */
+	person?: { segments: Set<string> } | null;
 }
 
 function test(
@@ -1270,6 +1276,12 @@ function test(
 			return bool((m.flags?.score ?? 0) >= HOLD_SCORE);
 		case "business_hours":
 			return bool(inBusinessHours(m.at, s.sla.business_hours));
+		case "is_contact":
+			return bool(!!m.person);
+		case "segment": {
+			const inIt = !!m.person?.segments.has(cond.value.trim());
+			return cond.op === "is_not" || cond.op === "not_contains" ? !inIt : inIt;
+		}
 	}
 	const field = String(
 		subject(
@@ -1320,6 +1332,27 @@ export function ruleMatches(
 		: r.conditions.every((x) => test(x, m, s));
 }
 
+/** The conversation's sender as the brand's contact, with their segments; null: not a contact. */
+async function personOf(x: Conversation) {
+	if (!x.contact_address) return null;
+	const contact = await db
+		.select({ id: schema.contacts.id })
+		.from(schema.contacts)
+		.where(
+			and(
+				eq(schema.contacts.organization_id, x.organization_id),
+				eq(schema.contacts.email, x.contact_address),
+			),
+		)
+		.get();
+	if (!contact) return null;
+	const rows = await db
+		.select({ id: schema.contactSegments.segment_id })
+		.from(schema.contactSegments)
+		.where(eq(schema.contactSegments.contact_id, contact.id));
+	return { segments: new Set(rows.map((r) => r.id)) };
+}
+
 /** The system as an actor for rules: everything on the inbox, nothing outside it. */
 const systemActor = async (x: Conversation, inbox: Inbox): Promise<InboxActor> => ({
 	organizationId: await orgOfBrand(x.organization_id),
@@ -1355,6 +1388,13 @@ export async function onInbound(
 			x.held_at = iso(now);
 		}
 		const rules = (await listRules(inbox.id)).filter((r) => r.enabled);
+		if (
+			m.person === undefined &&
+			rules.some((r) =>
+				r.conditions.some((k) => k.field === "segment" || k.field === "is_contact"),
+			)
+		)
+			m.person = await personOf(x);
 		const actor = await systemActor(x, inbox);
 		let assigned = false;
 		if (m.created && m.topic) {

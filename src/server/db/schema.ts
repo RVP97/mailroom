@@ -2034,6 +2034,14 @@ export const organizationSettings = sqliteTable("organization_settings", {
 	 * doesn't receive (src/server/inbound.ts, mailroomAddress).
 	 */
 	inbound_address: text("inbound_address"),
+	/**
+	 * Quiet mode (src/server/marketing-rules.ts): people with an urgent open conversation or a
+	 * recent low rating (2 or less) get no broadcasts or automation emails for now. Off by default.
+	 */
+	quiet_mode: integer("quiet_mode", { mode: "boolean" }).notNull().default(false),
+	/** Frequency cap: at most cap_count broadcasts per person in cap_days (null: no cap). */
+	cap_count: integer("cap_count"),
+	cap_days: integer("cap_days"),
 	updated_at: text("updated_at").notNull(),
 });
 
