@@ -143,6 +143,7 @@ import {
 	type Tool,
 } from "./kit";
 import { AUDIENCE_TOOLS } from "./tools-audience";
+import { CALENDAR_TOOLS } from "./tools-calendar";
 import { CONTENT_TOOLS } from "./tools-content";
 import { HELP_TOOLS } from "./tools-help";
 import { SETTINGS_TOOLS } from "./tools-settings";
@@ -1738,7 +1739,7 @@ export const TOOLS: Tool[] = [
 		name: "save_broadcast",
 		title: "Create or change a broadcast",
 		description:
-			"Creates a draft broadcast (no `broadcast`) or changes a draft: segment_id, topic_id, from, subject, preview_text, reply_to, the content (html/text, a block `design` like the dashboard's editor makes, or template { id, variables } to copy a published template's content in), newsletter_id (an issue of that newsletter; web: on its public archive), campaign_id (part of that campaign; campaign_dedupe: skip who got another of its broadcasts). {{{FIRST_NAME}}}, {{{contact.<key>}}}, {{{UNSUBSCRIBE_URL}}} and {{{WEB_VERSION_URL}}} are filled per contact. Each save keeps a version (list_versions). It isn't sent: use send_broadcast.",
+			"Creates a draft broadcast (no `broadcast`) or changes a draft: segment_id, topic_id, from, subject, preview_text, reply_to, the content (html/text, a block `design` like the dashboard's editor makes, or template { id, variables } to copy a published template's content in), newsletter_id (an issue of that newsletter; web: on its public archive), campaign_id (part of that campaign; campaign_dedupe: skip who got another of its broadcasts), planned_on (its day on the content calendar, get_calendar). {{{FIRST_NAME}}}, {{{contact.<key>}}}, {{{UNSUBSCRIBE_URL}}} and {{{WEB_VERSION_URL}}} are filled per contact. Each save keeps a version (list_versions). It isn't sent: use send_broadcast.",
 		input: {
 			organization,
 			brand: oneBrand,
@@ -1761,6 +1762,11 @@ export const TOOLS: Tool[] = [
 			web: z.boolean().optional(),
 			campaign_id: z.string().nullable().optional(),
 			campaign_dedupe: z.boolean().optional(),
+			planned_on: z
+				.string()
+				.nullable()
+				.optional()
+				.describe("A draft's day on the content calendar (YYYY-MM-DD); null takes it off"),
 		},
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization, "manage");
@@ -2164,4 +2170,5 @@ export const TOOLS: Tool[] = [
 	...HELP_TOOLS,
 	...SURVEY_TOOLS,
 	...TODAY_TOOLS,
+	...CALENDAR_TOOLS,
 ];

@@ -1644,6 +1644,8 @@ export const broadcasts = sqliteTable(
 		/** Leaves out contacts another email of its campaign already went to. */
 		campaign_dedupe: integer("campaign_dedupe", { mode: "boolean" }).notNull().default(false),
 		status: text("status").$type<BroadcastStatus>().notNull().default("draft"),
+		/** A draft's day on the content calendar (YYYY-MM-DD), before it's scheduled. */
+		planned_on: text("planned_on"),
 		scheduled_at: text("scheduled_at"),
 		/** Contacts are queued in id order; the last one queued. */
 		cursor: text("cursor"),

@@ -21,6 +21,7 @@ import { Route as AppAccountRouteImport } from './routes/_app/account'
 import { Route as AppActivityRouteImport } from './routes/_app/activity'
 import { Route as AppAdminRouteImport } from './routes/_app/admin'
 import { Route as AppApiKeysRouteImport } from './routes/_app/api-keys'
+import { Route as AppCalendarRouteImport } from './routes/_app/calendar'
 import { Route as AppDocsRouteImport } from './routes/_app/docs'
 import { Route as AppRecipientsRouteImport } from './routes/_app/recipients'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
@@ -131,6 +132,11 @@ const AppAdminRoute = AppAdminRouteImport.update({
 const AppApiKeysRoute = AppApiKeysRouteImport.update({
   id: '/api-keys',
   path: '/api-keys',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCalendarRoute = AppCalendarRouteImport.update({
+  id: '/calendar',
+  path: '/calendar',
   getParentRoute: () => AppRoute,
 } as any)
 const AppDocsRoute = AppDocsRouteImport.update({
@@ -406,6 +412,7 @@ export interface FileRoutesByFullPath {
   '/activity': typeof AppActivityRoute
   '/admin': typeof AppAdminRoute
   '/api-keys': typeof AppApiKeysRoute
+  '/calendar': typeof AppCalendarRoute
   '/docs': typeof AppDocsRoute
   '/recipients': typeof AppRecipientsRoute
   '/settings': typeof AppSettingsRoute
@@ -470,6 +477,7 @@ export interface FileRoutesByTo {
   '/activity': typeof AppActivityRoute
   '/admin': typeof AppAdminRoute
   '/api-keys': typeof AppApiKeysRoute
+  '/calendar': typeof AppCalendarRoute
   '/docs': typeof AppDocsRoute
   '/recipients': typeof AppRecipientsRoute
   '/settings': typeof AppSettingsRoute
@@ -537,6 +545,7 @@ export interface FileRoutesById {
   '/_app/activity': typeof AppActivityRoute
   '/_app/admin': typeof AppAdminRoute
   '/_app/api-keys': typeof AppApiKeysRoute
+  '/_app/calendar': typeof AppCalendarRoute
   '/_app/docs': typeof AppDocsRoute
   '/_app/recipients': typeof AppRecipientsRoute
   '/_app/settings': typeof AppSettingsRoute
@@ -605,6 +614,7 @@ export interface FileRouteTypes {
     | '/activity'
     | '/admin'
     | '/api-keys'
+    | '/calendar'
     | '/docs'
     | '/recipients'
     | '/settings'
@@ -669,6 +679,7 @@ export interface FileRouteTypes {
     | '/activity'
     | '/admin'
     | '/api-keys'
+    | '/calendar'
     | '/docs'
     | '/recipients'
     | '/settings'
@@ -735,6 +746,7 @@ export interface FileRouteTypes {
     | '/_app/activity'
     | '/_app/admin'
     | '/_app/api-keys'
+    | '/_app/calendar'
     | '/_app/docs'
     | '/_app/recipients'
     | '/_app/settings'
@@ -886,6 +898,13 @@ declare module '@tanstack/react-router' {
       path: '/api-keys'
       fullPath: '/api-keys'
       preLoaderRoute: typeof AppApiKeysRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/calendar': {
+      id: '/_app/calendar'
+      path: '/calendar'
+      fullPath: '/calendar'
+      preLoaderRoute: typeof AppCalendarRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/docs': {
@@ -1260,6 +1279,7 @@ interface AppRouteChildren {
   AppActivityRoute: typeof AppActivityRoute
   AppAdminRoute: typeof AppAdminRoute
   AppApiKeysRoute: typeof AppApiKeysRoute
+  AppCalendarRoute: typeof AppCalendarRoute
   AppDocsRoute: typeof AppDocsRoute
   AppRecipientsRoute: typeof AppRecipientsRoute
   AppSettingsRoute: typeof AppSettingsRoute
@@ -1318,6 +1338,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppActivityRoute: AppActivityRoute,
   AppAdminRoute: AppAdminRoute,
   AppApiKeysRoute: AppApiKeysRoute,
+  AppCalendarRoute: AppCalendarRoute,
   AppDocsRoute: AppDocsRoute,
   AppRecipientsRoute: AppRecipientsRoute,
   AppSettingsRoute: AppSettingsRoute,

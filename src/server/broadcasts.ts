@@ -74,6 +74,11 @@ export const broadcastInput = z.object({
 	campaign_id: z.string().max(100).nullish(),
 	/** Leave out contacts another email of the campaign already went to. */
 	campaign_dedupe: z.boolean().optional(),
+	/** A draft's day on the content calendar (YYYY-MM-DD); null takes it off. */
+	planned_on: z
+		.string()
+		.regex(/^\d{4}-\d{2}-\d{2}$/, "planned_on: a day, YYYY-MM-DD")
+		.nullish(),
 	/** Send (or schedule) right away instead of keeping a draft. */
 	send: z.boolean().optional(),
 });
@@ -105,6 +110,7 @@ export const broadcastView = (x: Broadcast) => ({
 	campaign_id: x.campaign_id,
 	campaign_dedupe: x.campaign_dedupe,
 	status: x.status,
+	planned_on: x.planned_on ?? null,
 	scheduled_at: x.scheduled_at,
 	sent_at: x.started_at,
 	completed_at: x.completed_at,
@@ -204,6 +210,7 @@ async function fieldsOf(organizationId: string, brand: string, v: z.output<typeo
 		if (!v.campaign_id) out.campaign_dedupe = false;
 	}
 	if (v.campaign_dedupe !== undefined) out.campaign_dedupe = v.campaign_dedupe;
+	if (v.planned_on !== undefined) out.planned_on = v.planned_on || null;
 	if (v.name !== undefined) out.name = v.name || "";
 	if (v.from != null) out.from = v.from;
 	if (v.subject != null) out.subject = v.subject;
@@ -268,6 +275,7 @@ export async function createBroadcast(
 		campaign_id: fields.campaign_id ?? null,
 		campaign_dedupe: fields.campaign_dedupe ?? false,
 		status: "draft",
+		planned_on: fields.planned_on ?? null,
 		scheduled_at: null,
 		cursor: null,
 		queued: 0,
@@ -309,6 +317,7 @@ export async function duplicateBroadcast(
 		slug: null,
 		rss_items: null,
 		status: "draft",
+		planned_on: null,
 		scheduled_at: null,
 		cursor: null,
 		queued: 0,
@@ -490,6 +499,7 @@ export async function resendBroadcast(
 		name: (o.name?.trim() || `${x.name} (to those who didn't open)`).slice(0, 200),
 		subject,
 		status: "draft",
+		planned_on: null,
 		scheduled_at: null,
 		cursor: null,
 		queued: 0,

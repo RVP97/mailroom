@@ -11,6 +11,7 @@ import {
 	BookOpen,
 	Bot,
 	Building2,
+	CalendarDays,
 	ChartColumn,
 	ChevronsUpDown,
 	ClipboardCheck,
@@ -122,6 +123,7 @@ const SENDING: NavItem[] = [
 const AUDIENCE: NavItem[] = [
 	{ to: "/contacts", label: "Contacts", icon: ContactIcon, key: "c" },
 	{ to: "/broadcasts", label: "Broadcasts", icon: Megaphone, key: "n" },
+	{ to: "/calendar", label: "Calendar", icon: CalendarDays, key: "f" },
 	{ to: "/campaigns", label: "Campaigns", icon: Flag, key: "g" },
 	{ to: "/newsletters", label: "Newsletters", icon: Newspaper, key: "p" },
 	{ to: "/automations", label: "Automations", icon: Workflow, key: "m" },

@@ -170,6 +170,11 @@ An organization that should be fully apart can optionally use its own SES accoun
   level, the ones assigned to you and how many have nobody, notes that @mention you, what goes
   out before midnight, unhappy survey answers from the last day, and anything wrong with how the
   brand's email gets delivered (MCP `get_today`).
+- **Calendar**: every broadcast and newsletter issue on its day, by month: what went out, what's
+  scheduled (with its time) and drafts planned for a day. Plan an email on a day (a draft with
+  its name, newsletter and campaign), drag a planned draft to another day, and see campaigns run
+  across the days they cover. On a phone it's a list of days (MCP `get_calendar`, and
+  `save_broadcast`'s `planned_on`).
 - **Automations**, built on a canvas: when a contact is added, joins a segment, opens a broadcast,
   clicks a link in one, or your app sends an event (`POST /api/events`), wait, branch on a check
   (in a segment, a property, opened or clicked the last email) into yes and no paths, add to or

@@ -155,6 +155,7 @@ function BroadcastSketch() {
 						campaign_id: null,
 						campaign_dedupe: false,
 						status,
+						planned_on: null,
 						scheduled_at: null,
 						sent_at: null,
 						completed_at: null,
@@ -613,6 +614,22 @@ function BroadcastPage() {
 				<Fact label="Status">
 					<BroadcastStatus status={saved.status} />
 				</Fact>
+				{draft && saved.planned_on && (
+					<Fact label="Planned for">
+						<Link
+							to="/calendar"
+							search={{ month: saved.planned_on.slice(0, 7) }}
+							className="truncate hover:underline"
+						>
+							{new Intl.DateTimeFormat(undefined, {
+								timeZone: "UTC",
+								weekday: "short",
+								day: "numeric",
+								month: "short",
+							}).format(new Date(`${saved.planned_on}T12:00:00Z`))}
+						</Link>
+					</Fact>
+				)}
 				<Fact label="Segment">
 					{segment ? (
 						<span className="truncate">{segment.name}</span>

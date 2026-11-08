@@ -1,0 +1,1 @@
+ALTER TABLE `broadcasts` ADD `planned_on` text;

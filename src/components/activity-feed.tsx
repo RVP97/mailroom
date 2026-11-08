@@ -10,6 +10,7 @@ export type ActivityRow = Awaited<ReturnType<typeof activityFn>>[number];
 const VERB: Record<string, string> = {
 	"broadcast.created": "created the broadcast",
 	"broadcast.edited": "edited the broadcast",
+	"broadcast.planned": "moved the broadcast on the calendar",
 	"broadcast.sent": "sent the broadcast",
 	"broadcast.scheduled": "scheduled the broadcast",
 	"broadcast.canceled": "canceled the broadcast",

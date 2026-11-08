@@ -202,6 +202,9 @@ export const createBroadcastFn = createServerFn({ method: "POST" })
 			brand: z.string().nullish(),
 			newsletter: z.string().nullish(),
 			campaign: z.string().nullish(),
+			/** From the content calendar: its name and the day it's planned for. */
+			name: z.string().max(200).nullish(),
+			planned_on: z.string().nullish(),
 		}),
 	)
 	.handler(({ data, context }) =>
@@ -217,7 +220,8 @@ export const createBroadcastFn = createServerFn({ method: "POST" })
 				context.organizationId,
 				brand,
 				{
-					name: n ? `${n.name} issue` : "Untitled broadcast",
+					name: data.name?.trim() || (n ? `${n.name} issue` : "Untitled broadcast"),
+					...(data.planned_on ? { planned_on: data.planned_on } : {}),
 					html: "",
 					segment_id: n?.segment_id ?? (segments.length === 1 ? segments[0]?.id : null),
 					...(n
