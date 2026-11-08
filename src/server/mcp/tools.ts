@@ -142,6 +142,7 @@ import {
 	scopeOf,
 	type Tool,
 } from "./kit";
+import { ANSWER_TOOLS } from "./tools-answers";
 import { AUDIENCE_TOOLS } from "./tools-audience";
 import { CALENDAR_TOOLS } from "./tools-calendar";
 import { CONTENT_TOOLS } from "./tools-content";
@@ -2179,4 +2180,5 @@ export const TOOLS: Tool[] = [
 	...LEAD_TOOLS,
 	...NOTE_TOOLS,
 	...PERSON_TOOLS,
+	...ANSWER_TOOLS,
 ];

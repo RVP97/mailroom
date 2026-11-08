@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
 	addContactNote,
-	contactNotes,
 	contactNoteSummary,
+	contactNotes,
 	deleteContactNote,
 	openFollowUps,
 	updateContactNote,

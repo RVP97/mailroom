@@ -25,6 +25,7 @@ import {
 	useState,
 } from "react";
 import { toast } from "sonner";
+import { AnswerMenu } from "@/components/answer-menu";
 import { Confirm } from "@/components/confirm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -586,7 +587,7 @@ function Bubble({
 	return (
 		<div
 			className={cn(
-				"flex items-end gap-2",
+				"group/line flex items-end gap-2",
 				mine ? "flex-row-reverse" : "flex-row",
 				first && "mt-3",
 			)}
@@ -659,6 +660,12 @@ function Bubble({
 					</span>
 				)}
 			</div>
+			{mine && l.text && (
+				<AnswerMenu
+					messageId={l.id}
+					className="mb-1 opacity-0 transition-opacity group-hover/line:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+				/>
+			)}
 		</div>
 	);
 }

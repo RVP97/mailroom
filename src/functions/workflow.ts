@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { logActivity } from "@/server/activity";
 import { brandIn, viewScope } from "@/server/brands";
 import {
 	assignees,
@@ -229,6 +230,52 @@ export const deleteSavedReplyFn = createServerFn({ method: "POST" })
 			const actor = await personOf(context);
 			await deleteSavedReply(actor.brands, data.id);
 			return { ok: true };
+		}),
+	);
+
+// ── A good answer, kept ────────────────────────────────────────────────────
+
+/** One of the team's replies in a conversation as a draft help article (opened to polish). */
+export const answerToArticleFn = createServerFn({ method: "POST" })
+	.middleware([can("help:edit")])
+	.validator(z.object({ message_id: z.string(), title: z.string().max(160).nullish() }))
+	.handler(({ data, context }) =>
+		call(async () => {
+			const actor = await personOf(context);
+			const { answerToArticle } = await import("@/server/answer-reuse");
+			const { article, source } = await answerToArticle(actor, data.message_id, {
+				title: data.title,
+				userId: context.userId,
+			});
+			await logActivity({
+				organizationId: context.organizationId,
+				userId: context.userId,
+				action: "article.from_answer",
+				subject: { type: "article", id: article.id, name: article.title },
+			});
+			return { id: article.id, title: article.title, conversation_id: source.conversationId };
+		}),
+	);
+
+/** One of the team's replies as a saved reply for every inbox of the brand. */
+export const answerToSavedReplyFn = createServerFn({ method: "POST" })
+	.middleware([can("inbox:reply")])
+	.validator(z.object({ message_id: z.string(), name: z.string().max(100).nullish() }))
+	.handler(({ data, context }) =>
+		call(async () => {
+			const actor = await personOf(context);
+			const { answerToSavedReply } = await import("@/server/answer-reuse");
+			const { reply } = await answerToSavedReply(actor, data.message_id, {
+				name: data.name,
+				userId: context.userId,
+			});
+			await logActivity({
+				organizationId: context.organizationId,
+				userId: context.userId,
+				action: "saved_reply.from_answer",
+				subject: { type: "saved_reply", id: reply.id, name: reply.name },
+			});
+			return savedReplyView(reply);
 		}),
 	);
 

@@ -157,6 +157,11 @@ An organization that should be fully apart can optionally use its own SES accoun
   (`GET /api/articles?q=`, `GET /api/articles/:id`, MCP `find_help_articles`). Questions the
   chat or the search couldn't answer are kept and listed on the Help center page and in the inbox
   report, with a button to write the missing article.
+- **Keep a good answer**: any reply your team sent in a conversation (an email reply or a chat
+  line) becomes a draft help article or a saved reply in one click. The article is titled by the
+  visitor's question (or the subject) without the greeting and the person's name; the saved
+  reply turns their first name into `{{contact.first_name}}` (MCP `answer_to_article`,
+  `answer_to_saved_reply`).
 - **Surveys**: NPS (0-10), satisfaction (1-5) or a question with your own answers, each with an
   optional comment. Ask them in any email with the editor's Survey block (each contact's answer
   links are signed, and the page records the answer without letting mail scanners vote), on a

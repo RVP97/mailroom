@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { AnswerMenu } from "@/components/answer-menu";
 import { ApiDrawer } from "@/components/api-drawer";
 import { ChatThread, type Live } from "@/components/chat-thread";
 import { Confirm } from "@/components/confirm";
@@ -1956,6 +1957,7 @@ function TimelineItem({
 						>
 							{formatAgo(t.at)}
 						</span>
+						{!draft && <AnswerMenu messageId={t.id} />}
 						{!draft && t.email_id && (
 							<Button
 								size="icon-sm"
