@@ -110,6 +110,15 @@ An organization that should be fully apart can optionally use its own SES accoun
   clicks, how recent), shown as a meter on the contacts list and their page; an Engagement page
   with how the list splits up and its cold contacts (got N emails, opened none) to add to a
   segment, unsubscribe or delete.
+- **One person, everywhere**: each contact's page has a timeline of everything about them, newest
+  first: their app's events (kept on the contact, with their data, for `EVENT_RETENTION_DAYS`,
+  395 by default), poll answers and referral milestones, the emails they got and whether they
+  opened or clicked, their conversations and website chats with their ratings, the automations
+  they went through and the friends they brought. Beside every conversation and chat, the team
+  sees who they're talking to: whether they get your email, how engaged they are, the
+  newsletters, segments and topics they're in, their last broadcasts, their latest events and the
+  last rating they gave. Two contacts of the same person can be merged.
+  `GET /api/contacts/:id/timeline` and `GET /api/contacts/:id/events` (`?event=`) read them.
 - **Automations**, built on a canvas: when a contact is added, joins a segment, opens a broadcast,
   clicks a link in one, or your app sends an event (`POST /api/events`), wait, branch on a check
   (in a segment, a property, opened or clicked the last email) into yes and no paths, add to or
@@ -414,6 +423,7 @@ Vars live in `wrangler.jsonc` (or `MAILROOM_WRANGLER_CONFIG`); secrets are set w
 | `SYSTEM_FROM`, `SYSTEM_FROM_SES` | empty | The sender of Mailroom's own emails (see step 3.6). |
 | `OPERATOR_NAME`, `CONTACT_EMAIL` | empty | Who runs it, on the public About, Privacy and Terms pages. |
 | `BODY_RETENTION_DAYS`, `REQUEST_LOG_RETENTION_DAYS`, `LOG_RETENTION_DAYS`, `INBOUND_RETENTION_DAYS` | 7, 30, 90, 30 | Days email bodies, API request logs, everything else and received emails are kept. |
+| `EVENT_RETENTION_DAYS` | 395 | Days contacts' app events are kept (their timeline, live segments, goals). |
 | `ARCHIVE_EMAILS` | `true` | `false` turns the [long-term archive](#long-term-archive) off for everyone. |
 | `INBOUND_DOMAIN` | empty | Each brand's Mailroom address `<slug>@INBOUND_DOMAIN` ([Receiving](#receiving)). |
 | `DMARC_REPORTS_ADDRESS` | empty | Where domains send DMARC reports ([DMARC reports](#dmarc-reports)). |

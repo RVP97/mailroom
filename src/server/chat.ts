@@ -732,6 +732,7 @@ export async function startChat(
 			inbox_id: w.inbox.id,
 			subject: firstLine(text) || "Chat",
 			contact,
+			contact_address: email?.trim().toLowerCase() || null,
 			status: "open",
 			messages: 0,
 			snippet: null,
@@ -1037,7 +1038,12 @@ async function updateVisitor(x: Conversation, set: Partial<Conversation>, now: n
 	const name = set.visitor_name !== undefined ? set.visitor_name : x.visitor_name;
 	await db
 		.update(c)
-		.set({ ...set, contact: email ?? name ?? "Website visitor", updated_at: iso(now) })
+		.set({
+			...set,
+			contact: email ?? name ?? "Website visitor",
+			contact_address: email?.trim().toLowerCase() || null,
+			updated_at: iso(now),
+		})
 		.where(eq(c.id, x.id));
 	const fresh = (await db.select().from(c).where(eq(c.id, x.id)).get()) as Conversation;
 	await pushToRoom(x.id, { type: "visitor", visitor: visitorOf(fresh) });

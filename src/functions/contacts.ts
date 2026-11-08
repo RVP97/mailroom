@@ -1,5 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { maskDigits } from "@/lib/roles";
+import { logActivity } from "@/server/activity";
 import { brandIn, viewScope } from "@/server/brands";
 import {
 	addToSegment,
@@ -40,7 +42,7 @@ import {
 	engagementOverview,
 } from "@/server/engagement";
 import { can, orgMiddleware } from "@/server/middleware";
-import { listEmails } from "@/server/queries";
+import type { TimelineItem } from "@/server/timeline";
 import { call } from "./call";
 
 /** The Contacts pages: one brand's contacts, segments, topics and properties at a time. */
@@ -112,13 +114,14 @@ export const getContactFn = createServerFn({ method: "GET" })
 			if (!found) throw new Response("Contact not found", { status: 404 });
 			const brand = found.organization_id;
 			const { contactReferrals } = await import("@/server/referrals");
-			const [segments, mine, topics, properties, emails, engagement, referrals] =
+			const { contactTimeline } = await import("@/server/timeline");
+			const [segments, mine, topics, properties, timeline, engagement, referrals] =
 				await Promise.all([
 					listSegments(brand),
 					segmentsOfContact(found.id),
 					topicsOfContact(brand, found.id),
 					listProperties(brand),
-					listEmails(brand, { search: found.email, limit: 10 }),
+					contactTimeline(brand, found, { limit: 30 }),
 					engagementOf(brand, [found]),
 					contactReferrals(found),
 				]);
@@ -135,13 +138,52 @@ export const getContactFn = createServerFn({ method: "GET" })
 				})),
 				topics,
 				properties: properties.map(propertyView),
-				emails: emails.data.map((e) => ({
-					id: e.id,
-					subject: e.subject,
-					status: e.last_event ?? e.status,
-					created_at: e.created_at,
-				})),
+				timeline: masked(timeline, context),
 			};
+		}),
+	);
+
+/** Subjects and event data can carry codes: masked for people who see digits masked. */
+function masked<T extends { data: TimelineItem[] }>(page: T, context: { masked: boolean }) {
+	if (!context.masked) return page;
+	return {
+		...page,
+		data: page.data.map((x) =>
+			"subject" in x ? { ...x, subject: maskDigits(x.subject) } : x,
+		) as TimelineItem[],
+	};
+}
+
+/** Older items of a contact's timeline (the page shows the first ones). */
+export const contactTimelineFn = createServerFn({ method: "GET" })
+	.middleware([orgMiddleware])
+	.validator(z.object({ ...brandInput, id: z.string(), before: z.string() }))
+	.handler(({ data, context }) =>
+		call(async () => {
+			const brand = await brandOf(context.organizationId, data.brand);
+			const c = await getContact(brand, data.id);
+			const { contactTimeline } = await import("@/server/timeline");
+			return masked(await contactTimeline(brand, c, { before: data.before }), context);
+		}),
+	);
+
+/** Folds another contact (by address) into this one. */
+export const mergeContactFn = createServerFn({ method: "POST" })
+	.middleware([can("contacts:delete")])
+	.validator(z.object({ ...brandInput, id: z.string(), merge: z.string().min(1).max(320) }))
+	.handler(({ data, context }) =>
+		call(async () => {
+			const brand = await brandOf(context.organizationId, data.brand);
+			const { mergeContacts } = await import("@/server/timeline");
+			const out = await mergeContacts(brand, data.id, data.merge);
+			await logActivity({
+				organizationId: context.organizationId,
+				userId: context.userId,
+				action: "contact.merged",
+				subject: { type: "contact", id: out.kept, name: out.email },
+				detail: { merged: out.merged_email },
+			});
+			return out;
 		}),
 	);
 

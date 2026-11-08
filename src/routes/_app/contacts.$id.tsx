@@ -4,7 +4,7 @@ import {
 	CircleCheck,
 	ExternalLink,
 	Gift,
-	Mail,
+	Merge,
 	MoreHorizontal,
 	Trash2,
 	Users,
@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Confirm } from "@/components/confirm";
+import { ContactTimeline } from "@/components/contact-timeline";
 import { CopyButton } from "@/components/copy";
 import { EngagementCard } from "@/components/engagement";
 import { Page } from "@/components/page";
@@ -22,18 +23,29 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+	Dialog,
+	DialogBody,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
+import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Field, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import {
+	contactTimelineFn,
 	deleteContactFn,
 	getContactFn,
+	mergeContactFn,
 	saveContactFn,
 	setContactSegmentFn,
 	setContactTopicFn,
@@ -42,7 +54,7 @@ import { errorMessage } from "@/lib/errors";
 import { formatAgo, formatDateTime } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { allows } from "@/lib/permissions";
-import { ago, listedRow, Ph, Sketch, usePage } from "@/lib/sketch";
+import { ago, listedRow, Sketch, usePage } from "@/lib/sketch";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/contacts/$id")({
@@ -84,7 +96,7 @@ function ContactSketch() {
 					segments: [],
 					topics: [],
 					properties: [],
-					emails: [],
+					timeline: { object: "list", next: null, data: [] },
 				} satisfies Data
 			}
 		>
@@ -105,6 +117,8 @@ function ContactPage() {
 	const [props, setProps] = useState<Record<string, string>>({});
 	const [busy, setBusy] = useState(false);
 	const [deleting, setDeleting] = useState(false);
+	const [merging, setMerging] = useState(false);
+	const canDelete = allows(me.active?.access, "contacts:delete");
 	// biome-ignore lint/correctness/useExhaustiveDependencies: reset when the saved contact changes
 	useEffect(() => {
 		setFirst(contact.first_name ?? "");
@@ -203,6 +217,11 @@ function ContactPage() {
 										</Button>
 									</DropdownMenuTrigger>
 									<DropdownMenuContent align="end">
+										{canDelete && (
+											<DropdownMenuItem onSelect={() => setMerging(true)}>
+												<Merge /> Merge another contact into this one
+											</DropdownMenuItem>
+										)}
 										<DropdownMenuItem
 											variant="destructive"
 											onSelect={() => setDeleting(true)}
@@ -227,6 +246,24 @@ function ContactPage() {
 						await deleteContactFn({ data: { brand, id: contact.id } });
 						toast.success("Contact deleted");
 						await router.navigate({ to: "/contacts", search: { brand: search.brand } });
+					} catch (error) {
+						toast.error(await errorMessage(error));
+					}
+				}}
+			/>
+
+			<MergeDialog
+				open={merging}
+				onOpenChange={setMerging}
+				email={contact.email}
+				onMerge={async (other) => {
+					try {
+						const out = await mergeContactFn({
+							data: { brand, id: contact.id, merge: other },
+						});
+						toast.success(`${out.merged_email} is now part of this contact`);
+						setMerging(false);
+						await router.invalidate();
 					} catch (error) {
 						toast.error(await errorMessage(error));
 					}
@@ -421,40 +458,106 @@ function ContactPage() {
 							</ul>
 						)}
 					</Card>
-					<Card className="gap-3 p-5">
-						<h2 className="font-semibold">Last emails</h2>
-						{data.emails.length === 0 ? (
-							<p className="text-sm text-muted-foreground">
-								Nothing sent to them yet.
-							</p>
-						) : (
-							<ul className="-mx-2 flex flex-col">
-								{data.emails.map((e) => (
-									<li key={e.id}>
-										<Link
-											to="/emails/$id"
-											params={{ id: e.id }}
-											className="flex h-10 items-center gap-3 rounded-md px-2 text-sm hover:bg-accent"
-										>
-											<Mail className="size-4 shrink-0 text-faint" />
-											<span className="min-w-0 flex-1 truncate">
-												<Ph>{e.subject}</Ph>
-											</span>
-											<StatusBadge
-												status={e.status.replace(/^email\./, "")}
-											/>
-											<span className="w-16 text-right text-xs text-muted-foreground tabular-nums">
-												{formatAgo(e.created_at)}
-											</span>
-										</Link>
-									</li>
-								))}
-							</ul>
-						)}
-					</Card>
 				</div>
 			</div>
+
+			<Card className="gap-5 p-5">
+				<div>
+					<h2 className="font-semibold">Timeline</h2>
+					<p className="mt-0.5 text-sm text-muted-foreground">
+						Everything they did, newest first: in your app, with your emails, in
+						conversations and chats.
+					</p>
+				</div>
+				<ContactTimeline
+					key={contact.id}
+					page={data.timeline}
+					brand={brand}
+					more={(before) =>
+						contactTimelineFn({ data: { brand, id: contact.id, before } })
+					}
+				/>
+			</Card>
 		</Page>
+	);
+}
+
+/** Folds the contact of another address into this one. */
+function MergeDialog({
+	open,
+	onOpenChange,
+	email,
+	onMerge,
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	email: string;
+	onMerge: (other: string) => Promise<void>;
+}) {
+	const [other, setOther] = useState("");
+	const [busy, setBusy] = useState(false);
+	return (
+		<Dialog
+			open={open}
+			onOpenChange={(o) => {
+				onOpenChange(o);
+				if (!o) setOther("");
+			}}
+		>
+			<DialogContent className="sm:max-w-md">
+				<form
+					className="contents"
+					onSubmit={async (e) => {
+						e.preventDefault();
+						setBusy(true);
+						await onMerge(other.trim());
+						setBusy(false);
+					}}
+				>
+					<DialogHeader>
+						<DialogTitle>Merge another contact into this one</DialogTitle>
+						<DialogDescription>
+							For the same person under two addresses. {email} stays; the other one's
+							segments, topic choices, missing details, events, poll answers and
+							referrals move here, then it's deleted.
+						</DialogDescription>
+					</DialogHeader>
+					<DialogBody>
+						<Field>
+							<FieldLabel htmlFor="merge-other">The other contact's email</FieldLabel>
+							<Input
+								id="merge-other"
+								type="email"
+								required
+								autoFocus
+								placeholder="ana.personal@example.com"
+								value={other}
+								onChange={(e) => setOther(e.target.value)}
+							/>
+							<FieldDescription>
+								Emails and conversations stay under the address they were for.
+							</FieldDescription>
+						</Field>
+					</DialogBody>
+					<DialogFooter>
+						<Button
+							type="button"
+							variant="ghost"
+							onClick={() => onOpenChange(false)}
+						>
+							Cancel
+						</Button>
+						<Button
+							type="submit"
+							disabled={busy || !other.includes("@")}
+						>
+							{busy && <Spinner />}
+							Merge
+						</Button>
+					</DialogFooter>
+				</form>
+			</DialogContent>
+		</Dialog>
 	);
 }
 

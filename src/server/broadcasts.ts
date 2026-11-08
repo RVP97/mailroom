@@ -678,6 +678,7 @@ async function advance(x: Broadcast, now: number) {
 		organization_id: x.organization_id,
 		from: x.from,
 		to: [c.email],
+		recipient: c.email.toLowerCase(),
 		reply_to: x.reply_to,
 		subject: values[i] as string,
 		tags: [{ name: "broadcast", value: x.id }],

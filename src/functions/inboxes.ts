@@ -1,9 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
-import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { maskDigits } from "@/lib/roles";
 import { brandIn, viewScope } from "@/server/brands";
 import {
+	addressOf,
 	claimConversation,
 	composeDefaults,
 	conversationFor,
@@ -213,6 +214,10 @@ export const getConversationFn = createServerFn({ method: "GET" })
 									...o,
 									subject: maskDigits(o.subject),
 								})),
+								broadcasts: c.broadcasts.map((b) => ({
+									...b,
+									subject: maskDigits(b.subject),
+								})),
 							}
 						: c,
 				),
@@ -241,48 +246,17 @@ export const getConversationFn = createServerFn({ method: "GET" })
 		}),
 	);
 
-/** Who wrote in: their contact (when the brand has one) and their other conversations. */
+/**
+ * Who wrote in, for the panel beside the conversation (src/server/timeline.ts personPanel):
+ * their contact (when the brand has one), with what Mailroom knows about them, and their other
+ * conversations.
+ */
 async function contactOf(brandId: string, from: string, conversationId: string) {
-	const address = (/<([^>]+)>/.exec(from)?.[1] ?? from).trim().toLowerCase();
-	if (!address.includes("@")) return null;
-	const c = schema.conversations;
-	const [record, others] = await Promise.all([
-		db
-			.select({
-				id: schema.contacts.id,
-				first_name: schema.contacts.first_name,
-				last_name: schema.contacts.last_name,
-				unsubscribed: schema.contacts.unsubscribed,
-				created_at: schema.contacts.created_at,
-			})
-			.from(schema.contacts)
-			.where(
-				and(
-					eq(schema.contacts.organization_id, brandId),
-					eq(schema.contacts.email, address),
-				),
-			)
-			.get(),
-		db
-			.select({
-				id: c.id,
-				subject: c.subject,
-				status: c.status,
-				last_message_at: c.last_message_at,
-				csat: c.csat_rating,
-			})
-			.from(c)
-			.where(
-				and(
-					eq(c.organization_id, brandId),
-					ne(c.id, conversationId),
-					sql`lower(${c.contact}) LIKE ${`%${address.replace(/[%_\\]/g, "\\$&")}%`} ESCAPE '\\'`,
-				),
-			)
-			.orderBy(desc(c.last_message_at))
-			.limit(6),
-	]);
-	return { email: address, record: record ?? null, others };
+	const address = addressOf(from);
+	if (!address) return null;
+	const { personPanel } = await import("@/server/timeline");
+	const p = await personPanel(brandId, address, conversationId);
+	return { ...p, record: p.contact };
 }
 
 export const claimConversationFn = createServerFn({ method: "POST" })

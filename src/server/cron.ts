@@ -36,7 +36,7 @@ import { retryDueDeliveries } from "./webhooks";
  * for mailing addresses that don't exist (auto-pause.ts), brands whose emails take long to
  * arrive (slow-delivery.ts), and the firewall's
  * list of throwaway domains (at 04:07 UTC, or whenever it's empty).
- * At 03:00 UTC: what's past its retention. At 04:17 UTC: each verified domain's DNS and
+ * At 03:00 UTC: what's past its retention (contacts' app events too). At 04:17 UTC: each verified domain's DNS and
  * blocklists (src/server/deliverability.ts). Every 6 hours (05:27 UTC…): Gmail Postmaster Tools
  * (postmaster.ts). Mondays at 14:37 UTC: the weekly digest (digest.ts). Every hour (minute
  * 23): newsletters' RSS feeds, whose new posts become issues (newsletters.ts). Organizations' own
@@ -180,4 +180,5 @@ export async function purge(now: number) {
 	await purgeMailboxChecks(now);
 	await purgeReceived(now);
 	await import("./inbox-workflow").then((m) => m.purgeIdempotency(now));
+	await import("./contact-events").then((m) => m.purgeEvents(now));
 }

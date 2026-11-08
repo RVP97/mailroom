@@ -1,5 +1,6 @@
 import { eq, or, sql } from "drizzle-orm";
 import { providerOf } from "../lib/providers";
+import { bareAddress } from "./aws/mime";
 import { type SnsMessage, trustedSnsUrl, verifySns } from "./aws/sns";
 import { bump } from "./counters";
 import { batch, db, raw, schema } from "./db";
@@ -179,6 +180,7 @@ async function emailOf(e: SesEvent, now: number, brands?: string[]) {
 			message_id: messageId,
 			from: h.from?.[0] ?? e.mail?.source ?? "",
 			to: h.to ?? e.mail?.destination ?? [],
+			recipient: recipientOf(h.to ?? e.mail?.destination ?? []),
 			cc: h.cc?.length ? h.cc : null,
 			subject: h.subject ?? "",
 			status: "sent",
@@ -189,6 +191,8 @@ async function emailOf(e: SesEvent, now: number, brands?: string[]) {
 		.onConflictDoNothing();
 	return (await db.select().from(em).where(eq(em.message_id, messageId)).get()) ?? null;
 }
+
+const recipientOf = (to: string[]) => (to[0] ? bareAddress(to[0]).toLowerCase() : null);
 
 type ProviderCounter = "sent" | "delivered" | "bounced" | "complained" | "opened";
 

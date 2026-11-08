@@ -1926,7 +1926,7 @@ export const TOOLS: Tool[] = [
 		name: "send_event",
 		title: "Send an event about a contact",
 		description:
-			"Records an event (like booking.created) for a contact by email (added if new); active automations triggered by it start. data becomes {{{event.<key>}}} in their emails.",
+			"Records an event (like booking.created) for a contact by email (added if new): it's kept on their timeline, and active automations triggered by it start. data becomes {{{event.<key>}}} in their emails.",
 		input: {
 			organization,
 			brand: oneBrand,
@@ -1936,11 +1936,12 @@ export const TOOLS: Tool[] = [
 		},
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization, "manage");
-			return recordEvent(await brandOf(org.id, a.brand), {
-				event: a.event,
-				email: a.email,
-				data: a.data,
-			});
+			return recordEvent(
+				await brandOf(org.id, a.brand),
+				{ event: a.event, email: a.email, data: a.data },
+				Date.now(),
+				"assistant",
+			);
 		},
 	},
 	{

@@ -291,6 +291,8 @@ export const emails = sqliteTable(
 		message_id: text("message_id"),
 		from: text("from").notNull(),
 		to: text("to", { mode: "json" }).$type<string[]>().notNull(),
+		/** The first To's address alone, lowercase: a contact's timeline finds their emails by it. */
+		recipient: text("recipient"),
 		cc: text("cc", { mode: "json" }).$type<string[]>(),
 		bcc: text("bcc", { mode: "json" }).$type<string[]>(),
 		reply_to: text("reply_to", { mode: "json" }).$type<string[]>(),
@@ -342,6 +344,7 @@ export const emails = sqliteTable(
 		// The dispatcher's queue: only waiting emails are in this index.
 		index("emails_queue_idx").on(t.send_at).where(sql`status IN ('queued', 'scheduled')`),
 		index("emails_broadcast_idx").on(t.broadcast_id).where(sql`broadcast_id IS NOT NULL`),
+		index("emails_recipient_idx").on(t.organization_id, t.recipient, t.created_at),
 	],
 );
 
@@ -520,6 +523,11 @@ export const conversations = sqliteTable(
 		subject: text("subject").notNull(),
 		/** Who wrote in (the first message's From). */
 		contact: text("contact").notNull(),
+		/**
+		 * Their address alone, lowercase (a chat's: the visitor's email, once given), which joins
+		 * the conversation to the brand's contact of that address (src/server/timeline.ts).
+		 */
+		contact_address: text("contact_address"),
 		/** "open" | "resolved". */
 		status: text("status").notNull().default("open"),
 		messages: integer("messages").notNull().default(0),
@@ -585,6 +593,7 @@ export const conversations = sqliteTable(
 		index("conversations_last_idx").on(t.last_message_at),
 		uniqueIndex("conversations_chat_key_uidx").on(t.chat_key),
 		index("conversations_chat_user_idx").on(t.inbox_id, t.visitor_user_id, t.last_message_at),
+		index("conversations_address_idx").on(t.organization_id, t.contact_address),
 	],
 );
 
@@ -1484,6 +1493,34 @@ export const contactTopics = sqliteTable(
 	(t) => [
 		primaryKey({ columns: [t.topic_id, t.contact_id] }),
 		index("contact_topics_contact_idx").on(t.contact_id),
+	],
+);
+
+/**
+ * What a contact did in the brand's app (POST /api/events, the assistant's send_event), kept
+ * on them (src/server/contact-events.ts) for their timeline, live segments and reports; past
+ * EVENT_RETENTION_DAYS they're deleted.
+ */
+export const contactEvents = sqliteTable(
+	"contact_events",
+	{
+		id: text("id").primaryKey(),
+		/** The brand's id. */
+		organization_id: orgId(),
+		contact_id: text("contact_id")
+			.notNull()
+			.references(() => contacts.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		/** What the app sent with it (up to 16 KB). */
+		data: text("data", { mode: "json" }).$type<Record<string, unknown>>(),
+		/** "api" | "assistant" | "dashboard". */
+		source: text("source").notNull().default("api"),
+		created_at: text("created_at").notNull(),
+	},
+	(t) => [
+		index("contact_events_contact_idx").on(t.contact_id, t.created_at),
+		index("contact_events_name_idx").on(t.organization_id, t.name, t.created_at),
+		index("contact_events_created_idx").on(t.created_at),
 	],
 );
 

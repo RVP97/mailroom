@@ -115,6 +115,87 @@ async function formsWithEmbed(ids: string[], only?: string) {
 const subscription = z.enum(["opt_in", "opt_out"]);
 
 export const AUDIENCE_TOOLS: Tool[] = [
+	// ── One person, everywhere ──
+	{
+		name: "contact_timeline",
+		title: "A contact's timeline",
+		description:
+			"Everything about one contact, newest first: their app's events (and poll answers, referral milestones), emails sent to them with opens and clicks, their conversations and website chats with ratings, automations they went through, friends they brought, when they joined and unsubscribed. Page with `before` (the `next` of the last page).",
+		input: {
+			organization,
+			brand: oneBrand,
+			contact: z.string().describe("The contact's id or email address"),
+			before: z.string().optional(),
+			limit: z.number().int().min(1).max(100).optional(),
+		},
+		readOnly: true,
+		run: async (a, ctx) => {
+			const org = orgAt(ctx, a.organization);
+			const b = await brandOf(org.id, a.brand);
+			const c = await getContact(b, a.contact as string);
+			const { contactTimeline } = await import("../timeline");
+			return contactTimeline(b, c, {
+				before: a.before as string | undefined,
+				limit: a.limit as number | undefined,
+			});
+		},
+	},
+	{
+		name: "list_events",
+		title: "List contacts' events",
+		description:
+			"Events kept from the app (POST /api/events, send_event) and Mailroom's own (poll.answered, referral.milestone). With `contact`: that person's; with `event`: every contact's of that name; with neither: the brand's event names and how often each happened in the last 90 days.",
+		input: {
+			organization,
+			brand: oneBrand,
+			contact: z.string().optional().describe("A contact's id or email address"),
+			event: z.string().optional(),
+			before: z.string().optional(),
+			limit: z.number().int().min(1).max(100).optional(),
+		},
+		readOnly: true,
+		run: async (a, ctx) => {
+			const org = orgAt(ctx, a.organization);
+			const b = await brandOf(org.id, a.brand);
+			const { eventNames, eventView, listContactEvents } = await import("../contact-events");
+			if (!a.contact && !a.event) return { object: "list", data: await eventNames(b) };
+			const contact = a.contact ? (await getContact(b, a.contact as string)).id : null;
+			const page = await listContactEvents(b, {
+				contact,
+				name: a.event as string | undefined,
+				before: a.before as string | undefined,
+				limit: a.limit as number | undefined,
+			});
+			return { object: "list", next: page.next, data: page.data.map(eventView) };
+		},
+	},
+	{
+		name: "merge_contacts",
+		title: "Merge two contacts",
+		description:
+			"The same person under two addresses: `merge` is folded into `keep` (its segments, topic choices, missing properties and names, events, poll answers, automation runs and referrals move over) and then deleted. Emails and conversations stay under the address they were for.",
+		input: {
+			organization,
+			brand: oneBrand,
+			keep: z.string().describe("The contact to keep (id or email)"),
+			merge: z.string().describe("The contact folded into it and deleted (id or email)"),
+		},
+		destructive: true,
+		run: async (a, ctx) => {
+			const org = orgAt(ctx, a.organization, "contacts:delete");
+			const b = await brandOf(org.id, a.brand);
+			const { mergeContacts } = await import("../timeline");
+			const out = await mergeContacts(b, a.keep as string, a.merge as string);
+			await logged(
+				ctx,
+				org,
+				"contact.merged",
+				{ type: "contact", id: out.kept, name: out.email },
+				{ merged: out.merged_email },
+			);
+			return out;
+		},
+	},
 	// ── Segments, topics and properties ──
 	{
 		name: "save_segment",

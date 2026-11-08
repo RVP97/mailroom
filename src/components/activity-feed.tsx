@@ -60,6 +60,7 @@ const VERB: Record<string, string> = {
 	"firewall.updated": "changed the firewall",
 	"contact.edited": "edited the contact",
 	"contact.deleted": "deleted the contact",
+	"contact.merged": "merged another contact into",
 	"contacts.imported": "imported contacts",
 	"contacts.cleaned_up": "cleaned up the list",
 	"segment.saved": "saved the segment",

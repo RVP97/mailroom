@@ -227,6 +227,7 @@ async function reward(
 			create_contact: false,
 		},
 		now,
+		"mailroom",
 	).catch((e) => console.error("referrals: event failed", e));
 	if (!r.template_id || !program.from) return;
 	try {

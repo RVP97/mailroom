@@ -33,6 +33,8 @@ export interface MailroomEnv {
 	INBOUND_DOMAIN?: string;
 	/** Days received emails are kept (the row and the message in R2). */
 	INBOUND_RETENTION_DAYS?: string;
+	/** Days contacts' app events are kept (395 by default). */
+	EVENT_RETENTION_DAYS?: string;
 	/** R2: every received message, whole. */
 	INBOUND?: R2Bucket;
 	/** R2: the long-term archive of what retention deletes (falls back to INBOUND). */
@@ -95,5 +97,7 @@ export const bodyRetentionDays = () => days(cfg().BODY_RETENTION_DAYS, 7);
 export const logRetentionDays = () => days(cfg().LOG_RETENTION_DAYS, 90);
 export const requestLogRetentionDays = () => days(cfg().REQUEST_LOG_RETENTION_DAYS, 30);
 export const inboundRetentionDays = () => days(cfg().INBOUND_RETENTION_DAYS, 30);
+/** Days contacts' app events are kept (src/server/contact-events.ts). */
+export const eventRetentionDays = () => days(cfg().EVENT_RETENTION_DAYS, 395);
 export const inboundDomain = () => cfg().INBOUND_DOMAIN?.trim().toLowerCase() || null;
 export const maxSendRate = () => days(cfg().MAX_SEND_RATE, 14);

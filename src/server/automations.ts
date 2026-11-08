@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-o
 import { z } from "zod";
 import { fill, htmlToText } from "../lib/template-fill";
 import { orgOf } from "./brands";
+import { type EventSource, storeEvent } from "./contact-events";
 import {
 	ALL_BROADCASTS_GROUP,
 	type Contact,
@@ -458,8 +459,16 @@ export const eventInput = z.object({
 	create_contact: z.boolean().optional(),
 });
 
-/** An app's event about a contact: automations waiting for it start. */
-export async function recordEvent(brand: string, raw: unknown, now = Date.now()) {
+/**
+ * An app's event about a contact (or Mailroom's own: a poll answered, a referral milestone):
+ * kept on the contact, and automations waiting for it start.
+ */
+export async function recordEvent(
+	brand: string,
+	raw: unknown,
+	now = Date.now(),
+	source: EventSource = "api",
+) {
 	const v = eventInput.parse(raw);
 	if (!v.email && !v.contact_id) throw validation("Give the contact's email or contact_id");
 	let contact: Contact | null = await getContact(
@@ -470,12 +479,26 @@ export async function recordEvent(brand: string, raw: unknown, now = Date.now())
 		if (!v.email || v.create_contact === false) throw notFound("Contact");
 		contact = (await upsertContact(brand, { email: v.email, source: "event" }, now)).contact;
 	}
-	const data = v.data ? JSON.parse(JSON.stringify(v.data).slice(0, 16_000) || "{}") : null;
+	const data = v.data ? boundedData(v.data) : null;
+	const stored = await storeEvent(brand, contact.id, v.event, data, source, now);
 	let started = 0;
 	for (const x of await active(brand))
 		if (x.trigger.type === "event" && x.trigger.event === v.event)
 			if (await start(x, contact.id, data, now)) started++;
-	return { object: "event", event: v.event, contact_id: contact.id, started };
+	return { object: "event", id: stored.id, event: v.event, contact_id: contact.id, started };
+}
+
+/** The event's data, cut to 16 KB: whole keys are dropped from the end, never cut mid-value. */
+function boundedData(data: Record<string, unknown>) {
+	const out: Record<string, unknown> = {};
+	let size = 2;
+	for (const [k, x] of Object.entries(data)) {
+		const piece = JSON.stringify({ [k]: x }).length;
+		if (size + piece > 16_000) break;
+		out[k] = x;
+		size += piece;
+	}
+	return out;
 }
 
 /** Claims the runs due now (a run left by a cron that died is claimable again). */

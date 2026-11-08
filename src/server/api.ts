@@ -467,6 +467,41 @@ const contactRoutes: [string, RegExp, Handler][] = [
 	],
 	[
 		"GET",
+		/^\/contacts\/(?<id>[^/]+)\/events$/,
+		async (_req, auth, p, url) => {
+			const brand = await listBrand(auth, url);
+			const c = await getContact(brand, p.id as string);
+			const { eventView, listContactEvents } = await import("./contact-events");
+			const page = await listContactEvents(brand, {
+				contact: c.id,
+				name: url.searchParams.get("event"),
+				before: url.searchParams.get("before"),
+				limit: Number(url.searchParams.get("limit")) || 50,
+			});
+			return json({
+				object: "list",
+				has_more: !!page.next,
+				next: page.next,
+				data: page.data.map(eventView),
+			});
+		},
+	],
+	[
+		"GET",
+		/^\/contacts\/(?<id>[^/]+)\/timeline$/,
+		async (_req, auth, p, url) => {
+			const brand = await listBrand(auth, url);
+			const c = await getContact(brand, p.id as string);
+			const { contactTimeline } = await import("./timeline");
+			const page = await contactTimeline(brand, c, {
+				before: url.searchParams.get("before"),
+				limit: Number(url.searchParams.get("limit")) || 30,
+			});
+			return json({ ...page, has_more: !!page.next });
+		},
+	],
+	[
+		"GET",
 		/^\/contacts\/(?<id>[^/]+)\/topics$/,
 		async (_req, auth, p, url) => {
 			const brand = await listBrand(auth, url);

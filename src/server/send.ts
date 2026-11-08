@@ -274,6 +274,7 @@ export async function prepare(ctx: OrgContext, input: Parsed, o: SendOptions): P
 			organization_id: ctx.id,
 			from: input.from,
 			to,
+			recipient: to[0] ? bareAddress(to[0]).toLowerCase() : null,
 			cc: cc.length ? cc : null,
 			bcc: bcc.length ? bcc : null,
 			reply_to: (input.reply_to ?? input.replyTo) || null,

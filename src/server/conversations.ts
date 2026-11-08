@@ -57,6 +57,12 @@ export type Reply = typeof rp.$inferSelect;
 export const normalizeId = (id: string | null | undefined) =>
 	id?.trim().replace(/^<|>$/g, "").trim().toLowerCase() || null;
 
+/** "Ana <Ana@Example.com>" → ana@example.com; null when it isn't an address. */
+export function addressOf(from: string | null | undefined) {
+	const a = (/<([^>]+)>/.exec(from ?? "")?.[1] ?? from ?? "").trim().toLowerCase();
+	return a.includes("@") ? a : null;
+}
+
 /** A References header's ids, oldest first. */
 export const referenceIds = (header: string | string[] | null | undefined) =>
 	[
@@ -151,6 +157,7 @@ export async function threadReceived(
 			inbox_id: row.inbox_id,
 			subject: row.subject.slice(0, 998),
 			contact: row.from,
+			contact_address: addressOf(row.from),
 			status: "open",
 			messages: 0,
 			snippet,

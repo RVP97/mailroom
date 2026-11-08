@@ -50,6 +50,7 @@ import {
 } from "@/components/inbox-triage";
 import { CopyMenuItem, MoreMenu } from "@/components/more-menu";
 import { Page, Section } from "@/components/page";
+import { PersonFacts } from "@/components/person-panel";
 import { IdChip, RecordHeader } from "@/components/record";
 import { StatusBadge, StatusDot } from "@/components/status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -1233,6 +1234,12 @@ function ContactCard({ data, live }: { data: Data; live: Live | null }) {
 					</span>
 					<ArrowUpRight className="size-4 shrink-0 text-muted-foreground" />
 				</Link>
+			)}
+			{data.contact && (
+				<PersonFacts
+					p={data.contact}
+					brand={c.brand_id}
+				/>
 			)}
 			{others.length > 0 && (
 				<div className="flex flex-col gap-1">
