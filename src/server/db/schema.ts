@@ -2285,6 +2285,25 @@ export const brandKits = sqliteTable("brand_kits", {
 	updated_at: text("updated_at").notNull(),
 });
 
+/**
+ * How a brand scores its leads (src/server/lead-score.ts): points for what contacts do, worked
+ * out when asked. No row: the default rules.
+ */
+export const leadScoring = sqliteTable("lead_scoring", {
+	/** The brand's id. */
+	organization_id: text("organization_id")
+		.primaryKey()
+		.references(() => organization.id, { onDelete: "cascade" }),
+	rules: text("rules", { mode: "json" }).$type<unknown[]>().notNull(),
+	/** Counted activity is from the last this many days. */
+	days: integer("days").notNull().default(90),
+	/** At or above: a hot lead; at or above warm: warm. */
+	hot: integer("hot").notNull().default(50),
+	warm: integer("warm").notNull().default(20),
+	updated_by: text("updated_by"),
+	updated_at: text("updated_at").notNull(),
+});
+
 /** A brand's help center (src/server/help-center.ts): its public address and words. */
 export const helpCenters = sqliteTable("help_centers", {
 	/** The brand's id. */

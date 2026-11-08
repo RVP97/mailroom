@@ -435,6 +435,13 @@
       "when": 1794164544170,
       "tag": "0061_calendar",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "6",
+      "when": 1794165732954,
+      "tag": "0062_lead_scoring",
+      "breakpoints": true
     }
   ]
 }

@@ -52,6 +52,7 @@ const KINDS: { group: string; items: [Type, string][] }[] = [
 		group: "With your email",
 		items: [
 			["engagement", "How engaged they are"],
+			["lead_score", "Their lead score"],
 			["email_activity", "Got, opened or clicked"],
 			["poll", "Answered a poll"],
 			["survey", "Answered a survey"],
@@ -104,6 +105,8 @@ export function newCondition(type: Type, o: RuleOptions): SegmentCondition {
 			return { type, op: "at_most", value: 2, days: 90 };
 		case "chatted":
 			return { type, page: "", days: 30 };
+		case "lead_score":
+			return { type, op: "hot" };
 		case "survey": {
 			const s = o.surveys?.[0];
 			return {
@@ -735,10 +738,102 @@ function Fields({
 					<Words>days</Words>
 				</>
 			);
+		case "lead_score":
+			return (
+				<>
+					<Words>is</Words>
+					<Pick
+						label="Lead score"
+						value={c.op}
+						onChange={(op) =>
+							set({
+								...c,
+								op,
+								value:
+									op === "at_least" || op === "at_most"
+										? (c.value ?? 50)
+										: undefined,
+							})
+						}
+						items={[
+							["hot", "a hot lead"],
+							["warm", "a warm lead"],
+							["cold", "a cold lead"],
+							["at_least", "at least"],
+							["at_most", "at most"],
+						]}
+						className="w-36"
+					/>
+					{(c.op === "at_least" || c.op === "at_most") && (
+						<>
+							<Num
+								label="Points"
+								value={c.value}
+								onChange={(value) => set({ ...c, value })}
+							/>
+							<Words>points</Words>
+						</>
+					)}
+				</>
+			);
 	}
 }
 
 const kindLabel = (t: Type) => KINDS.flatMap((g) => g.items).find(([k]) => k === t)?.[1] ?? t;
+
+/** One rule: its kind and its fields (a live segment's row, or a lead scoring rule's check). */
+export function ConditionEditor({
+	c,
+	set,
+	options,
+	exclude = [],
+}: {
+	c: SegmentCondition;
+	set: (c: SegmentCondition) => void;
+	options: RuleOptions;
+	/** Kinds not offered. */
+	exclude?: Type[];
+}) {
+	return (
+		<>
+			<Select
+				value={c.type}
+				onValueChange={(t) => set(newCondition(t as Type, options))}
+			>
+				<SelectTrigger
+					aria-label="Kind of rule"
+					className="w-52"
+				>
+					<SelectValue>{kindLabel(c.type)}</SelectValue>
+				</SelectTrigger>
+				<SelectContent>
+					{KINDS.map((g) => (
+						<div key={g.group}>
+							<p className="px-2 pt-2 pb-1 text-xs text-muted-foreground">
+								{g.group}
+							</p>
+							{g.items
+								.filter(([k]) => !exclude.includes(k))
+								.map(([k, l]) => (
+									<SelectItem
+										key={k}
+										value={k}
+									>
+										{l}
+									</SelectItem>
+								))}
+						</div>
+					))}
+				</SelectContent>
+			</Select>
+			<Fields
+				c={c}
+				set={set}
+				o={options}
+			/>
+		</>
+	);
+}
 
 /** The rules of a live segment: match all or any, and each rule as a row. */
 export function SegmentRulesEditor({
@@ -775,38 +870,10 @@ export function SegmentRulesEditor({
 						className="flex items-start gap-2 rounded-lg border bg-muted/30 p-2.5"
 					>
 						<div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-							<Select
-								value={c.type}
-								onValueChange={(t) => set(i, newCondition(t as Type, options))}
-							>
-								<SelectTrigger
-									aria-label="Kind of rule"
-									className="w-52"
-								>
-									<SelectValue>{kindLabel(c.type)}</SelectValue>
-								</SelectTrigger>
-								<SelectContent>
-									{KINDS.map((g) => (
-										<div key={g.group}>
-											<p className="px-2 pt-2 pb-1 text-xs text-muted-foreground">
-												{g.group}
-											</p>
-											{g.items.map(([k, l]) => (
-												<SelectItem
-													key={k}
-													value={k}
-												>
-													{l}
-												</SelectItem>
-											))}
-										</div>
-									))}
-								</SelectContent>
-							</Select>
-							<Fields
+							<ConditionEditor
 								c={c}
 								set={(x) => set(i, x)}
-								o={options}
+								options={options}
 							/>
 						</div>
 						<Button

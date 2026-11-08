@@ -9,6 +9,7 @@ export type ContactsTab =
 	| "topics"
 	| "properties"
 	| "engagement"
+	| "leads"
 	| "growth"
 	| "forms";
 
@@ -26,6 +27,7 @@ const TABS: { tab: ContactsTab; label: string }[] = [
 	{ tab: "topics", label: "Topics" },
 	{ tab: "properties", label: "Properties" },
 	{ tab: "engagement", label: "Engagement" },
+	{ tab: "leads", label: "Leads" },
 	{ tab: "growth", label: "Growth" },
 	{ tab: "forms", label: "Sign-up forms" },
 ];
@@ -102,6 +104,15 @@ export function ContactsHeader({
 								<Link
 									key={tab}
 									to="/contacts/engagement"
+									search={{ brand }}
+									{...props}
+								/>
+							);
+						if (tab === "leads")
+							return (
+								<Link
+									key={tab}
+									to="/contacts/leads"
 									search={{ brand }}
 									{...props}
 								/>

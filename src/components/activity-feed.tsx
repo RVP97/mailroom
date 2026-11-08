@@ -11,6 +11,7 @@ const VERB: Record<string, string> = {
 	"broadcast.created": "created the broadcast",
 	"broadcast.edited": "edited the broadcast",
 	"broadcast.planned": "moved the broadcast on the calendar",
+	"lead_scoring.edited": "changed how leads are scored",
 	"broadcast.sent": "sent the broadcast",
 	"broadcast.scheduled": "scheduled the broadcast",
 	"broadcast.canceled": "canceled the broadcast",

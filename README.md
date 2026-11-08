@@ -179,6 +179,11 @@ An organization that should be fully apart can optionally use its own SES accoun
   issues, templates, segments, automations, newsletters, campaigns, surveys, help articles and
   domains across every brand, a few of each as you type, Enter opens the first (MCP
   `search_everything`).
+- **Lead score**: points for what each contact did lately (opens, clicks, the events your app
+  sends, purchases, chats, or anything a live segment can check, with caps and negative points),
+  hot and warm thresholds you pick, the hottest leads on Contacts › Leads, each contact's score
+  and where it came from on their page, and live segments that pick hot leads (MCP `list_leads`,
+  `get_lead_score`, `get_lead_scoring`, `save_lead_scoring`).
 - **Automations**, built on a canvas: when a contact is added, joins a segment, opens a broadcast,
   clicks a link in one, or your app sends an event (`POST /api/events`), wait, branch on a check
   (in a segment, a property, opened or clicked the last email) into yes and no paths, add to or

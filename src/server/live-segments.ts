@@ -102,6 +102,12 @@ export const condition = z.discriminatedUnion("type", [
 		page: z.string().trim().max(500).optional(),
 		days: days.optional(),
 	}),
+	/** Their lead score (src/server/lead-score.ts): at least or at most `value`, or a level. */
+	z.object({
+		type: z.literal("lead_score"),
+		op: z.enum(["at_least", "at_most", "hot", "warm", "cold"]),
+		value: z.number().int().min(-1000).max(100_000).optional(),
+	}),
 ]);
 
 export const segmentRules = z.object({
@@ -115,9 +121,27 @@ export type SegmentRules = z.infer<typeof segmentRules>;
 const ct = schema.contacts;
 const since = (d: number, now: number) => iso(now - d * 86_400_000);
 
+/** What a lead_score rule compares: the brand's score as SQL and its levels. */
+export type LeadScoreSql = { score: SQL; hot: number; warm: number };
+
 /** One rule as SQL over `contacts`; null for engagement (scored in code). */
-function compile(brand: string, c: SegmentCondition, now: number): SQL | null {
+export function compile(
+	brand: string,
+	c: SegmentCondition,
+	now: number,
+	lead?: LeadScoreSql,
+): SQL | null {
 	switch (c.type) {
+		case "lead_score": {
+			if (!lead) throw validation("lead_score: not here");
+			const s = lead.score;
+			if (c.op === "hot") return sql`${s} >= ${lead.hot}`;
+			if (c.op === "warm") return sql`(${s} >= ${lead.warm} AND ${s} < ${lead.hot})`;
+			if (c.op === "cold") return sql`${s} < ${lead.warm}`;
+			return c.op === "at_least"
+				? sql`${s} >= ${c.value ?? 0}`
+				: sql`${s} <= ${c.value ?? 0}`;
+		}
 		case "property": {
 			const path = `$."${c.key}"`;
 			const v = sql`json_extract(${ct.properties}, ${path})`;
@@ -267,7 +291,10 @@ const MAX_MEMBERS = 100_000;
 
 /** The ids of the brand's contacts who match the rules now. */
 export async function matching(brand: string, rules: SegmentRules, now = Date.now()) {
-	const parts = rules.conditions.map((c) => ({ c, q: compile(brand, c, now) }));
+	const lead = rules.conditions.some((c) => c.type === "lead_score")
+		? await (await import("./lead-score")).leadScoreSql(brand, now)
+		: undefined;
+	const parts = rules.conditions.map((c) => ({ c, q: compile(brand, c, now, lead) }));
 	const sqlParts = parts.filter((p) => p.q).map((p) => p.q as SQL);
 	const engagement = parts.filter((p) => !p.q).map((p) => p.c) as Extract<
 		SegmentCondition,
@@ -527,5 +554,9 @@ export function describeCondition(c: SegmentCondition): string {
 						: `a survey ${c.answer}`;
 		case "chatted":
 			return `chatted${c.page ? ` on ${c.page}` : ""}`;
+		case "lead_score":
+			return c.op === "at_least" || c.op === "at_most"
+				? `lead score ${c.op === "at_most" ? "≤" : "≥"} ${c.value ?? 0}`
+				: `a ${c.op} lead`;
 	}
 }

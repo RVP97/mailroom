@@ -120,7 +120,8 @@ export const getContactFn = createServerFn({ method: "GET" })
 			const brand = found.organization_id;
 			const { contactReferrals } = await import("@/server/referrals");
 			const { contactTimeline } = await import("@/server/timeline");
-			const [segments, mine, topics, properties, timeline, engagement, referrals] =
+			const { contactLeadScore } = await import("@/server/lead-score");
+			const [segments, mine, topics, properties, timeline, engagement, referrals, lead] =
 				await Promise.all([
 					listSegments(brand),
 					segmentsOfContact(found.id),
@@ -129,11 +130,13 @@ export const getContactFn = createServerFn({ method: "GET" })
 					contactTimeline(brand, found, { limit: 30 }),
 					engagementOf(brand, [found]),
 					contactReferrals(found),
+					contactLeadScore(brand, found.id),
 				]);
 			const member = new Set(mine.map((m) => m.id));
 			return {
 				contact: contactView(found),
 				engagement: engagement.get(found.id) ?? null,
+				lead,
 				referrals,
 				brand: brands.find((b) => b.id === brand) ?? null,
 				segments: segments.map((s) => ({
@@ -441,5 +444,51 @@ export const cleanUpFn = createServerFn({ method: "POST" })
 		call(async () => {
 			const { brand: b, ...rest } = data;
 			return cleanUpCold(await brandOf(context.organizationId, b), rest);
+		}),
+	);
+
+/** The Leads page: a brand's hottest contacts and how it scores them. */
+export const leadsPageFn = createServerFn({ method: "GET" })
+	.middleware([orgMiddleware])
+	.validator(z.object({ ...brandInput, level: z.enum(["hot", "warm", "cold"]).nullish() }))
+	.handler(({ data, context }) =>
+		call(async () => {
+			const brand = await brandOf(context.organizationId, data.brand);
+			const { topLeads, ruleLabel, DEFAULT_SCORING } = await import("@/server/lead-score");
+			const [{ brands }, top] = await Promise.all([
+				viewScope(context.organizationId),
+				topLeads(brand, { limit: 100, level: data.level ?? undefined }),
+			]);
+			return {
+				brand,
+				brands,
+				...top,
+				leads: top.leads.map((l) =>
+					context.masked ? { ...l, email: maskDigits(l.email) } : l,
+				),
+				labels: top.scoring.rules.map(ruleLabel),
+				defaults: DEFAULT_SCORING,
+				canEdit: context.access.can("contacts:edit"),
+			};
+		}),
+	);
+
+export const saveLeadScoringFn = createServerFn({ method: "POST" })
+	.middleware([can("contacts:edit")])
+	.validator(z.object({ ...brandInput, scoring: z.unknown(), reset: z.boolean().optional() }))
+	.handler(({ data, context }) =>
+		call(async () => {
+			const brand = await brandOf(context.organizationId, data.brand);
+			const { saveScoring, resetScoring } = await import("@/server/lead-score");
+			const s = data.reset
+				? await resetScoring(brand)
+				: await saveScoring(brand, data.scoring, context.userId);
+			await logActivity({
+				organizationId: context.organizationId,
+				userId: context.userId,
+				action: "lead_scoring.edited",
+				subject: { type: "brand", id: brand, name: "Lead scoring" },
+			});
+			return s;
 		}),
 	);

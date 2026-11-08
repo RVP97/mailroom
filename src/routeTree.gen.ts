@@ -41,6 +41,7 @@ import { Route as AppContactsIndexRouteImport } from './routes/_app/contacts.ind
 import { Route as AppContactsIdRouteImport } from './routes/_app/contacts.$id'
 import { Route as AppContactsEngagementRouteImport } from './routes/_app/contacts.engagement'
 import { Route as AppContactsGrowthRouteImport } from './routes/_app/contacts.growth'
+import { Route as AppContactsLeadsRouteImport } from './routes/_app/contacts.leads'
 import { Route as AppDomainsIndexRouteImport } from './routes/_app/domains.index'
 import { Route as AppDomainsIdRouteImport } from './routes/_app/domains.$id'
 import { Route as AppEmailsIndexRouteImport } from './routes/_app/emails.index'
@@ -232,6 +233,11 @@ const AppContactsEngagementRoute = AppContactsEngagementRouteImport.update({
 const AppContactsGrowthRoute = AppContactsGrowthRouteImport.update({
   id: '/contacts/growth',
   path: '/contacts/growth',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppContactsLeadsRoute = AppContactsLeadsRouteImport.update({
+  id: '/contacts/leads',
+  path: '/contacts/leads',
   getParentRoute: () => AppRoute,
 } as any)
 const AppDomainsIndexRoute = AppDomainsIndexRouteImport.update({
@@ -426,6 +432,7 @@ export interface FileRoutesByFullPath {
   '/contacts/$id': typeof AppContactsIdRoute
   '/contacts/engagement': typeof AppContactsEngagementRoute
   '/contacts/growth': typeof AppContactsGrowthRoute
+  '/contacts/leads': typeof AppContactsLeadsRoute
   '/domains/$id': typeof AppDomainsIdRoute
   '/emails/$id': typeof AppEmailsIdRoute
   '/insights/revenue': typeof AppInsightsRevenueRoute
@@ -492,6 +499,7 @@ export interface FileRoutesByTo {
   '/contacts/$id': typeof AppContactsIdRoute
   '/contacts/engagement': typeof AppContactsEngagementRoute
   '/contacts/growth': typeof AppContactsGrowthRoute
+  '/contacts/leads': typeof AppContactsLeadsRoute
   '/domains/$id': typeof AppDomainsIdRoute
   '/emails/$id': typeof AppEmailsIdRoute
   '/insights/revenue': typeof AppInsightsRevenueRoute
@@ -560,6 +568,7 @@ export interface FileRoutesById {
   '/_app/contacts/$id': typeof AppContactsIdRoute
   '/_app/contacts/engagement': typeof AppContactsEngagementRoute
   '/_app/contacts/growth': typeof AppContactsGrowthRoute
+  '/_app/contacts/leads': typeof AppContactsLeadsRoute
   '/_app/domains/$id': typeof AppDomainsIdRoute
   '/_app/emails/$id': typeof AppEmailsIdRoute
   '/_app/insights/revenue': typeof AppInsightsRevenueRoute
@@ -628,6 +637,7 @@ export interface FileRouteTypes {
     | '/contacts/$id'
     | '/contacts/engagement'
     | '/contacts/growth'
+    | '/contacts/leads'
     | '/domains/$id'
     | '/emails/$id'
     | '/insights/revenue'
@@ -694,6 +704,7 @@ export interface FileRouteTypes {
     | '/contacts/$id'
     | '/contacts/engagement'
     | '/contacts/growth'
+    | '/contacts/leads'
     | '/domains/$id'
     | '/emails/$id'
     | '/insights/revenue'
@@ -761,6 +772,7 @@ export interface FileRouteTypes {
     | '/_app/contacts/$id'
     | '/_app/contacts/engagement'
     | '/_app/contacts/growth'
+    | '/_app/contacts/leads'
     | '/_app/domains/$id'
     | '/_app/emails/$id'
     | '/_app/insights/revenue'
@@ -1040,6 +1052,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppContactsGrowthRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/contacts/leads': {
+      id: '/_app/contacts/leads'
+      path: '/contacts/leads'
+      fullPath: '/contacts/leads'
+      preLoaderRoute: typeof AppContactsLeadsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/domains/': {
       id: '/_app/domains/'
       path: '/domains'
@@ -1293,6 +1312,7 @@ interface AppRouteChildren {
   AppContactsIdRoute: typeof AppContactsIdRoute
   AppContactsEngagementRoute: typeof AppContactsEngagementRoute
   AppContactsGrowthRoute: typeof AppContactsGrowthRoute
+  AppContactsLeadsRoute: typeof AppContactsLeadsRoute
   AppDomainsIdRoute: typeof AppDomainsIdRoute
   AppEmailsIdRoute: typeof AppEmailsIdRoute
   AppInsightsRevenueRoute: typeof AppInsightsRevenueRoute
@@ -1352,6 +1372,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppContactsIdRoute: AppContactsIdRoute,
   AppContactsEngagementRoute: AppContactsEngagementRoute,
   AppContactsGrowthRoute: AppContactsGrowthRoute,
+  AppContactsLeadsRoute: AppContactsLeadsRoute,
   AppDomainsIdRoute: AppDomainsIdRoute,
   AppEmailsIdRoute: AppEmailsIdRoute,
   AppInsightsRevenueRoute: AppInsightsRevenueRoute,

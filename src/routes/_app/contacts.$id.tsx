@@ -16,6 +16,7 @@ import { Confirm } from "@/components/confirm";
 import { ContactTimeline } from "@/components/contact-timeline";
 import { CopyButton } from "@/components/copy";
 import { EngagementCard } from "@/components/engagement";
+import { LeadCard } from "@/components/lead-score";
 import { Page } from "@/components/page";
 import { Fact, Facts, IdChip, RecordHeader } from "@/components/record";
 import { StatusBadge } from "@/components/status-badge";
@@ -100,6 +101,7 @@ function ContactSketch() {
 						updated_at: ago(60),
 					},
 					engagement: null,
+					lead: { score: 0, level: "cold", hot: 50, warm: 20, days: 90, breakdown: [] },
 					referrals: null,
 					brand: null,
 					segments: [],
@@ -457,6 +459,10 @@ function ContactPage() {
 
 				<div className="flex flex-col gap-6">
 					<EngagementCard e={data.engagement} />
+					<LeadCard
+						lead={data.lead}
+						brand={contact.brand_id}
+					/>
 					<Card className="gap-4 p-5">
 						<h2 className="font-semibold">Segments</h2>
 						{data.segments.length === 0 ? (
