@@ -148,6 +148,7 @@ import { HELP_TOOLS } from "./tools-help";
 import { SETTINGS_TOOLS } from "./tools-settings";
 import { SURVEY_TOOLS } from "./tools-surveys";
 import { TEAM_TOOLS } from "./tools-team";
+import { TODAY_TOOLS } from "./tools-today";
 
 /** Who is calling: the person behind the connection, read again on every call. */
 export interface McpContext {
@@ -2162,4 +2163,5 @@ export const TOOLS: Tool[] = [
 	...SETTINGS_TOOLS,
 	...HELP_TOOLS,
 	...SURVEY_TOOLS,
+	...TODAY_TOOLS,
 ];

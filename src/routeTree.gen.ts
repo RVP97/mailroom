@@ -24,6 +24,7 @@ import { Route as AppApiKeysRouteImport } from './routes/_app/api-keys'
 import { Route as AppDocsRouteImport } from './routes/_app/docs'
 import { Route as AppRecipientsRouteImport } from './routes/_app/recipients'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AppTodayRouteImport } from './routes/_app/today'
 import { Route as OauthAuthorizeRouteImport } from './routes/oauth.authorize'
 import { Route as AppArticlesIndexRouteImport } from './routes/_app/articles.index'
 import { Route as AppArticlesIdRouteImport } from './routes/_app/articles.$id'
@@ -145,6 +146,11 @@ const AppRecipientsRoute = AppRecipientsRouteImport.update({
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTodayRoute = AppTodayRouteImport.update({
+  id: '/today',
+  path: '/today',
   getParentRoute: () => AppRoute,
 } as any)
 const OauthAuthorizeRoute = OauthAuthorizeRouteImport.update({
@@ -403,6 +409,7 @@ export interface FileRoutesByFullPath {
   '/docs': typeof AppDocsRoute
   '/recipients': typeof AppRecipientsRoute
   '/settings': typeof AppSettingsRoute
+  '/today': typeof AppTodayRoute
   '/oauth/authorize': typeof OauthAuthorizeRoute
   '/articles/$id': typeof AppArticlesIdRoute
   '/automations/$id': typeof AppAutomationsIdRoute
@@ -466,6 +473,7 @@ export interface FileRoutesByTo {
   '/docs': typeof AppDocsRoute
   '/recipients': typeof AppRecipientsRoute
   '/settings': typeof AppSettingsRoute
+  '/today': typeof AppTodayRoute
   '/oauth/authorize': typeof OauthAuthorizeRoute
   '/': typeof AppIndexRoute
   '/articles/$id': typeof AppArticlesIdRoute
@@ -532,6 +540,7 @@ export interface FileRoutesById {
   '/_app/docs': typeof AppDocsRoute
   '/_app/recipients': typeof AppRecipientsRoute
   '/_app/settings': typeof AppSettingsRoute
+  '/_app/today': typeof AppTodayRoute
   '/oauth/authorize': typeof OauthAuthorizeRoute
   '/_app/': typeof AppIndexRoute
   '/_app/articles/$id': typeof AppArticlesIdRoute
@@ -599,6 +608,7 @@ export interface FileRouteTypes {
     | '/docs'
     | '/recipients'
     | '/settings'
+    | '/today'
     | '/oauth/authorize'
     | '/articles/$id'
     | '/automations/$id'
@@ -662,6 +672,7 @@ export interface FileRouteTypes {
     | '/docs'
     | '/recipients'
     | '/settings'
+    | '/today'
     | '/oauth/authorize'
     | '/'
     | '/articles/$id'
@@ -727,6 +738,7 @@ export interface FileRouteTypes {
     | '/_app/docs'
     | '/_app/recipients'
     | '/_app/settings'
+    | '/_app/today'
     | '/oauth/authorize'
     | '/_app/'
     | '/_app/articles/$id'
@@ -895,6 +907,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/today': {
+      id: '/_app/today'
+      path: '/today'
+      fullPath: '/today'
+      preLoaderRoute: typeof AppTodayRouteImport
       parentRoute: typeof AppRoute
     }
     '/oauth/authorize': {
@@ -1244,6 +1263,7 @@ interface AppRouteChildren {
   AppDocsRoute: typeof AppDocsRoute
   AppRecipientsRoute: typeof AppRecipientsRoute
   AppSettingsRoute: typeof AppSettingsRoute
+  AppTodayRoute: typeof AppTodayRoute
   AppIndexRoute: typeof AppIndexRoute
   AppArticlesIdRoute: typeof AppArticlesIdRoute
   AppAutomationsIdRoute: typeof AppAutomationsIdRoute
@@ -1301,6 +1321,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppDocsRoute: AppDocsRoute,
   AppRecipientsRoute: AppRecipientsRoute,
   AppSettingsRoute: AppSettingsRoute,
+  AppTodayRoute: AppTodayRoute,
   AppIndexRoute: AppIndexRoute,
   AppArticlesIdRoute: AppArticlesIdRoute,
   AppAutomationsIdRoute: AppAutomationsIdRoute,

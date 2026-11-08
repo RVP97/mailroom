@@ -97,6 +97,7 @@ export const Route = createFileRoute("/_app")({
 });
 
 const SENDING: NavItem[] = [
+	{ to: "/today", label: "Today", icon: Sun, key: "z" },
 	{ to: "/", label: "Overview", icon: Gauge, key: "o" },
 	{ to: "/emails", label: "Emails", icon: Mail, key: "e" },
 	{ to: "/insights", label: "Insights", icon: ChartColumn, key: "h" },

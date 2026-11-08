@@ -165,6 +165,11 @@ An organization that should be fully apart can optionally use its own SES accoun
   answer split, where they came from and the comments, next to support ratings and email polls.
   An answer from a known contact is the event `survey.answered` (automations can follow up), and
   live segments can pick promoters, detractors, a score or a choice.
+- **Today**: the home page for whoever signs in, across every brand (or one): broadcasts waiting
+  for your approval or sent back to you, conversations past or within two hours of their service
+  level, the ones assigned to you and how many have nobody, notes that @mention you, what goes
+  out before midnight, unhappy survey answers from the last day, and anything wrong with how the
+  brand's email gets delivered (MCP `get_today`).
 - **Automations**, built on a canvas: when a contact is added, joins a segment, opens a broadcast,
   clicks a link in one, or your app sends an event (`POST /api/events`), wait, branch on a check
   (in a segment, a property, opened or clicked the last email) into yes and no paths, add to or
