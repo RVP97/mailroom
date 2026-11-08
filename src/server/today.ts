@@ -317,6 +317,15 @@ export async function today(
 			link: `/domains/${d.id}`,
 		})),
 	];
+	// Follow-ups that are yours, due by the end of today (or overdue).
+	const { openFollowUps } = await import("./contact-notes");
+	const followUps = await openFollowUps({
+		brands,
+		assignee: userId,
+		dueBy: iso(span.end),
+		limit: 10,
+		now,
+	});
 	const slaDue = (x: (typeof late)[number]) =>
 		[x.first_due, x.resolve_due].filter(Boolean).sort()[0] ?? null;
 	return {
@@ -358,6 +367,15 @@ export async function today(
 				last_message_at: x.last,
 			})),
 		},
+		follow_ups: followUps.map((f) => ({
+			id: f.id,
+			text: f.text.slice(0, 200),
+			due_at: f.due_at,
+			overdue: f.overdue,
+			author: f.author,
+			brand: brandName(f.brand_id),
+			contact: f.contact,
+		})),
 		unassigned: o.canReply ? Number(unassigned?.n ?? 0) : 0,
 		mentions: mentions.map((m) => ({
 			conversation_id: m.conversation_id,

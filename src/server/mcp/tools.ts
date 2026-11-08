@@ -147,6 +147,7 @@ import { CALENDAR_TOOLS } from "./tools-calendar";
 import { CONTENT_TOOLS } from "./tools-content";
 import { HELP_TOOLS } from "./tools-help";
 import { LEAD_TOOLS } from "./tools-leads";
+import { NOTE_TOOLS } from "./tools-notes";
 import { SEARCH_TOOLS } from "./tools-search";
 import { SETTINGS_TOOLS } from "./tools-settings";
 import { SURVEY_TOOLS } from "./tools-surveys";
@@ -2175,4 +2176,5 @@ export const TOOLS: Tool[] = [
 	...CALENDAR_TOOLS,
 	...SEARCH_TOOLS,
 	...LEAD_TOOLS,
+	...NOTE_TOOLS,
 ];

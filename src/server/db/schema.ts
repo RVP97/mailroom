@@ -2304,6 +2304,39 @@ export const leadScoring = sqliteTable("lead_scoring", {
 	updated_at: text("updated_at").notNull(),
 });
 
+/**
+ * A note on a contact, or a follow-up (a note with a due date) for someone on the team
+ * (src/server/contact-notes.ts). Shown with the notes from the person's conversations.
+ */
+export const contactNotes = sqliteTable(
+	"contact_notes",
+	{
+		id: text("id").primaryKey(),
+		/** The brand's id. */
+		organization_id: orgId(),
+		contact_id: text("contact_id")
+			.notNull()
+			.references(() => contacts.id, { onDelete: "cascade" }),
+		text: text("text").notNull(),
+		/** "person" | "agent" (the MCP assistant). */
+		author_type: text("author_type").notNull().default("person"),
+		author_id: text("author_id"),
+		author_name: text("author_name").notNull(),
+		/** A follow-up when set: when it is due. */
+		due_at: text("due_at"),
+		assignee_id: text("assignee_id"),
+		assignee_name: text("assignee_name"),
+		done_at: text("done_at"),
+		done_by: text("done_by"),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [
+		index("contact_notes_contact_idx").on(t.contact_id, t.created_at),
+		index("contact_notes_due_idx").on(t.organization_id, t.done_at, t.due_at),
+	],
+);
+
 /** A brand's help center (src/server/help-center.ts): its public address and words. */
 export const helpCenters = sqliteTable("help_centers", {
 	/** The brand's id. */

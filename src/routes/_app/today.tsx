@@ -6,6 +6,7 @@ import {
 	CheckCircle2,
 	Frown,
 	Inbox,
+	ListTodo,
 	type LucideIcon,
 	MessageSquare,
 	ShieldAlert,
@@ -189,6 +190,7 @@ function TodayPage() {
 			d.sla.length +
 			d.mine.count +
 			d.mentions.length +
+			d.follow_ups.length +
 			d.going_out.length +
 			d.unhappy.length +
 			d.deliverability.length ===
@@ -352,6 +354,41 @@ function TodayPage() {
 								params={{ id: m.conversation_id }}
 								title={`${m.author}: “${m.text}”`}
 								meta={join(m.subject, formatRelative(m.at))}
+							/>
+						))}
+					</Section>
+					<Section
+						id="follow-ups"
+						icon={ListTodo}
+						title="Your follow-ups"
+						hint="Reminders on contacts, due today or late."
+						empty="No follow-up is due."
+						count={d.follow_ups.length}
+					>
+						{d.follow_ups.map((f) => (
+							<Row
+								key={f.id}
+								to="/contacts/$id"
+								params={{ id: f.contact.id }}
+								title={f.text}
+								meta={join(
+									f.contact.name ?? f.contact.email,
+									f.brand,
+									`from ${f.author}`,
+								)}
+								side={
+									<span
+										className={cn(
+											"font-medium",
+											f.overdue
+												? "text-red-600 dark:text-red-400"
+												: "text-amber-700 dark:text-amber-400",
+										)}
+									>
+										{f.overdue ? "Late, " : "Due "}
+										{formatRelative(f.due_at)}
+									</span>
+								}
 							/>
 						))}
 					</Section>

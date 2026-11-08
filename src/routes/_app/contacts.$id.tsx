@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Confirm } from "@/components/confirm";
+import { ContactNotesCard } from "@/components/contact-notes";
 import { ContactTimeline } from "@/components/contact-timeline";
 import { CopyButton } from "@/components/copy";
 import { EngagementCard } from "@/components/engagement";
@@ -103,6 +104,10 @@ function ContactSketch() {
 					engagement: null,
 					lead: { score: 0, level: "cold", hot: 50, warm: 20, days: 90, breakdown: [] },
 					referrals: null,
+					notes: { follow_ups: [], notes: [], conversation_notes: [] },
+					canNote: false,
+					me: "",
+					team: [],
 					brand: null,
 					segments: [],
 					topics: [],
@@ -459,6 +464,14 @@ function ContactPage() {
 
 				<div className="flex flex-col gap-6">
 					<EngagementCard e={data.engagement} />
+					<ContactNotesCard
+						notes={data.notes}
+						brand={contact.brand_id}
+						contactId={contact.id}
+						canNote={data.canNote}
+						me={data.me}
+						team={data.team}
+					/>
 					<LeadCard
 						lead={data.lead}
 						brand={contact.brand_id}

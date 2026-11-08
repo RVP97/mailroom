@@ -311,7 +311,8 @@ export async function personPanel(brand: string, address: string, conversationId
 	if (!contact) return { ...base, contact: null };
 	const { engagementOf } = await import("./engagement");
 	const { segmentsOfContact, topicsOfContact } = await import("./contacts");
-	const [engagement, segments, topics, events, newsletters] = await Promise.all([
+	const { contactNoteSummary } = await import("./contact-notes");
+	const [engagement, segments, topics, events, newsletters, notes] = await Promise.all([
 		engagementOf(brand, [contact]).then((m) => m.get(contact.id) ?? null),
 		segmentsOfContact(contact.id),
 		topicsOfContact(brand, contact.id),
@@ -322,8 +323,10 @@ export async function personPanel(brand: string, address: string, conversationId
 			.orderBy(desc(schema.contactEvents.created_at))
 			.limit(5),
 		newslettersOf(brand, contact.id),
+		contactNoteSummary(brand, contact.id),
 	]);
 	return {
+		notes,
 		...base,
 		contact: {
 			id: contact.id,
@@ -378,6 +381,7 @@ export async function mergeContacts(brand: string, keepRef: string, dropRef: str
 			drop.id,
 		),
 		raw("UPDATE contact_events SET contact_id = ?1 WHERE contact_id = ?2", keep.id, drop.id),
+		raw("UPDATE contact_notes SET contact_id = ?1 WHERE contact_id = ?2", keep.id, drop.id),
 		raw(
 			"UPDATE automation_runs SET contact_id = ?1 WHERE contact_id = ?2 AND organization_id = ?3",
 			keep.id,

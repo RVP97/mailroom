@@ -1,8 +1,8 @@
 import { Link } from "@tanstack/react-router";
-import { MailOpen, MousePointerClick, Send, Star, Zap } from "lucide-react";
+import { AlarmClock, MailOpen, MousePointerClick, Send, Star, StickyNote, Zap } from "lucide-react";
 import type { ReactNode } from "react";
 import { EngagementMeter, type EngagementView } from "@/components/engagement";
-import { formatAgo, formatDateTime } from "@/lib/format";
+import { formatAgo, formatDateTime, formatRelative } from "@/lib/format";
 import { Ph } from "@/lib/sketch";
 
 /** What Mailroom knows about who wrote in (src/server/timeline.ts personPanel). */
@@ -40,6 +40,18 @@ export type Person = {
 	topics?: { id: string; name: string; subscription: "opt_in" | "opt_out" }[];
 	newsletters?: { id: string; name: string }[];
 	events?: { id: string; event: string; created_at: string }[];
+	/** The contact's notes and open follow-ups (src/server/contact-notes.ts). */
+	notes?: {
+		count: number;
+		follow_ups: {
+			id: string;
+			text: string;
+			due_at: string | null;
+			overdue: boolean;
+			assignee: string | null;
+		}[];
+		last_note: { id: string; text: string; author: string; created_at: string } | null;
+	};
 };
 
 function Line({ label, children }: { label: string; children: ReactNode }) {
@@ -163,6 +175,54 @@ export function PersonFacts({ p, brand }: { p: Person; brand: string }) {
 					</Line>
 				)}
 			</dl>
+
+			{c && p.notes && (p.notes.follow_ups.length > 0 || p.notes.last_note) && (
+				<div className="flex flex-col gap-1.5">
+					<h3 className="eyebrow mb-1">Team notes</h3>
+					{p.notes.follow_ups.map((f) => (
+						<p
+							key={f.id}
+							className="flex items-start gap-2 text-sm"
+						>
+							<AlarmClock
+								className={
+									f.overdue
+										? "mt-0.5 size-3.5 shrink-0 text-destructive"
+										: "mt-0.5 size-3.5 shrink-0 text-warning"
+								}
+							/>
+							<span className="min-w-0">
+								<span className="line-clamp-2">{f.text}</span>
+								<span className="text-xs text-muted-foreground">
+									{f.overdue ? "Overdue" : "Due"} {formatRelative(f.due_at)}
+									{f.assignee ? ` · ${f.assignee}` : ""}
+								</span>
+							</span>
+						</p>
+					))}
+					{p.notes.last_note && (
+						<p className="flex items-start gap-2 text-sm">
+							<StickyNote className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+							<span className="min-w-0">
+								<span className="line-clamp-3">{p.notes.last_note.text}</span>
+								<span className="text-xs text-muted-foreground">
+									{p.notes.last_note.author} ·{" "}
+									{formatAgo(p.notes.last_note.created_at)}
+								</span>
+							</span>
+						</p>
+					)}
+					<Link
+						to="/contacts/$id"
+						params={{ id: c.id }}
+						search={{ brand }}
+						className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+					>
+						{p.notes.count > 1 ? `All ${p.notes.count} notes` : "Add a note"} on the
+						contact
+					</Link>
+				</div>
+			)}
 
 			{p.broadcasts.length > 0 && (
 				<div className="flex flex-col gap-1">

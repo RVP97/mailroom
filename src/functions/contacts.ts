@@ -121,22 +121,39 @@ export const getContactFn = createServerFn({ method: "GET" })
 			const { contactReferrals } = await import("@/server/referrals");
 			const { contactTimeline } = await import("@/server/timeline");
 			const { contactLeadScore } = await import("@/server/lead-score");
-			const [segments, mine, topics, properties, timeline, engagement, referrals, lead] =
-				await Promise.all([
-					listSegments(brand),
-					segmentsOfContact(found.id),
-					topicsOfContact(brand, found.id),
-					listProperties(brand),
-					contactTimeline(brand, found, { limit: 30 }),
-					engagementOf(brand, [found]),
-					contactReferrals(found),
-					contactLeadScore(brand, found.id),
-				]);
+			const { contactNotes, teamMembers } = await import("@/server/contact-notes");
+			const [
+				segments,
+				mine,
+				topics,
+				properties,
+				timeline,
+				engagement,
+				referrals,
+				lead,
+				notes,
+				team,
+			] = await Promise.all([
+				listSegments(brand),
+				segmentsOfContact(found.id),
+				topicsOfContact(brand, found.id),
+				listProperties(brand),
+				contactTimeline(brand, found, { limit: 30 }),
+				engagementOf(brand, [found]),
+				contactReferrals(found),
+				contactLeadScore(brand, found.id),
+				contactNotes(brand, found),
+				teamMembers(context.organizationId),
+			]);
 			const member = new Set(mine.map((m) => m.id));
 			return {
 				contact: contactView(found),
 				engagement: engagement.get(found.id) ?? null,
 				lead,
+				notes,
+				canNote: context.access.can("contacts:edit") || context.access.can("inbox:reply"),
+				me: context.userId,
+				team,
 				referrals,
 				brand: brands.find((b) => b.id === brand) ?? null,
 				segments: segments.map((s) => ({
@@ -490,5 +507,102 @@ export const saveLeadScoringFn = createServerFn({ method: "POST" })
 				subject: { type: "brand", id: brand, name: "Lead scoring" },
 			});
 			return s;
+		}),
+	);
+
+// ── Notes and follow-ups ────────────────────────────────────────────────────────────────
+
+const contactName = (brand: string, id: string) =>
+	getContact(brand, id)
+		.then((c) => c.email)
+		.catch(() => "a contact");
+
+/** Notes are for people who edit contacts or answer them in the inbox. */
+function mayNote(context: { access: { can: (p: "contacts:edit" | "inbox:reply") => boolean } }) {
+	if (!context.access.can("contacts:edit") && !context.access.can("inbox:reply"))
+		throw new Response("You need to be able to edit contacts or reply in the inbox", {
+			status: 403,
+		});
+}
+
+export const saveContactNoteFn = createServerFn({ method: "POST" })
+	.middleware([orgMiddleware])
+	.validator(
+		z.object({
+			...brandInput,
+			contact_id: z.string(),
+			id: z.string().nullish(),
+			text: z.string().optional(),
+			due_at: z.string().nullish(),
+			assignee_id: z.string().nullish(),
+			done: z.boolean().optional(),
+		}),
+	)
+	.handler(({ data, context }) =>
+		call(async () => {
+			mayNote(context);
+			const brand = await brandOf(context.organizationId, data.brand);
+			const { addContactNote, updateContactNote } = await import("@/server/contact-notes");
+			const author = {
+				type: "person" as const,
+				id: context.userId,
+				name: context.name || context.email,
+			};
+			const { brand: _b, contact_id, id, ...input } = data;
+			const note = id
+				? await updateContactNote({
+						organizationId: context.organizationId,
+						brand,
+						id,
+						author,
+						input,
+					})
+				: await addContactNote({
+						organizationId: context.organizationId,
+						brand,
+						contactId: contact_id,
+						author,
+						input: { ...input, text: input.text ?? "" },
+					});
+			await logActivity({
+				organizationId: context.organizationId,
+				userId: context.userId,
+				action: id
+					? data.done
+						? "contact_note.done"
+						: "contact_note.edited"
+					: note.kind === "follow_up"
+						? "contact_note.follow_up"
+						: "contact_note.added",
+				subject: {
+					type: "contact",
+					id: contact_id,
+					name: await contactName(brand, contact_id),
+				},
+			});
+			return note;
+		}),
+	);
+
+export const deleteContactNoteFn = createServerFn({ method: "POST" })
+	.middleware([orgMiddleware])
+	.validator(z.object({ ...brandInput, id: z.string() }))
+	.handler(({ data, context }) =>
+		call(async () => {
+			mayNote(context);
+			const brand = await brandOf(context.organizationId, data.brand);
+			const { deleteContactNote } = await import("@/server/contact-notes");
+			const row = await deleteContactNote(brand, data.id);
+			await logActivity({
+				organizationId: context.organizationId,
+				userId: context.userId,
+				action: "contact_note.deleted",
+				subject: {
+					type: "contact",
+					id: row.contact_id,
+					name: await contactName(brand, row.contact_id),
+				},
+			});
+			return { ok: true };
 		}),
 	);
