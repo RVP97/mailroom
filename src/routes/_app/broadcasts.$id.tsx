@@ -1501,7 +1501,8 @@ function SendDialog({
 								<>
 									{" "}
 									{heldOut.toLocaleString()} more {heldOut === 1 ? "sits" : "sit"}{" "}
-									this one out (quiet mode or the frequency cap in Settings).
+									this one out (they paused or asked for fewer emails, or quiet
+									mode or the frequency cap in Settings holds them).
 								</>
 							)}
 						</DialogDescription>

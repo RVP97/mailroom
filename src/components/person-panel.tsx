@@ -32,6 +32,8 @@ export type Person = {
 		source: string | null;
 		properties: Record<string, string | number>;
 		referrals: number;
+		pace?: string | null;
+		paused_until?: string | null;
 	} | null;
 	engagement?: EngagementView | null;
 	segments?: { id: string; name: string }[];
@@ -78,11 +80,15 @@ export function PersonFacts({ p, brand }: { p: Person; brand: string }) {
 						<span className="text-warning">
 							Quiet for now: no broadcasts or automation emails until this is sorted
 						</span>
+					) : c?.paused_until && c.paused_until > new Date().toISOString() ? (
+						<span>Paused their emails until {formatDateTime(c.paused_until)}</span>
 					) : c && p.holds?.capped ? (
 						<span>
 							Sits out broadcasts: got {p.holds.cap?.sent} in {p.holds.cap?.days} days
 							(the cap is {p.holds.cap?.count})
 						</span>
+					) : c?.pace ? (
+						`Gets at most one broadcast a ${c.pace === "monthly" ? "month" : "week"}`
 					) : c ? (
 						"Gets your broadcasts"
 					) : (

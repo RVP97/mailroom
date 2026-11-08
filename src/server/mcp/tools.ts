@@ -1560,7 +1560,7 @@ export const TOOLS: Tool[] = [
 		name: "save_contact",
 		title: "Add or update a contact",
 		description:
-			"Adds a contact to a brand, or updates the one with that address: names, unsubscribed, properties (declared ones), segments (ids to add it to) and topics ([{ id, subscription: opt_in|opt_out }]).",
+			"Adds a contact to a brand, or updates the one with that address: names, unsubscribed, how often they want broadcasts (pace: weekly|monthly, null for every one), a pause on broadcasts and automation emails (paused_until: an ISO time, null to resume), properties (declared ones), segments (ids to add it to) and topics ([{ id, subscription: opt_in|opt_out }]). People set pace and pauses themselves on the preferences page too.",
 		input: {
 			organization,
 			brand: oneBrand,
@@ -1568,6 +1568,8 @@ export const TOOLS: Tool[] = [
 			first_name: z.string().optional(),
 			last_name: z.string().optional(),
 			unsubscribed: z.boolean().optional(),
+			pace: z.enum(["weekly", "monthly"]).nullable().optional(),
+			paused_until: z.string().nullable().optional(),
 			properties: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
 			segments: z.array(z.string()).optional(),
 			topics: z

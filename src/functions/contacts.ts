@@ -200,6 +200,8 @@ const contactFields = z.object({
 	unsubscribed: z.boolean().optional(),
 	properties: z.record(z.string(), z.union([z.string(), z.number()]).nullable()).optional(),
 	segments: z.array(z.string()).optional(),
+	pace: z.enum(["weekly", "monthly"]).nullable().optional(),
+	paused_until: z.string().nullable().optional(),
 });
 
 export const saveContactFn = createServerFn({ method: "POST" })

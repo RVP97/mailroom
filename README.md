@@ -77,8 +77,13 @@ An organization that should be fully apart can optionally use its own SES accoun
   few minutes and right before a broadcast goes out, and people joining start its automations.
 - **Broadcasts** like Resend's: one email to a segment, now or scheduled, written in the dashboard
   or copied from a template, filled in per contact (`{{{FIRST_NAME}}}`, `{{{contact.city}}}`).
-  Unsubscribed, topic-excluded and suppressed contacts are left out; the unsubscribe page lets
-  people pick topics; the dashboard counts deliveries, opens, clicks and unsubscribes.
+  Unsubscribed, topic-excluded and suppressed contacts are left out; the dashboard counts
+  deliveries, opens, clicks and unsubscribes.
+- **A preference center** behind every unsubscribe link: besides unsubscribing, people pick their
+  newsletters and topics, how often they want broadcasts (every one, at most one a week or a
+  month), pause everything for 30 days, see their referral progress, and see their conversations
+  with you. Broadcasts respect it, and automation emails respect the pause; the team can set the
+  same on the contact's page (`pace` and `paused_until` on contacts in the API and MCP).
 - **A visual email editor** for broadcasts and templates: start from a newsletter, announcement or
   plain letter, drag in blocks (headings, text, buttons, images, columns, quotes, links, footer,
   raw HTML), write in place with personalization, and set palettes, fonts and layout. It renders

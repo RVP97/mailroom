@@ -53,6 +53,16 @@ const SHOWN_IN: Record<TextKey, State> = {
 	back: "done",
 	backDone: "back",
 	backBody: "back",
+	newsletters: "ask",
+	pace: "ask",
+	paceAll: "ask",
+	paceWeekly: "ask",
+	paceMonthly: "ask",
+	pause: "ask",
+	pausedUntil: "ask",
+	friends: "ask",
+	friendsLink: "ask",
+	conversations: "ask",
 };
 
 /**

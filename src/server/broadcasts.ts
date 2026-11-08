@@ -581,14 +581,10 @@ async function nextRecipients(x: Broadcast, limit: number) {
 		),
 	];
 	if (x.cursor) where.push(gt(ct.id, x.cursor));
-	// Quiet mode and the frequency cap (src/server/marketing-rules.ts).
+	// Quiet mode, the frequency cap, and each person's own pace or pause (src/server/marketing-rules.ts).
 	const { broadcastHolds, marketingRules } = await import("./marketing-rules");
 	where.push(
-		...broadcastHolds(
-			x.organization_id,
-			await marketingRules(x.organization_id),
-			sql`${ct.email}`,
-		),
+		...broadcastHolds(x.organization_id, await marketingRules(x.organization_id), "contacts"),
 	);
 	if (x.campaign_id && x.campaign_dedupe)
 		where.push(

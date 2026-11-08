@@ -1,6 +1,12 @@
 import { env } from "cloudflare:workers";
 import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
-import { pageLang, pageOf, pageText, type TextKey } from "../lib/subscriber-page";
+import {
+	type Preferences,
+	pageLang,
+	pageOf,
+	preferencesHtml,
+	type SubscriberPage,
+} from "../lib/subscriber-page";
 import { bareAddress } from "./aws/mime";
 import { unsubscribeSync } from "./contacts";
 import { db, schema } from "./db";
@@ -328,33 +334,154 @@ const html = (body: string, status = 200) =>
 const senderName = (from: string) =>
 	/^\s*"?([^"<]+?)"?\s*</.exec(from)?.[1]?.trim() || bareAddress(from);
 
-/** The brand's public topics with this contact's choices (none: they aren't a contact). */
-async function preferencesOf(ref: { organizationId: string; address: string }) {
+/**
+ * The person's own preferences (none: they aren't a contact): the brand's public newsletters and
+ * topics with their choices, how often they want broadcasts, their referral progress (when the
+ * brand runs a program) and their latest conversations.
+ */
+async function preferencesOf(ref: { organizationId: string; address: string }, now = Date.now()) {
+	const brand = ref.organizationId;
 	const { getContact, topicsOfContact } = await import("./contacts");
-	const contact = await getContact(ref.organizationId, ref.address).catch(() => null);
+	const contact = await getContact(brand, ref.address).catch(() => null);
 	if (!contact) return null;
-	const topics = (await topicsOfContact(ref.organizationId, contact.id)).filter(
-		(t) => t.visibility === "public",
-	);
-	return topics.length ? { contact, topics } : null;
+	const { newslettersOf } = await import("./timeline");
+	const [allTopics, newsletters, reading, program, talks] = await Promise.all([
+		topicsOfContact(brand, contact.id),
+		db
+			.select({
+				id: schema.newsletters.id,
+				name: schema.newsletters.name,
+				description: schema.newsletters.description,
+				topic_id: schema.newsletters.topic_id,
+				segment_id: schema.newsletters.segment_id,
+			})
+			.from(schema.newsletters)
+			.where(
+				and(
+					eq(schema.newsletters.organization_id, brand),
+					eq(schema.newsletters.public, true),
+				),
+			),
+		newslettersOf(brand, contact.id),
+		import("./referrals").then((m) => m.programOf(brand)),
+		db
+			.select({
+				subject: schema.conversations.subject,
+				status: schema.conversations.status,
+				at: schema.conversations.last_message_at,
+			})
+			.from(schema.conversations)
+			.where(
+				and(
+					eq(schema.conversations.organization_id, brand),
+					eq(schema.conversations.contact_address, contact.email),
+					sql`${schema.conversations.held_at} IS NULL`,
+				),
+			)
+			.orderBy(desc(schema.conversations.last_message_at))
+			.limit(5),
+	]);
+	// A newsletter is shown instead of its own topic.
+	const lists = newsletters.filter((n) => n.segment_id || n.topic_id);
+	const covered = new Set(lists.map((n) => n.topic_id).filter(Boolean));
+	const on = new Set(reading.map((n) => n.id));
+	const paused = !!contact.paused_until && contact.paused_until > iso(now);
+	let referrals: Preferences["referrals"] = null;
+	if (program) {
+		const { referralCode, referralPageUrl } = await import("./referrals");
+		referrals = {
+			count: contact.referrals,
+			url: await referralPageUrl(await referralCode(contact)),
+		};
+	}
+	const prefs: Preferences = {
+		topics: allTopics
+			.filter((t) => t.visibility === "public" && !covered.has(t.id))
+			.map((t) => ({
+				id: t.id,
+				name: t.name,
+				description: t.description ?? null,
+				on: t.subscription === "opt_in",
+			})),
+		newsletters: lists.map((n) => ({
+			id: n.id,
+			name: n.name,
+			description: n.description,
+			on: on.has(n.id),
+		})),
+		pace: paused ? "pause" : ((contact.pace as "weekly" | "monthly" | null) ?? "all"),
+		paused_until: paused ? contact.paused_until : null,
+		referrals,
+		conversations: talks,
+	};
+	return { contact, prefs, topics: allTopics.filter((t) => t.visibility === "public") };
 }
 
 async function preferencesForm(
 	ref: { organizationId: string; address: string },
 	t: string,
-	say: (k: TextKey) => string,
+	look: SubscriberPage,
+	lang: "en" | "es",
+	v: { name: string; email: string },
 	saved = false,
 ) {
-	const prefs = await preferencesOf(ref);
-	if (!prefs) return "";
-	const boxes = prefs.topics
-		.map(
-			(x) =>
-				`<label class="topic"><span>${esc(x.name)}${x.description ? `<small>${esc(x.description)}</small>` : ""}</span><input type="checkbox" name="topic" value="${esc(x.id)}"${x.subscription === "opt_in" ? " checked" : ""}></label>`,
-		)
-		.join("");
-	return `<section><h2>${say("prefs")}</h2><form method="post" action="?t=${esc(encodeURIComponent(t))}"><input type="hidden" name="action" value="preferences"><div class="topics">${boxes}</div>${saved ? `<p class="ok">${say("saved")}</p>` : ""}<button type="submit" class="quiet">${say("save")}</button></form></section>`;
+	const found = await preferencesOf(ref);
+	if (!found) return "";
+	return preferencesHtml(look, lang, v, found.prefs, {
+		action: `?t=${encodeURIComponent(t)}`,
+		saved,
+	});
 }
+
+/** Saves what the preferences form sent: topics, newsletters and how often. */
+async function savePreferences(
+	ref: { organizationId: string; address: string },
+	fields: FormData,
+	now = Date.now(),
+) {
+	const found = await preferencesOf(ref, now);
+	if (!found) return;
+	const brand = ref.organizationId;
+	const { setTopics, updateContact } = await import("./contacts");
+	const picked = new Set(fields.getAll("topic").map(String));
+	if (found.prefs.topics.length)
+		await setTopics(
+			brand,
+			found.contact.id,
+			found.prefs.topics.map((x) => ({
+				id: x.id,
+				subscription: picked.has(x.id) ? "opt_in" : "opt_out",
+			})),
+			now,
+		);
+	const reads = new Set(fields.getAll("newsletter").map(String));
+	const { actForPerson } = await import("./automations");
+	for (const n of found.prefs.newsletters)
+		if (reads.has(n.id) !== n.on)
+			await actForPerson(
+				brand,
+				found.contact.email,
+				{
+					type: "newsletter",
+					newsletter_id: n.id,
+					action: reads.has(n.id) ? "subscribe" : "unsubscribe",
+				},
+				now,
+			).catch((e) => console.error("preferences: newsletter not changed", e));
+	const pace = String(fields.get("pace") ?? "");
+	if (["all", "weekly", "monthly", "pause"].includes(pace) && pace !== found.prefs.pace)
+		await updateContact(
+			brand,
+			found.contact.id,
+			pace === "pause"
+				? { paused_until: iso(now + PAUSE_DAYS * 86_400_000) }
+				: { pace: pace === "all" ? null : pace, paused_until: null },
+			now,
+		);
+}
+
+/** "Pause everything" on the preferences page lasts this long. */
+export const PAUSE_DAYS = 30;
 
 /**
  * /unsubscribe: GET asks (mail scanners open links), POST unsubscribes (the page's button or a
@@ -375,7 +502,8 @@ export async function handleUnsubscribePage(request: Request) {
 	const someone = lang === "es" ? "este remitente" : "this sender";
 	const name = (ref && senderName(ref.from)) || dress.name || someone;
 	const email = ref?.address ?? "";
-	const say = (k: TextKey) => pageText(look, lang, k, { name, email });
+	const prefsOf = (saved = false) =>
+		ref ? preferencesForm(ref, t, look, lang, { name, email }, saved) : Promise.resolve("");
 	const form = (action: "unsubscribe" | "resubscribe", label: string, quiet = false) =>
 		`<form method="post" action="?t=${esc(encodeURIComponent(t))}"><input type="hidden" name="action" value="${action}"><button type="submit"${quiet ? ' class="quiet"' : ""}>${label}</button></form>`;
 	const page = (state: PageState, prefs = "", status = 200) =>
@@ -385,34 +513,22 @@ export async function handleUnsubscribePage(request: Request) {
 		const oneClick = fields?.get("List-Unsubscribe") === "One-Click";
 		if (!ref) return oneClick ? new Response(null, { status: 404 }) : page("invalid", "", 404);
 		if (fields?.get("action") === "preferences") {
-			const prefs = await preferencesOf(ref);
-			if (prefs) {
-				const picked = new Set(fields.getAll("topic").map(String));
-				const { setTopics } = await import("./contacts");
-				await setTopics(
-					ref.organizationId,
-					prefs.contact.id,
-					prefs.topics.map((x) => ({
-						id: x.id,
-						subscription: picked.has(x.id) ? "opt_in" : "opt_out",
-					})),
-				);
-			}
+			await savePreferences(ref, fields);
 			const out = await isUnsubscribed(ref.organizationId, ref.group, ref.address);
-			return page(out ? "done" : "ask", await preferencesForm(ref, t, say, true));
+			return page(out ? "done" : "ask", await prefsOf(true));
 		}
 		if (fields?.get("action") === "resubscribe") {
 			await resubscribe(ref.organizationId, ref.group, ref.address);
-			return page("back", await preferencesForm(ref, t, say));
+			return page("back", await prefsOf());
 		}
 		await unsubscribe(ref);
 		if (oneClick) return new Response(null, { status: 200 });
-		return page("done", await preferencesForm(ref, t, say));
+		return page("done", await prefsOf());
 	}
 	if (request.method !== "GET" && request.method !== "HEAD")
 		return new Response("Method not allowed", { status: 405 });
 	if (!ref) return page("invalid", "", 404);
-	const prefs = await preferencesForm(ref, t, say);
+	const prefs = await prefsOf();
 	return page(
 		(await isUnsubscribed(ref.organizationId, ref.group, ref.address)) ? "done" : "ask",
 		prefs,

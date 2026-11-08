@@ -84,12 +84,26 @@ function capCount(brand: string, address: SQL | string, days: number, now: numbe
 	return sql`(SELECT count(*) FROM emails AS fc WHERE fc.organization_id = ${brand} AND fc.recipient = ${address} AND fc.source = 'broadcast' AND fc.created_at > ${since} AND fc.status NOT IN ('canceled', 'failed', 'suppressed'))`;
 }
 
+/** Days between broadcasts for a contact's own pace (the preferences page). */
+export const PACE_DAYS = { weekly: 7, monthly: 30 } as const;
+
 /**
- * Conditions on the contacts table for a broadcast's recipients: who the rules leave out.
- * `email` is the contacts' email column.
+ * Conditions on the contacts table for a broadcast's recipients: who the rules leave out, and
+ * who asked for fewer (their pace) or a pause on the preferences page. `t` is the contacts
+ * table's name in the query.
  */
-export function broadcastHolds(brand: string, rules: MarketingRules, email: SQL, now = Date.now()) {
-	const out: SQL[] = [];
+export function broadcastHolds(
+	brand: string,
+	rules: MarketingRules,
+	t: "contacts" | "c",
+	now = Date.now(),
+) {
+	const col = (name: string) => sql.raw(`${t === "c" ? "c" : '"contacts"'}."${name}"`);
+	const email = col("email");
+	const out: SQL[] = [
+		sql`(${col("paused_until")} IS NULL OR ${col("paused_until")} <= ${iso(now)})`,
+		sql`(${col("pace")} IS NULL OR NOT EXISTS (SELECT 1 FROM emails AS pc WHERE pc.organization_id = ${brand} AND pc.recipient = ${email} AND pc.source = 'broadcast' AND pc.status NOT IN ('canceled', 'failed', 'suppressed') AND pc.created_at > (CASE ${col("pace")} WHEN 'monthly' THEN ${iso(now - PACE_DAYS.monthly * 86_400_000)} ELSE ${iso(now - PACE_DAYS.weekly * 86_400_000)} END)))`,
+	];
 	if (rules.quiet_mode) out.push(sql`NOT EXISTS (${quietWhere(brand, email, now)})`);
 	if (rules.cap)
 		out.push(sql`${capCount(brand, email, rules.cap.days, now)} < ${rules.cap.count}`);
@@ -134,8 +148,7 @@ export async function heldOutCount(
 	rules: MarketingRules,
 	now = Date.now(),
 ) {
-	const holds = broadcastHolds(brand, rules, sql`c.email`, now);
-	if (!holds.length) return 0;
+	const holds = broadcastHolds(brand, rules, "c", now);
 	const row = await db.get<{ n: number }>(
 		sql`SELECT count(*) AS n FROM contacts AS c JOIN contact_segments AS cs ON cs.contact_id = c.id WHERE c.organization_id = ${brand} AND cs.segment_id = ${segmentId} AND c.unsubscribed = 0 AND NOT (${sql.join(holds, sql` AND `)})`,
 	);

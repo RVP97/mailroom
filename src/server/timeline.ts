@@ -334,6 +334,8 @@ export async function personPanel(brand: string, address: string, conversationId
 			source: contact.source,
 			properties: contact.properties ?? {},
 			referrals: contact.referrals,
+			pace: contact.pace,
+			paused_until: contact.paused_until,
 		},
 		engagement,
 		segments: segments.map((s) => ({ id: s.id, name: s.name })),
@@ -407,7 +409,7 @@ export async function mergeContacts(brand: string, keepRef: string, dropRef: str
 }
 
 /** The brand's newsletters a contact gets: in its segment, and not out of its topic. */
-async function newslettersOf(brand: string, contactId: string) {
+export async function newslettersOf(brand: string, contactId: string) {
 	const nl = schema.newsletters;
 	const list = await db
 		.select({ id: nl.id, name: nl.name, segment_id: nl.segment_id, topic_id: nl.topic_id })

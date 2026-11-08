@@ -1513,6 +1513,8 @@ async function renewClaim(run: AutomationRun, now: number) {
 
 /** Quiet mode holds this person out of the automation's emails now (they're skipped). */
 async function quietNow(x: Automation, contact: Contact, now: number) {
+	// They paused email from their preferences page.
+	if (contact.paused_until && contact.paused_until > iso(now)) return true;
 	const { automationHold } = await import("./marketing-rules");
 	return (await automationHold(x.organization_id, contact.email, now)) !== null;
 }

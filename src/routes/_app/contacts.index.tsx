@@ -146,6 +146,8 @@ function ContactsSketch() {
 						unsubscribed: false,
 						properties: {},
 						timezone: null,
+						pace: null,
+						paused_until: null,
 						created_at: ago(60 * 24 * (i + 1)),
 						updated_at: ago(60),
 						engagement: null,

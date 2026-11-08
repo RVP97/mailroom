@@ -74,6 +74,36 @@ export const PAGE_TEXTS = {
 		en: "Your preferences are saved.",
 		es: "Sus preferencias se guardaron.",
 	},
+	newsletters: { label: "Newsletters heading", en: "Newsletters", es: "Boletines" },
+	pace: { label: "How often heading", en: "How often", es: "Con qué frecuencia" },
+	paceAll: { label: "Every email", en: "Everything we send", es: "Todo lo que enviamos" },
+	paceWeekly: {
+		label: "Once a week",
+		en: "At most one a week",
+		es: "Como máximo uno por semana",
+	},
+	paceMonthly: {
+		label: "Once a month",
+		en: "At most one a month",
+		es: "Como máximo uno al mes",
+	},
+	pause: {
+		label: "Pause",
+		en: "Pause everything for 30 days",
+		es: "Pausar todo por 30 días",
+	},
+	pausedUntil: { label: "While paused", en: "Paused until", es: "En pausa hasta el" },
+	friends: { label: "Referrals heading", en: "Friends you brought", es: "Amigos que invitó" },
+	friendsLink: {
+		label: "Referrals link",
+		en: "See your progress and share your link",
+		es: "Vea su avance y comparta su enlace",
+	},
+	conversations: {
+		label: "Conversations heading",
+		en: "Your conversations with us",
+		es: "Sus conversaciones con nosotros",
+	},
 } as const;
 export type TextKey = keyof typeof PAGE_TEXTS;
 
@@ -532,6 +562,93 @@ export function subscriberPageHtml(
 	});
 }
 
+/** What the person's own part of the page shows (src/server/unsubscribes.ts preferencesOf). */
+export type Preferences = {
+	topics: { id: string; name: string; description: string | null; on: boolean }[];
+	newsletters: { id: string; name: string; description: string | null; on: boolean }[];
+	pace: "all" | "weekly" | "monthly" | "pause";
+	paused_until: string | null;
+	referrals: { count: number; url: string } | null;
+	conversations: { subject: string; status: string; at: string }[];
+};
+
+/**
+ * The preferences under the page's heading: newsletters and topics to tick, how often (every
+ * email, weekly, monthly, or a 30-day pause), their referral progress and their conversations.
+ * `action` is where the form posts (null: the dashboard's preview, which doesn't).
+ */
+export function preferencesHtml(
+	p: SubscriberPage,
+	lang: "en" | "es",
+	v: { name: string; email: string },
+	prefs: Preferences,
+	o: { action: string | null; saved?: boolean },
+) {
+	const t = (k: TextKey) => pageText(p, lang, k, v);
+	const day = (iso: string) =>
+		new Date(iso).toLocaleDateString(lang === "es" ? "es-MX" : "en-US", {
+			month: "short",
+			day: "numeric",
+		});
+	const box = (
+		name: string,
+		x: { id: string; name: string; description: string | null; on: boolean },
+	) =>
+		`<label class="topic"><span>${esc(x.name)}${x.description ? `<small>${esc(x.description)}</small>` : ""}</span><input type="checkbox" name="${name}" value="${esc(x.id)}"${x.on ? " checked" : ""}></label>`;
+	const paces: [Preferences["pace"], string][] = [
+		["all", t("paceAll")],
+		["weekly", t("paceWeekly")],
+		["monthly", t("paceMonthly")],
+		[
+			"pause",
+			prefs.pace === "pause" && prefs.paused_until
+				? `${t("pausedUntil")} ${esc(day(prefs.paused_until))}`
+				: t("pause"),
+		],
+	];
+	const radios = paces
+		.map(
+			([value, label]) =>
+				`<label class="topic"><span>${label}</span><input type="radio" name="pace" value="${value}"${prefs.pace === value ? " checked" : ""}></label>`,
+		)
+		.join("");
+	const lists = [
+		prefs.newsletters.length
+			? `<h3>${t("newsletters")}</h3><div class="topics">${prefs.newsletters.map((n) => box("newsletter", n)).join("")}</div>`
+			: "",
+		prefs.topics.length
+			? `<div class="topics">${prefs.topics.map((x) => box("topic", x)).join("")}</div>`
+			: "",
+	].join("");
+	const button = o.action
+		? `<button type="submit" class="quiet">${t("save")}</button>`
+		: `<button type="button" class="quiet">${t("save")}</button>`;
+	const open = o.action
+		? `<form method="post" action="${esc(o.action)}"><input type="hidden" name="action" value="preferences">`
+		: "<form>";
+	const choose = `<section><h2>${t("prefs")}</h2>${open}${lists}<h3>${t("pace")}</h3><div class="topics">${radios}</div>${o.saved ? `<p class="ok">${t("saved")}</p>` : ""}${button}</form></section>`;
+	const friends = prefs.referrals
+		? `<section><h2>${t("friends")}</h2><p class="count">${prefs.referrals.count}</p><p><a href="${esc(prefs.referrals.url)}">${t("friendsLink")}</a></p></section>`
+		: "";
+	const talks = prefs.conversations.length
+		? `<section><h2>${t("conversations")}</h2><ul class="talks">${prefs.conversations
+				.map(
+					(c) =>
+						`<li><span>${esc(c.subject || "—")}</span><small>${esc(
+							c.status === "resolved"
+								? lang === "es"
+									? "Resuelta"
+									: "Resolved"
+								: lang === "es"
+									? "Abierta"
+									: "Open",
+						)} · ${esc(day(c.at))}</small></li>`,
+				)
+				.join("")}</ul></section>`
+		: "";
+	return choose + friends + talks;
+}
+
 /** The dashboard's preview: a page not saved yet, in one state, with made-up topics. */
 export function previewSubscriberHtml(
 	raw: unknown,
@@ -545,7 +662,6 @@ export function previewSubscriberHtml(
 	let p = pageOf(raw);
 	if (o.dark !== undefined && p.theme === "auto") p = { ...p, theme: o.dark ? "dark" : "light" };
 	const l = p.language === "auto" ? o.lang : p.language;
-	const t = (k: TextKey) => pageText(p, l, k, { name: o.dress.name, email: "" });
 	const topics =
 		l === "es"
 			? [
@@ -556,12 +672,25 @@ export function previewSubscriberHtml(
 					["News", "What's new, once a month."],
 					["Offers", "Special prices and promotions."],
 				];
-	const prefs = `<section><h2>${t("prefs")}</h2><form><div class="topics">${topics
-		.map(
-			([n, d], i) =>
-				`<label class="topic"><span>${n}<small>${d}</small></span><input type="checkbox"${i === 0 ? " checked" : ""}></label>`,
-		)
-		.join("")}</div><button type="button" class="quiet">${t("save")}</button></form></section>`;
+	const prefs = preferencesHtml(
+		p,
+		l,
+		{ name: o.dress.name || "Harbor Inn", email: "" },
+		{
+			topics: topics.map(([n, d], i) => ({
+				id: `t${i}`,
+				name: n as string,
+				description: d as string,
+				on: i === 0,
+			})),
+			newsletters: [],
+			pace: "all",
+			paused_until: null,
+			referrals: null,
+			conversations: [],
+		},
+		{ action: null },
+	);
 	// The preview draws again on every change: no entrance motion each time.
 	const still = "<style>*{animation:none!important}</style></head>";
 	return subscriberPageHtml(p, {
@@ -771,6 +900,16 @@ label.topic input::after{content:"";position:absolute;top:2px;left:2px;width:16p
 label.topic input:checked{background:var(--btn)}
 label.topic input:checked::after{transform:translateX(16px)}
 label.topic input:focus-visible{outline:2px solid var(--btn);outline-offset:2px}
+label.topic input[type=radio]{width:20px;height:20px;border-radius:50%;background:transparent;box-shadow:inset 0 0 0 1.5px ${mix("var(--ink)", "transparent", 0.32)}}
+label.topic input[type=radio]::after{display:none}
+label.topic input[type=radio]:checked{background:transparent;box-shadow:inset 0 0 0 6px var(--btn)}
+h3{margin:14px 0 6px;font:500 12.5px/1.4 var(--font);color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+section .count{margin:0;font:600 28px/1.2 var(--heading-font);color:var(--ink)}
+section p a{color:var(--ink);font-weight:500;font-size:14px}
+.talks{list-style:none;margin:0;padding:0}
+.talks li{display:flex;flex-direction:column;gap:2px;padding:10px 0;border-top:1px solid var(--line);font-size:14px}
+.talks li:last-child{border-bottom:1px solid var(--line)}
+.talks small{color:var(--mut);font-size:12.5px}
 section button{min-height:40px;font-size:14px}
 .ok{display:flex;align-items:center;gap:8px;margin:0 0 14px;color:var(--ink);font-weight:500;font-size:14px}
 .ok::before{content:"";width:6px;height:6px;flex:none;border-radius:50%;background:var(--btn)}

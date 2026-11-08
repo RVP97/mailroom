@@ -58,6 +58,18 @@ export const contactInput = z.object({
 	/** Where they came from, for the growth page (a new contact only): "api" when left out. */
 	source: z.string().trim().max(100).optional(),
 	source_detail: z.string().trim().max(200).optional(),
+	/** How often they want broadcasts: "weekly", "monthly", or null for every one. */
+	pace: z.enum(["weekly", "monthly"]).nullable().optional(),
+	/** No broadcasts or automation emails until then (an ISO time; null: not paused). */
+	paused_until: z.string().datetime({ offset: true }).nullable().optional(),
+});
+
+/** How often they want broadcasts and their pause, when given. */
+const paceFields = (v: { pace?: "weekly" | "monthly" | null; paused_until?: string | null }) => ({
+	...(v.pace !== undefined ? { pace: v.pace } : {}),
+	...(v.paused_until !== undefined
+		? { paused_until: v.paused_until ? iso(Date.parse(v.paused_until)) : null }
+		: {}),
 });
 
 /** unsubscribed_at follows a change of `unsubscribed` (kept while it stays the same). */
@@ -208,6 +220,10 @@ export const contactView = (c: Contact) => ({
 	properties: c.properties ?? {},
 	/** Learned from where they open and click; broadcasts sent at local time use it. */
 	timezone: c.timezone,
+	/** How often they want broadcasts ("weekly", "monthly"; null: every one), from their preferences. */
+	pace: c.pace ?? null,
+	/** They paused broadcasts and automation emails until then. */
+	paused_until: c.paused_until ?? null,
 	created_at: c.created_at,
 	updated_at: c.updated_at,
 });
@@ -252,6 +268,7 @@ export async function upsertContact(brand: string, raw: unknown, now = Date.now(
 				...(last !== undefined ? { last_name: last || null } : {}),
 				...(v.unsubscribed !== undefined ? { unsubscribed: v.unsubscribed } : {}),
 				...unsubscribedAt(v.unsubscribed, now, existing),
+				...paceFields(v),
 				properties: merge(existing.properties, properties),
 				updated_at: iso(now),
 			})
@@ -271,6 +288,7 @@ export async function upsertContact(brand: string, raw: unknown, now = Date.now(
 				unsubscribed_at: v.unsubscribed ? iso(now) : null,
 				source: v.source || "api",
 				source_detail: v.source_detail || null,
+				...paceFields(v),
 				properties: merge(null, properties),
 				created_at: iso(now),
 				updated_at: iso(now),
@@ -329,6 +347,7 @@ export async function updateContact(brand: string, ref: string, raw: unknown, no
 			...(last !== undefined ? { last_name: last || null } : {}),
 			...(v.unsubscribed !== undefined ? { unsubscribed: v.unsubscribed } : {}),
 			...unsubscribedAt(v.unsubscribed, now, c),
+			...paceFields(v),
 			properties: merge(c.properties, properties),
 			updated_at: iso(now),
 		})

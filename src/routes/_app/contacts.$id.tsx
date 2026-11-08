@@ -39,6 +39,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -87,6 +94,8 @@ function ContactSketch() {
 						unsubscribed: false,
 						properties: {},
 						timezone: null,
+						pace: null,
+						paused_until: null,
 						created_at: ago(60 * 24),
 						updated_at: ago(60),
 					},
@@ -369,6 +378,74 @@ function ContactPage() {
 								}
 							/>
 						</div>
+						{!contact.unsubscribed && (
+							<div className="flex items-center justify-between gap-4 text-sm">
+								<label htmlFor="c-pace">
+									<span className="font-medium">How often</span>
+									<span className="block text-muted-foreground">
+										{contact.paused_until &&
+										contact.paused_until > new Date().toISOString()
+											? `Paused until ${formatDateTime(contact.paused_until)}: no broadcasts or automation emails.`
+											: "They can change it on their preferences page too."}
+									</span>
+								</label>
+								<Select
+									disabled={!canManage}
+									value={
+										contact.paused_until &&
+										contact.paused_until > new Date().toISOString()
+											? "pause"
+											: (contact.pace ?? "all")
+									}
+									onValueChange={(v) =>
+										run(
+											() =>
+												saveContactFn({
+													data: {
+														brand,
+														id: contact.id,
+														fields: {
+															email: contact.email,
+															first_name: contact.first_name,
+															last_name: contact.last_name,
+															...(v === "pause"
+																? {
+																		paused_until: new Date(
+																			Date.now() +
+																				30 * 86_400_000,
+																		).toISOString(),
+																	}
+																: {
+																		pace:
+																			v === "all"
+																				? null
+																				: (v as
+																						| "weekly"
+																						| "monthly"),
+																		paused_until: null,
+																	}),
+														},
+													},
+												}),
+											"Saved",
+										)
+									}
+								>
+									<SelectTrigger
+										id="c-pace"
+										className="w-52"
+									>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="all">Every broadcast</SelectItem>
+										<SelectItem value="weekly">At most one a week</SelectItem>
+										<SelectItem value="monthly">At most one a month</SelectItem>
+										<SelectItem value="pause">Paused for 30 days</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+						)}
 					</Card>
 					{data.referrals && (
 						<ReferralCard

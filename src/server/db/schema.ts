@@ -1413,6 +1413,13 @@ export const contacts = sqliteTable(
 		referred_by: text("referred_by"),
 		/** Sign-ups confirmed through their link. */
 		referrals: integer("referrals").notNull().default(0),
+		/**
+		 * How often they want broadcasts, from the preferences page: "weekly" or "monthly" (at most
+		 * one in 7 or 30 days); null: every one.
+		 */
+		pace: text("pace"),
+		/** No broadcasts or automation emails until then (they paused from the preferences page). */
+		paused_until: text("paused_until"),
 		created_at: text("created_at").notNull(),
 		updated_at: text("updated_at").notNull(),
 	},
