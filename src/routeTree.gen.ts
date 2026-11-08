@@ -25,6 +25,8 @@ import { Route as AppDocsRouteImport } from './routes/_app/docs'
 import { Route as AppRecipientsRouteImport } from './routes/_app/recipients'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as OauthAuthorizeRouteImport } from './routes/oauth.authorize'
+import { Route as AppArticlesIndexRouteImport } from './routes/_app/articles.index'
+import { Route as AppArticlesIdRouteImport } from './routes/_app/articles.$id'
 import { Route as AppAutomationsIndexRouteImport } from './routes/_app/automations.index'
 import { Route as AppAutomationsIdRouteImport } from './routes/_app/automations.$id'
 import { Route as AppBrandsIndexRouteImport } from './routes/_app/brands.index'
@@ -147,6 +149,16 @@ const OauthAuthorizeRoute = OauthAuthorizeRouteImport.update({
   id: '/oauth/authorize',
   path: '/oauth/authorize',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppArticlesIndexRoute = AppArticlesIndexRouteImport.update({
+  id: '/articles/',
+  path: '/articles/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppArticlesIdRoute = AppArticlesIdRouteImport.update({
+  id: '/articles/$id',
+  path: '/articles/$id',
+  getParentRoute: () => AppRoute,
 } as any)
 const AppAutomationsIndexRoute = AppAutomationsIndexRouteImport.update({
   id: '/automations/',
@@ -380,6 +392,7 @@ export interface FileRoutesByFullPath {
   '/recipients': typeof AppRecipientsRoute
   '/settings': typeof AppSettingsRoute
   '/oauth/authorize': typeof OauthAuthorizeRoute
+  '/articles/$id': typeof AppArticlesIdRoute
   '/automations/$id': typeof AppAutomationsIdRoute
   '/brands/$id': typeof AppBrandsIdRoute
   '/broadcasts/$id': typeof AppBroadcastsIdRoute
@@ -400,6 +413,7 @@ export interface FileRoutesByFullPath {
   '/templates/$id': typeof AppTemplatesIdRoute
   '/webhooks/$id': typeof AppWebhooksIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/articles/': typeof AppArticlesIndexRoute
   '/automations/': typeof AppAutomationsIndexRoute
   '/brands/': typeof AppBrandsIndexRoute
   '/broadcasts/': typeof AppBroadcastsIndexRoute
@@ -440,6 +454,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AppSettingsRoute
   '/oauth/authorize': typeof OauthAuthorizeRoute
   '/': typeof AppIndexRoute
+  '/articles/$id': typeof AppArticlesIdRoute
   '/automations/$id': typeof AppAutomationsIdRoute
   '/brands/$id': typeof AppBrandsIdRoute
   '/broadcasts/$id': typeof AppBroadcastsIdRoute
@@ -460,6 +475,7 @@ export interface FileRoutesByTo {
   '/templates/$id': typeof AppTemplatesIdRoute
   '/webhooks/$id': typeof AppWebhooksIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/articles': typeof AppArticlesIndexRoute
   '/automations': typeof AppAutomationsIndexRoute
   '/brands': typeof AppBrandsIndexRoute
   '/broadcasts': typeof AppBroadcastsIndexRoute
@@ -502,6 +518,7 @@ export interface FileRoutesById {
   '/_app/settings': typeof AppSettingsRoute
   '/oauth/authorize': typeof OauthAuthorizeRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/articles/$id': typeof AppArticlesIdRoute
   '/_app/automations/$id': typeof AppAutomationsIdRoute
   '/_app/brands/$id': typeof AppBrandsIdRoute
   '/_app/broadcasts/$id': typeof AppBroadcastsIdRoute
@@ -522,6 +539,7 @@ export interface FileRoutesById {
   '/_app/templates/$id': typeof AppTemplatesIdRoute
   '/_app/webhooks/$id': typeof AppWebhooksIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/_app/articles/': typeof AppArticlesIndexRoute
   '/_app/automations/': typeof AppAutomationsIndexRoute
   '/_app/brands/': typeof AppBrandsIndexRoute
   '/_app/broadcasts/': typeof AppBroadcastsIndexRoute
@@ -564,6 +582,7 @@ export interface FileRouteTypes {
     | '/recipients'
     | '/settings'
     | '/oauth/authorize'
+    | '/articles/$id'
     | '/automations/$id'
     | '/brands/$id'
     | '/broadcasts/$id'
@@ -584,6 +603,7 @@ export interface FileRouteTypes {
     | '/templates/$id'
     | '/webhooks/$id'
     | '/api/auth/$'
+    | '/articles/'
     | '/automations/'
     | '/brands/'
     | '/broadcasts/'
@@ -624,6 +644,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/oauth/authorize'
     | '/'
+    | '/articles/$id'
     | '/automations/$id'
     | '/brands/$id'
     | '/broadcasts/$id'
@@ -644,6 +665,7 @@ export interface FileRouteTypes {
     | '/templates/$id'
     | '/webhooks/$id'
     | '/api/auth/$'
+    | '/articles'
     | '/automations'
     | '/brands'
     | '/broadcasts'
@@ -685,6 +707,7 @@ export interface FileRouteTypes {
     | '/_app/settings'
     | '/oauth/authorize'
     | '/_app/'
+    | '/_app/articles/$id'
     | '/_app/automations/$id'
     | '/_app/brands/$id'
     | '/_app/broadcasts/$id'
@@ -705,6 +728,7 @@ export interface FileRouteTypes {
     | '/_app/templates/$id'
     | '/_app/webhooks/$id'
     | '/api/auth/$'
+    | '/_app/articles/'
     | '/_app/automations/'
     | '/_app/brands/'
     | '/_app/broadcasts/'
@@ -855,6 +879,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/oauth/authorize'
       preLoaderRoute: typeof OauthAuthorizeRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_app/articles/': {
+      id: '/_app/articles/'
+      path: '/articles'
+      fullPath: '/articles/'
+      preLoaderRoute: typeof AppArticlesIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/articles/$id': {
+      id: '/_app/articles/$id'
+      path: '/articles/$id'
+      fullPath: '/articles/$id'
+      preLoaderRoute: typeof AppArticlesIdRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/automations/': {
       id: '/_app/automations/'
@@ -1169,6 +1207,7 @@ interface AppRouteChildren {
   AppRecipientsRoute: typeof AppRecipientsRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppArticlesIdRoute: typeof AppArticlesIdRoute
   AppAutomationsIdRoute: typeof AppAutomationsIdRoute
   AppBrandsIdRoute: typeof AppBrandsIdRoute
   AppBroadcastsIdRoute: typeof AppBroadcastsIdRoute
@@ -1188,6 +1227,7 @@ interface AppRouteChildren {
   AppSuppressionsIdRoute: typeof AppSuppressionsIdRoute
   AppTemplatesIdRoute: typeof AppTemplatesIdRoute
   AppWebhooksIdRoute: typeof AppWebhooksIdRoute
+  AppArticlesIndexRoute: typeof AppArticlesIndexRoute
   AppAutomationsIndexRoute: typeof AppAutomationsIndexRoute
   AppBrandsIndexRoute: typeof AppBrandsIndexRoute
   AppBroadcastsIndexRoute: typeof AppBroadcastsIndexRoute
@@ -1222,6 +1262,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppRecipientsRoute: AppRecipientsRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppIndexRoute: AppIndexRoute,
+  AppArticlesIdRoute: AppArticlesIdRoute,
   AppAutomationsIdRoute: AppAutomationsIdRoute,
   AppBrandsIdRoute: AppBrandsIdRoute,
   AppBroadcastsIdRoute: AppBroadcastsIdRoute,
@@ -1241,6 +1282,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSuppressionsIdRoute: AppSuppressionsIdRoute,
   AppTemplatesIdRoute: AppTemplatesIdRoute,
   AppWebhooksIdRoute: AppWebhooksIdRoute,
+  AppArticlesIndexRoute: AppArticlesIndexRoute,
   AppAutomationsIndexRoute: AppAutomationsIndexRoute,
   AppBrandsIndexRoute: AppBrandsIndexRoute,
   AppBroadcastsIndexRoute: AppBroadcastsIndexRoute,

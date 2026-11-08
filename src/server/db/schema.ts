@@ -2282,3 +2282,73 @@ export const brandKits = sqliteTable("brand_kits", {
 	updated_by: text("updated_by"),
 	updated_at: text("updated_at").notNull(),
 });
+
+/** A brand's help center (src/server/help-center.ts): its public address and words. */
+export const helpCenters = sqliteTable("help_centers", {
+	/** The brand's id. */
+	organization_id: text("organization_id")
+		.primaryKey()
+		.references(() => organization.id, { onDelete: "cascade" }),
+	/** Its public address: /help/<slug>. Unique across the deployment. */
+	slug: text("slug").notNull().unique(),
+	title: text("title").notNull(),
+	intro: text("intro"),
+	/** Off: its pages and the chat's suggestions are gone (the articles stay). */
+	enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+	accent: text("accent"),
+	updated_by: text("updated_by"),
+	created_at: text("created_at").notNull(),
+	updated_at: text("updated_at").notNull(),
+});
+
+/** An article of a brand's help center, written in the email editor. */
+export const helpArticles = sqliteTable(
+	"help_articles",
+	{
+		id: text("id").primaryKey(),
+		/** The brand's id. */
+		organization_id: orgId(),
+		slug: text("slug").notNull(),
+		title: text("title").notNull(),
+		/** One line under the title, in lists, search and the chat. */
+		description: text("description"),
+		category: text("category"),
+		design: text("design", { mode: "json" }).$type<EmailDoc>(),
+		html: text("html").notNull().default(""),
+		/** The words, for search. */
+		text: text("text").notNull().default(""),
+		status: text("status").notNull().default("draft"),
+		views: integer("views").notNull().default(0),
+		helpful: integer("helpful").notNull().default(0),
+		unhelpful: integer("unhelpful").notNull().default(0),
+		created_by: text("created_by"),
+		published_at: text("published_at"),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [
+		uniqueIndex("help_articles_slug_idx").on(t.organization_id, t.slug),
+		index("help_articles_org_idx").on(t.organization_id, t.status),
+	],
+);
+
+/** Questions people asked the help center or the chat that no article answered. */
+export const helpGaps = sqliteTable(
+	"help_gaps",
+	{
+		/** The brand's id. */
+		organization_id: orgId(),
+		/** The question, tidied (lowercase, spaces). */
+		query: text("query").notNull(),
+		/** As they first wrote it. */
+		example: text("example").notNull(),
+		count: integer("count").notNull().default(1),
+		/** chat | search */
+		source: text("source").notNull(),
+		last_at: text("last_at").notNull(),
+	},
+	(t) => [
+		primaryKey({ columns: [t.organization_id, t.query] }),
+		index("help_gaps_last_idx").on(t.organization_id, t.last_at),
+	],
+);

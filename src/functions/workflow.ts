@@ -156,6 +156,30 @@ export const listSavedRepliesFn = createServerFn({ method: "GET" })
 				brands,
 				own: context.organizationId,
 				variables: VARIABLES.map((v) => ({ ...v })),
+				/** Published help center articles, to link from a reply. */
+				articles: await (async () => {
+					const hc = await import("@/server/help-center");
+					const ids = brands.length ? brands.map((b) => b.id) : [context.organizationId];
+					const rows = await hc.listArticles(ids, { status: "published" });
+					const centers = new Map(
+						await Promise.all(
+							[...new Set(rows.map((r) => r.organization_id))].map(
+								async (id) => [id, await hc.helpCenterOf(id)] as const,
+							),
+						),
+					);
+					return rows
+						.map((a) => {
+							const c = centers.get(a.organization_id) ?? null;
+							return {
+								id: a.id,
+								title: a.title,
+								brand_id: a.organization_id,
+								url: c?.enabled ? hc.articleUrl(c, a) : null,
+							};
+						})
+						.filter((a): a is typeof a & { url: string } => !!a.url);
+				})(),
 			};
 		}),
 	);

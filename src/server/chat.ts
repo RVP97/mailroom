@@ -233,6 +233,8 @@ export const chatDesign = z.object({
 	/** A newsletter in the chat: its sign-up and its latest issue, and a signed-in visitor sees
 	 * whether they're subscribed and can change it. */
 	newsletter_id: shortText(64).nullish(),
+	/** After the visitor's first message, the brand's help center articles that may answer it. */
+	suggest_articles: z.boolean().optional(),
 });
 export type ChatDesign = z.infer<typeof chatDesign>;
 
@@ -279,6 +281,7 @@ export const DESIGN_DEFAULTS: Required<{
 	topics: [],
 	popups: [],
 	newsletter_id: null,
+	suggest_articles: true,
 };
 
 /** The default texts of a chat in Spanish (design.language "es"). */

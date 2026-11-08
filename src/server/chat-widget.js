@@ -111,6 +111,9 @@ function mailroomChat(c) {
 		"Done! You're subscribed.": "¡Listo! Ya está suscrito.",
 		"Chat with us": "Chatee con nosotros",
 		Close: "Cerrar",
+		"While you wait, these may help:": "Mientras tanto, esto puede ayudarle:",
+		"All help articles": "Todos los artículos de ayuda",
+		"Help center": "Centro de ayuda",
 	};
 	/** The server's errors, by code (its messages are in English). */
 	var ES_ERRORS = {
@@ -429,6 +432,8 @@ function mailroomChat(c) {
 			".nl{position:relative}.nl .nh{display:flex;gap:10px;align-items:center;margin-bottom:6px;padding-right:22px}.nl .nh span{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:none;background:color-mix(in srgb,var(--accent) 14%,var(--panel));color:var(--accent)}.nl .nh b{font-size:14.5px}" +
 			".nl .nd{font-size:13.5px;color:var(--muted);margin:0 0 10px}.nl .latest{display:block;padding:10px 12px;border-radius:10px;background:var(--soft);color:var(--text);text-decoration:none;margin-bottom:10px}.nl .latest:hover{background:var(--soft2)}.nl .latest small{display:block;font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}.nl .latest b{font-size:14px;font-weight:600}" +
 			".nl .state{font-size:13.5px;color:var(--muted);margin:0 0 8px}.nl .state b{color:var(--text)}.nl .more{display:flex;gap:12px;margin-top:10px}.nl .x{position:absolute;top:8px;right:8px;width:24px;height:24px;border-radius:6px;display:grid;place-items:center;color:var(--muted)}.nl .x:hover{background:var(--soft)}" +
+			// The help center's suggestions
+			".sug .sl{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}.sug .sl a{display:block;padding:10px 12px;border-radius:10px;background:var(--soft);color:var(--text);text-decoration:none}.sug .sl a:hover{background:var(--soft2)}.sug .sl b{display:block;font-size:14px;font-weight:600}.sug .sl span{display:block;font-size:12.5px;color:var(--muted);margin-top:2px}" +
 			// A banner across the top of the page, or a pop-up in the middle
 			".bar{position:fixed;top:0;left:0;right:0;z-index:2147483000;background:var(--accent);color:var(--on-accent);padding:10px 48px 10px 16px;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:center;font-size:14.5px;box-shadow:0 2px 12px rgba(0,0,0,.15);animation:pop .25s ease}" +
 			".bar .pt{font-weight:700}.bar .pa{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.bar .btn{height:34px;background:var(--on-accent);color:var(--accent)}.bar .in{height:34px;max-width:220px;background:#fff;color:#111;border:0}.bar .px a{color:inherit}.bar .x{position:absolute;top:50%;right:10px;transform:translateY(-50%);width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:inherit}.bar .x:hover{background:rgba(255,255,255,.18)}.bar .err{color:inherit;font-weight:600}.bar .ok{font-weight:600}" +
@@ -1179,6 +1184,7 @@ function mailroomChat(c) {
 		}
 		if (showTopics()) cards.appendChild(topicsEl());
 		if (showNewsletter()) cards.appendChild(newsletterCard());
+		if (suggested && !answered()) cards.appendChild(suggestCard());
 		// An agent answers: the visitor can ask for a person at any time.
 		if (state.conversation && state.conversation.with_agent)
 			cards.appendChild(
@@ -2003,6 +2009,14 @@ function mailroomChat(c) {
 					scrollDown();
 				},
 			});
+		if (cfg.help)
+			items.push({
+				icon: ICON.help,
+				text: T("Help center"),
+				run: () => {
+					window.open(cfg.help.url, "_blank", "noopener");
+				},
+			});
 		if (cfg.newsletter)
 			items.push({
 				icon: ICON.mail,
@@ -2264,6 +2278,7 @@ function mailroomChat(c) {
 		state.messages = [];
 		state.awayShown = false;
 		state.popup = null;
+		suggested = null;
 		disconnect();
 		render();
 		setComposer();
@@ -2489,6 +2504,7 @@ function mailroomChat(c) {
 				remember();
 				connect();
 				afterFirst();
+				if (m.topic == null) suggest(m.text);
 				// Files picked before there was a chat go now.
 				waiting.splice(0).forEach(upload);
 			} else {
@@ -2522,6 +2538,47 @@ function mailroomChat(c) {
 	}
 
 	/** After the first message: the away note when nobody's connected, then the email card. */
+	// The help center's articles that may answer the first message, while a person is on the way.
+	var suggested = null;
+	function answered() {
+		return state.messages.some(
+			(x) => x.author !== "visitor" && x.author !== "system" && !x.local,
+		);
+	}
+	function suggest(text) {
+		if (!cfg.help || !text || cfg.preview) return;
+		api("GET", "/articles?record=1&q=" + encodeURIComponent(String(text).slice(0, 500)))
+			.then((r) => {
+				if (!r.articles || !r.articles.length || answered()) return;
+				suggested = r.articles;
+				renderCards();
+				scrollDown();
+			})
+			.catch(() => {});
+	}
+	function suggestCard() {
+		return h("div", { class: "card sug" }, [
+			h("p", { text: T("While you wait, these may help:") }),
+			h(
+				"div",
+				{ class: "sl" },
+				suggested.map((a) =>
+					h("a", { href: a.url, target: "_blank", rel: "noopener" }, [
+						h("b", { text: a.title }),
+						a.description ? h("span", { text: a.description }) : null,
+					]),
+				),
+			),
+			h("a", {
+				class: "link",
+				href: cfg.help.url,
+				target: "_blank",
+				rel: "noopener",
+				text: T("All help articles"),
+			}),
+		]);
+	}
+
 	function afterFirst() {
 		setTimeout(() => {
 			// Outside business hours it's said even when someone happens to be here.

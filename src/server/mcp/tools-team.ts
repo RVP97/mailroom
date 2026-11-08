@@ -765,6 +765,7 @@ export const TEAM_TOOLS: Tool[] = [
 				"newsletters:edit",
 				"brands:edit",
 				"forms:edit",
+				"help:edit",
 				"settings:manage",
 			] as const;
 			if (!uploaders.some((p) => org.access.can(p))) throw forbidden(org);

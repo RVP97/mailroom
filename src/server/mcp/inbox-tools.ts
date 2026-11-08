@@ -445,6 +445,34 @@ export const INBOX_TOOLS: InboxTool[] = [
 			(await listSavedReplies(actor, { inbox: str(a.inbox) })).map(savedReplyView),
 	},
 	{
+		name: "find_help_articles",
+		title: "Find help center articles",
+		description:
+			"The help center's published articles that best answer a question (q), or all of them: title, summary, address and their words. Answer from them and link the article (its url) rather than writing a long answer.",
+		input: { q: z.string().max(500).optional() },
+		needs: "read",
+		readOnly: true,
+		run: async (a, actor) => {
+			const hc = await import("../help-center");
+			const q = str(a.q);
+			const rows = q
+				? (
+						await Promise.all(
+							actor.brands.map(
+								async (b) => (await hc.searchArticles(b, q, { limit: 8 })).results,
+							),
+						)
+					).flat()
+				: await hc.listArticles(actor.brands, { status: "published" });
+			const out = [];
+			for (const r of rows) {
+				const c = await hc.helpCenterOf(r.organization_id);
+				out.push({ ...hc.articleView(r, c, false), text: r.text.slice(0, 4000) });
+			}
+			return out;
+		},
+	},
+	{
 		name: "wait_for_messages",
 		title: "Wait for new mail",
 		description:

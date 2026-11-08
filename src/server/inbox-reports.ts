@@ -450,6 +450,10 @@ export async function inboxReport(actor: InboxActor, o: ReportInput = {}) {
 		by_tag: byTag,
 		by_channel: byChannel,
 		by_priority: byPriority,
+		/** What people asked the chat or the help center's search that no article answered. */
+		no_article: await import("./help-center").then((m) =>
+			m.helpGaps(actor.brands, Math.max(span, 1), now, 10),
+		),
 		/** It read CAP rows of something: older or busier data may be left out. */
 		capped: [started, resolvedRows, replies, inbound].some((r) => r.length >= CAP),
 	};

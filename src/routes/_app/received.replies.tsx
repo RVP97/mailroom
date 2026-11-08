@@ -95,6 +95,7 @@ function SavedRepliesSketch() {
 					brands: [],
 					own: "",
 					variables: [],
+					articles: [],
 				} satisfies Data
 			}
 		>
@@ -495,6 +496,34 @@ function ReplyDialog({
 								</button>
 							))}
 						</span>
+						{data.articles.some((a) => a.brand_id === d.brand) && (
+							<Select
+								value=""
+								onValueChange={(id) => {
+									const a = data.articles.find((x) => x.id === id);
+									if (a) insert(`${a.title}: ${a.url}`);
+								}}
+							>
+								<SelectTrigger
+									aria-label="Link a help article"
+									className="w-full sm:w-72"
+								>
+									<SelectValue placeholder="Link a help article…" />
+								</SelectTrigger>
+								<SelectContent>
+									{data.articles
+										.filter((a) => a.brand_id === d.brand)
+										.map((a) => (
+											<SelectItem
+												key={a.id}
+												value={a.id}
+											>
+												{a.title}
+											</SelectItem>
+										))}
+								</SelectContent>
+							</Select>
+						)}
 					</Field>
 					{d.text.includes("{{") && (
 						<div className="rounded-lg bg-muted/60 px-4 py-3 text-sm whitespace-pre-wrap">

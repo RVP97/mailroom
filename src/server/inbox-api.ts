@@ -326,6 +326,48 @@ export const agentRoutes: [string, RegExp, Handler][] = [
 		/^\/saved-replies\/(?<id>[^/]+)$/,
 		async (_req, actor, p) => json(savedReplyView(await savedReplyFor(actor, p.id as string))),
 	],
+	// The brands' published help center articles: what an agent answers from, and links to.
+	[
+		"GET",
+		/^\/articles$/,
+		async (_req, actor, _p, url) => {
+			const hc = await import("./help-center");
+			const q = (url.searchParams.get("q") ?? "").slice(0, 500);
+			const rows = q
+				? (
+						await Promise.all(
+							actor.brands.map(
+								async (b) => (await hc.searchArticles(b, q, { limit: 10 })).results,
+							),
+						)
+					).flat()
+				: await hc.listArticles(actor.brands, { status: "published" });
+			const centers = new Map<string, Awaited<ReturnType<typeof hc.helpCenterOf>>>();
+			for (const b of new Set(rows.map((r) => r.organization_id)))
+				centers.set(b, await hc.helpCenterOf(b));
+			return json({
+				object: "list",
+				data: rows.map((a) => ({
+					...hc.articleView(a, centers.get(a.organization_id) ?? null, false),
+					text: a.text.slice(0, 4000),
+				})),
+			});
+		},
+	],
+	[
+		"GET",
+		/^\/articles\/(?<id>[^/]+)$/,
+		async (_req, actor, p) => {
+			const hc = await import("./help-center");
+			const a = await hc.getArticle(actor.brands, p.id as string);
+			if (a.status !== "published") throw new ApiError(404, "not_found", "Article not found");
+			const { design: _d, ...view } = hc.articleView(
+				a,
+				await hc.helpCenterOf(a.organization_id),
+			);
+			return json(view);
+		},
+	],
 	[
 		"GET",
 		/^\/messages\/wait$/,

@@ -144,6 +144,7 @@ import {
 } from "./kit";
 import { AUDIENCE_TOOLS } from "./tools-audience";
 import { CONTENT_TOOLS } from "./tools-content";
+import { HELP_TOOLS } from "./tools-help";
 import { SETTINGS_TOOLS } from "./tools-settings";
 import { TEAM_TOOLS } from "./tools-team";
 
@@ -2158,4 +2159,5 @@ export const TOOLS: Tool[] = [
 	...AUDIENCE_TOOLS,
 	...CONTENT_TOOLS,
 	...SETTINGS_TOOLS,
+	...HELP_TOOLS,
 ];

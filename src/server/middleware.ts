@@ -109,6 +109,9 @@ const LOGGED: Record<string, [action: string, subject: string]> = {
 	removeBrandFn: ["brand.removed", "brand"],
 	saveNewsletterFn: ["newsletter.edited", "newsletter"],
 	deleteNewsletterFn: ["newsletter.deleted", "newsletter"],
+	saveArticleFn: ["article.edited", "article"],
+	deleteArticleFn: ["article.deleted", "article"],
+	saveHelpCenterFn: ["help_center.edited", "help_center"],
 	saveCampaignFn: ["campaign.edited", "campaign"],
 	deleteCampaignFn: ["campaign.deleted", "campaign"],
 	saveFormFn: ["form.edited", "form"],
@@ -151,7 +154,7 @@ function subjectOf(data: unknown) {
 	};
 	return {
 		id: pick("id", "brand", "domain"),
-		name: pick("name", "email", "address", "url", "domain", "subject"),
+		name: pick("name", "email", "address", "url", "domain", "subject", "title"),
 	};
 }
 

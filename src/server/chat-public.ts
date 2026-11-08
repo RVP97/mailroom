@@ -54,6 +54,8 @@ import { ApiError } from "./errors";
  *   POST /chat/<key>/rate          the visitor's rating, 1-5, and a comment
  *   POST /chat/<key>/history       the visitor's chats: { tokens, identity? }
  *   POST /chat/<key>/handoff       the visitor asks for a person (an agent has the chat)
+ *   GET  /chat/<key>/articles      ?q=: the help center's articles that answer it (&record=1:
+ *                                  a question nothing answers is kept for the inbox report)
  *   POST /chat/<key>/audience      { identity }: the segment messages for this person, and
  *                                  whether they get the chat's newsletter
  *   POST /chat/<key>/subscribe     the chat's newsletter: { identity, action } at once, or
@@ -281,6 +283,26 @@ export async function handleChat(request: Request, now = Date.now()): Promise<Re
 				const conversations = await visitorHistory(w, await readJson(request), now);
 				return json({ conversations }, { headers });
 			}
+			case "GET articles": {
+				// The help center's answers to what the visitor wrote (before a person answers).
+				const q = (url.searchParams.get("q") ?? "").slice(0, 500);
+				const { searchArticles, articleUrl } = await import("./help-center");
+				const { center, results } = await searchArticles(w.inbox.organization_id, q, {
+					limit: 3,
+					gap: url.searchParams.get("record") === "1" ? "chat" : undefined,
+					now,
+				});
+				return json(
+					{
+						articles: results.map((a) => ({
+							title: a.title,
+							description: a.description,
+							url: articleUrl(center, a),
+						})),
+					},
+					{ headers },
+				);
+			}
 			case "POST audience": {
 				const { visitorAudience } = await import("./chat-marketing");
 				return json(await visitorAudience(w, await readJson(request), now), { headers });
@@ -499,6 +521,13 @@ export async function publicConfig(w: NonNullable<Awaited<ReturnType<typeof widg
 			targeted: !!p.segment_id,
 		})),
 		newsletter: await import("./chat-marketing").then((m) => m.chatNewsletter(w)),
+		// The brand's help center, when it's on: the chat suggests its articles.
+		help: await import("./help-center").then(async (m) => {
+			const c = await m.helpCenterOf(w.inbox.organization_id);
+			return c?.enabled && d.suggest_articles !== false
+				? { url: m.helpUrl(c.slug), title: c.title }
+				: null;
+		}),
 		show_hours: d.show_hours,
 		// The inbox's business hours (its workflow): the widget works out "back at 9" itself.
 		hours: d.show_hours ? settingsOf(w.inbox).sla.business_hours : null,

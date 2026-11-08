@@ -149,6 +149,13 @@ An organization that should be fully apart can optionally use its own SES accoun
   top of the page or as a pop-up in the middle, with a heading, a button and an email field for
   the newsletter, and can be kept for one segment (a live one stays current). Who a message is for
   never reaches the page: the widget asks Mailroom with the visitor's signed token.
+- **Help center**: each brand's public articles at `/help/<slug>` (on the brand's own host too),
+  written in the email editor, grouped by category, with search and a "Did this answer your
+  question?" vote. After a visitor's first message the website chat suggests up to three
+  articles that may answer it; saved replies can link one; agent credentials read them
+  (`GET /api/articles?q=`, `GET /api/articles/:id`, MCP `find_help_articles`). Questions the
+  chat or the search couldn't answer are kept and listed on the Help center page and in the inbox
+  report, with a button to write the missing article.
   `GET /api/contacts/:id/timeline` and `GET /api/contacts/:id/events` (`?event=`) read them.
 - **Automations**, built on a canvas: when a contact is added, joins a segment, opens a broadcast,
   clicks a link in one, or your app sends an event (`POST /api/events`), wait, branch on a check

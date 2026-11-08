@@ -1598,6 +1598,14 @@ function MessagesPanel({
 					</Button>
 				)}
 			</Group>
+			<Group title="Help center">
+				<SwitchRow
+					label="Suggest articles"
+					hint="After the visitor's first message, up to three published articles from your help center that may answer it, while a person is on the way. Questions nothing answers show up on the Help center page."
+					checked={d.suggest_articles !== false}
+					onChange={(suggest_articles) => look({ suggest_articles })}
+				/>
+			</Group>
 			<Group title="Newsletter">
 				<p className="text-xs text-muted-foreground">
 					A card in the chat with your newsletter's latest issue and a sign-up. Visitors

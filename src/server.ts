@@ -96,6 +96,11 @@ async function publicPage(request: Request, url: URL): Promise<Response | null> 
 		const { handleNewsletterPage } = await import("./server/newsletters");
 		return secured(await handleNewsletterPage(request));
 	}
+	// Each brand's help center (src/server/help-center.ts).
+	if (url.pathname.startsWith("/help/")) {
+		const { handleHelpPage } = await import("./server/help-center");
+		return secured(await handleHelpPage(request));
+	}
 	// A subscriber's referral link (src/server/referrals.ts).
 	const referral = /^\/r\/([A-Za-z0-9]{1,32})$/.exec(url.pathname);
 	if (referral?.[1] && request.method === "GET") {

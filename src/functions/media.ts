@@ -17,6 +17,7 @@ const UPLOADERS: Permission[] = [
 	"newsletters:edit",
 	"brands:edit",
 	"forms:edit",
+	"help:edit",
 	"settings:manage",
 ];
 

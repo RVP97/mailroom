@@ -414,6 +414,13 @@
       "when": 1794158483442,
       "tag": "0058_contact_pace",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "6",
+      "when": 1794160156863,
+      "tag": "0059_help_center",
+      "breakpoints": true
     }
   ]
 }

@@ -133,6 +133,7 @@ function ReportsSketch() {
 					by_tag: [],
 					by_channel: [],
 					by_priority: [],
+					no_article: [],
 					capped: false,
 					brands: [],
 				} satisfies Data
@@ -170,6 +171,7 @@ const CARDS = [
 	{ id: "inboxes", label: "By inbox" },
 	{ id: "tags", label: "By tag" },
 	{ id: "priority", label: "By priority and channel" },
+	{ id: "articles", label: "Questions with no article" },
 ] as const;
 type CardId = (typeof CARDS)[number]["id"];
 type Layout = { order: CardId[]; hidden: CardId[] };
@@ -502,6 +504,7 @@ function Reports() {
 		inboxes: <ByInbox data={data} />,
 		tags: <ByTag data={data} />,
 		priority: <ByPriority data={data} />,
+		articles: <NoArticle data={data} />,
 	};
 	const exportCsv = () =>
 		downloadCsv(`inbox-report-${data.from}-${data.to}.csv`, [
@@ -1165,6 +1168,48 @@ function ByTag({ data }: { data: Data }) {
 				...x,
 			}))}
 		/>
+	);
+}
+
+function NoArticle({ data }: { data: Data }) {
+	return (
+		<Card className="gap-3 px-5 py-4">
+			<div className="flex items-start justify-between gap-3">
+				<div>
+					<h2 className="font-medium">Questions with no article</h2>
+					<p className="text-sm text-muted-foreground">
+						What people asked the website chat or searched your help center for that no
+						published article answered.
+					</p>
+				</div>
+				<Link
+					to="/articles"
+					className="shrink-0 text-sm text-muted-foreground hover:text-foreground"
+				>
+					Help center
+				</Link>
+			</div>
+			{data.no_article.length === 0 ? (
+				<p className="text-sm text-muted-foreground">
+					None in this range. Every question found an article, or nobody asked yet.
+				</p>
+			) : (
+				<ul className="divide-y">
+					{data.no_article.map((g) => (
+						<li
+							key={`${g.brand_id}:${g.question}`}
+							className="flex items-center gap-3 py-2 text-sm"
+						>
+							<span className="min-w-0 flex-1 truncate">“{g.question}”</span>
+							<span className="shrink-0 text-muted-foreground tabular-nums">
+								{g.times === 1 ? "once" : `${g.times}×`} ·{" "}
+								{g.source === "chat" ? "chat" : "search"}
+							</span>
+						</li>
+					))}
+				</ul>
+			)}
+		</Card>
 	);
 }
 

@@ -20,6 +20,7 @@ export const STATEMENTS = {
 	forms: ["edit"],
 	automations: ["edit", "activate"],
 	inbox: ["reply", "rules", "agents"],
+	help: ["edit"],
 	emails: ["unmasked"],
 	recipients: ["unblock", "block"],
 	brands: ["edit"],
@@ -132,6 +133,7 @@ export const CATALOG: CatalogGroup[] = [
 		actions: [
 			{ id: "inbox:reply", label: "Reply to received email" },
 			{ id: "inbox:rules", label: "Edit inbound rules" },
+			{ id: "help:edit", label: "Write help center articles", hint: "And publish them" },
 			{
 				id: "inbox:agents",
 				label: "Set up agent inboxes",
@@ -235,6 +237,7 @@ export const STARTER_ROLES: RoleDefinition[] = [
 			"contacts:edit",
 			"contacts:import",
 			"forms:edit",
+			"help:edit",
 			"activity:view",
 		],
 		starter: true,
@@ -244,7 +247,7 @@ export const STARTER_ROLES: RoleDefinition[] = [
 		name: "Writer",
 		description: "Writes and designs email, then asks for review; doesn't send.",
 		all: false,
-		permissions: ["broadcasts:edit", "templates:edit"],
+		permissions: ["broadcasts:edit", "templates:edit", "help:edit"],
 		starter: true,
 	},
 	{
@@ -252,7 +255,7 @@ export const STARTER_ROLES: RoleDefinition[] = [
 		name: "Support",
 		description: "Replies to received email and lets a recipient get email again.",
 		all: false,
-		permissions: ["inbox:reply", "recipients:unblock"],
+		permissions: ["inbox:reply", "recipients:unblock", "help:edit"],
 		starter: true,
 	},
 	{
