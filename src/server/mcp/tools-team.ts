@@ -25,6 +25,7 @@ import { digestEnabled, sendDigest, setDigestEnabled } from "../digest";
 import { bodyRetentionDays, inboundRetentionDays, logRetentionDays } from "../env";
 import { ApiError } from "../errors";
 import {
+	applyKitEverywhere,
 	deleteSection,
 	getKit,
 	listSections,
@@ -729,12 +730,13 @@ export const TEAM_TOOLS: Tool[] = [
 		name: "save_brand_kit",
 		title: "Save a brand kit",
 		description:
-			'Sets a brand\'s kit. kit: { colors: [{ name, value: "#rrggbb" }], background, surface, text, heading, accent, button_text (all "#rrggbb"), font, heading_font (modern, inter, helvetica, georgia, book, mono, or the family of one of `fonts`), fonts: [{ family, url (a WOFF2 from upload_file), fallback, weight }], radius (px), locked }. What\'s missing takes the default. remove: true deletes the kit.',
+			'Sets a brand\'s kit. kit: { colors: [{ name, value: "#rrggbb" }], background, surface, text, heading, accent, button_text (all "#rrggbb"), font, heading_font (modern, inter, helvetica, georgia, book, mono, or the family of one of `fonts`), fonts: [{ family, url (a WOFF2 from upload_file), fallback, weight }], radius (px), locked, everywhere (true: every save also puts its accent, and its built-in fonts, on the brand\'s sign-up forms, chat widgets, newsletter pages and help center, and the unsubscribe page follows it) }. What\'s missing takes the default. remove: true deletes the kit. apply_now: true puts the saved kit on every page once, without changing the kit.',
 		input: {
 			organization,
 			brand: oneBrand,
 			kit: z.record(z.string(), z.unknown()).optional(),
 			remove: z.boolean().optional(),
+			apply_now: z.boolean().optional(),
 		},
 		run: async (a, ctx) => {
 			const org = orgAt(ctx, a.organization, "library:edit");
@@ -743,9 +745,26 @@ export const TEAM_TOOLS: Tool[] = [
 				await removeKit(id);
 				return { brand_id: id, kit: null };
 			}
+			const everywhere =
+				a.apply_now === true ||
+				(a.kit as Record<string, unknown> | undefined)?.everywhere === true;
+			if (everywhere) {
+				const { DRESS_PERMISSIONS } = await import("../../lib/permissions");
+				for (const p of DRESS_PERMISSIONS) orgAt(ctx, a.organization, p);
+			}
+			if (a.apply_now && !a.kit) {
+				const saved = await getKit(id);
+				if (!saved)
+					throw new ApiError(409, "no_kit", "This brand has no kit yet: save one first");
+				const applied = await applyKitEverywhere(id, saved);
+				await logged(ctx, org, "brand_kit.applied", { type: "brand", id });
+				return { brand_id: id, kit: saved, applied };
+			}
 			if (!a.kit)
 				throw new ApiError(422, "validation_error", "kit: give the kit, or remove: true");
 			const kit = await saveKit(id, a.kit, ctx.userId);
+			if (a.apply_now && !kit.everywhere)
+				Object.assign(kit, { applied: await applyKitEverywhere(id, kit) });
 			await logged(ctx, org, "brand_kit.edited", { type: "brand", id });
 			return { brand_id: id, kit };
 		},

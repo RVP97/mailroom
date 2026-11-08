@@ -58,6 +58,14 @@ export const REQUIRES: Partial<Record<Permission, Permission[]>> = {
 };
 
 /** Permissions that hand out access or credentials. */
+/** What putting the brand kit on every page changes, besides the kit (library:edit). */
+export const DRESS_PERMISSIONS: Permission[] = [
+	"forms:edit",
+	"newsletters:edit",
+	"help:edit",
+	"inbox:agents",
+];
+
 export const SENSITIVE: ReadonlySet<Permission> = new Set<Permission>([
 	"team:invite",
 	"team:manage",

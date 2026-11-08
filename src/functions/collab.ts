@@ -1,5 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { DRESS_PERMISSIONS, type Permission } from "@/lib/permissions";
+import { logActivity } from "@/server/activity";
 import { brandIn, viewScope } from "@/server/brands";
 import { getBroadcast, updateBroadcast } from "@/server/broadcasts";
 import {
@@ -9,7 +11,9 @@ import {
 	listComments,
 	resolveComment,
 } from "@/server/comments";
+import { ApiError } from "@/server/errors";
 import {
+	applyKitEverywhere,
 	deleteSection,
 	getKit,
 	listSections,
@@ -22,9 +26,18 @@ import { can, orgMiddleware } from "@/server/middleware";
 import { decideReview, requestReview, withdrawReview } from "@/server/reviews";
 import { getTemplate, updateTemplate } from "@/server/templates";
 import { getVersion, listVersions, recordVersion, snapshotOf } from "@/server/versions";
-import { logActivity } from "@/server/activity";
-import type { Permission } from "@/lib/permissions";
 import { call } from "./call";
+
+/** The kit goes on forms, chat, newsletters and the help center: changing each needs its own. */
+function mayDressEverything(access: { can: (p: Permission) => boolean }) {
+	const missing = DRESS_PERMISSIONS.filter((p) => !access.can(p));
+	if (missing.length)
+		throw new ApiError(
+			403,
+			"forbidden",
+			`Putting the kit on every page also changes sign-up forms, website chat, newsletters and the help center, and you can't change all of them (${missing.join(", ")})`,
+		);
+}
 
 /** Working together on emails: comments, reviews, versions, saved sections and brand kits. */
 
@@ -298,9 +311,35 @@ export const saveKitFn = createServerFn({ method: "POST" })
 	.middleware([can("library:edit")])
 	.validator(z.object({ brand: z.string(), kit: z.record(z.string(), z.unknown()) }))
 	.handler(({ data, context }) =>
-		call(async () =>
-			saveKit(await brandIn(context.organizationId, data.brand), data.kit, context.userId),
-		),
+		call(async () => {
+			if (data.kit.everywhere === true) mayDressEverything(context.access);
+			return saveKit(
+				await brandIn(context.organizationId, data.brand),
+				data.kit,
+				context.userId,
+			);
+		}),
+	);
+
+/** The kit on every page of the brand now (whether or not it's set to follow it). */
+export const applyKitFn = createServerFn({ method: "POST" })
+	.middleware([can("library:edit")])
+	.validator(z.object({ brand: z.string() }))
+	.handler(({ data, context }) =>
+		call(async () => {
+			mayDressEverything(context.access);
+			const brand = await brandIn(context.organizationId, data.brand);
+			const kit = await getKit(brand);
+			if (!kit) throw new ApiError(409, "no_kit", "Save the brand kit first");
+			const applied = await applyKitEverywhere(brand, kit);
+			await logActivity({
+				organizationId: context.organizationId,
+				userId: context.userId,
+				action: "brand_kit.applied",
+				subject: { type: "brand", id: brand },
+			});
+			return applied;
+		}),
 	);
 
 export const removeKitFn = createServerFn({ method: "POST" })

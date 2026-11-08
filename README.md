@@ -687,6 +687,9 @@ Working together:
 - **Brand kit** (each brand's page): colors, uploaded WOFF2 fonts with a fallback, corners.
   New designs start in it, the editor offers its colors first, and locking it keeps the editor
   to it. Web fonts show in Apple Mail, iOS, Samsung Mail and Thunderbird; elsewhere the fallback.
+  "Use it on every page" makes each save put its color (and built-in fonts) on the brand's
+  sign-up forms, website chat, newsletter pages, help center and unsubscribe page too, or do it
+  once with "Put it on every page now" (MCP `save_brand_kit` with `everywhere` or `apply_now`).
 - **Inbox previews**: the broadcast preview shows roughly how Gmail (no web fonts, clipping past
   102 KB), Outlook for Windows (square corners, no background images or SVG) and Apple Mail show
   it, dark inboxes and images off, with a list of what each handles differently. They're

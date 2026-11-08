@@ -1,4 +1,4 @@
-import { DEFAULT_THEME, type FontKey, FONTS, type Theme } from "./email-doc";
+import { DEFAULT_THEME, FONTS, type FontKey, type Theme } from "./email-doc";
 
 /**
  * A brand's kit: the colors, fonts and buttons its emails are built with. Starting designs take
@@ -31,6 +31,12 @@ export type BrandKit = {
 	fonts: KitFont[];
 	radius: number;
 	locked: boolean;
+	/**
+	 * Every page of the brand follows it: saving the kit puts its color (and fonts, where they
+	 * fit) on sign-up forms, website chat, newsletter pages, the help center and the unsubscribe
+	 * page.
+	 */
+	everywhere: boolean;
 };
 
 export const DEFAULT_KIT: BrandKit = {
@@ -46,6 +52,7 @@ export const DEFAULT_KIT: BrandKit = {
 	fonts: [],
 	radius: DEFAULT_THEME.radius,
 	locked: false,
+	everywhere: false,
 };
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -54,7 +61,12 @@ const isFontKey = (v: unknown): v is FontKey => typeof v === "string" && v in FO
 const httpUrl = (v: unknown) =>
 	typeof v === "string" && /^https?:\/\/[^\s"'()<>]+$/i.test(v) ? v : null;
 const family = (v: unknown) =>
-	typeof v === "string" ? v.replace(/[^\p{L}\p{N} _-]/gu, "").trim().slice(0, 40) : "";
+	typeof v === "string"
+		? v
+				.replace(/[^\p{L}\p{N} _-]/gu, "")
+				.trim()
+				.slice(0, 40)
+		: "";
 
 /** A kit from anywhere (stored JSON, a form), cleaned. */
 export function kitOf(raw: unknown): BrandKit {
@@ -91,6 +103,7 @@ export function kitOf(raw: unknown): BrandKit {
 		fonts,
 		radius: Math.min(32, Math.max(0, Math.round(Number(x.radius ?? DEFAULT_KIT.radius)) || 0)),
 		locked: x.locked === true,
+		everywhere: x.everywhere === true,
 	};
 }
 

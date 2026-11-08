@@ -23,7 +23,26 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import { removeKitFn, saveKitFn } from "@/functions/collab";
+import { applyKitFn, removeKitFn, saveKitFn } from "@/functions/collab";
+
+/** "Now on 2 sign-up forms, 1 chat widget, …". */
+function appliedText(r: {
+	signup_forms: number;
+	chat_widgets: number;
+	newsletters: number;
+	help_center: boolean;
+}) {
+	const n = (k: number, one: string, many: string) => (k ? [`${k} ${k === 1 ? one : many}`] : []);
+	const parts = [
+		...n(r.signup_forms, "sign-up form", "sign-up forms"),
+		...n(r.chat_widgets, "chat widget", "chat widgets"),
+		...n(r.newsletters, "newsletter", "newsletters"),
+		...(r.help_center ? ["the help center"] : []),
+		"the unsubscribe page",
+	];
+	return `Now on ${parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0]}.`;
+}
+
 import { uploadMediaFn } from "@/functions/media";
 import { type BrandKit, DEFAULT_KIT, type KitFont, kitOf, kitTheme } from "@/lib/brand-kit";
 import { type EmailDoc, FONTS, type FontKey, onColor } from "@/lib/email-doc";
@@ -54,7 +73,7 @@ export function BrandKitCard({
 		setWas(saved);
 		setKit(saved ?? DEFAULT_KIT);
 	}
-	const [busy, setBusy] = useState<"save" | "remove" | "font" | null>(null);
+	const [busy, setBusy] = useState<"save" | "remove" | "font" | "apply" | null>(null);
 	const file = useRef<HTMLInputElement>(null);
 	const set = (p: Partial<BrandKit>) => setKit((k) => ({ ...k, ...p }));
 	const dirty = JSON.stringify(kitOf(kit)) !== JSON.stringify(saved ?? DEFAULT_KIT);
@@ -454,6 +473,12 @@ export function BrandKitCard({
 							checked={kit.locked}
 							onChange={(locked) => set({ locked })}
 						/>
+						<SwitchRow
+							label="Use it on every page"
+							hint="Saving the kit puts its color, and its fonts where they fit, on sign-up forms, website chat, newsletter pages, the help center and the unsubscribe page."
+							checked={kit.everywhere}
+							onChange={(everywhere) => set({ everywhere })}
+						/>
 					</div>
 					<div className="flex flex-col gap-2">
 						<span className="text-xs text-muted-foreground">
@@ -467,6 +492,28 @@ export function BrandKitCard({
 			</CardContent>
 			{canEdit && (
 				<CardFooter className="justify-end gap-2">
+					{saved && !dirty && (
+						<Button
+							variant="outline"
+							className="mr-auto"
+							disabled={!!busy}
+							onClick={async () => {
+								setBusy("apply");
+								try {
+									const r = await applyKitFn({ data: { brand } });
+									toast.success(appliedText(r));
+									await router.invalidate();
+								} catch (error) {
+									toast.error(await errorMessage(error));
+								} finally {
+									setBusy(null);
+								}
+							}}
+						>
+							{busy === "apply" && <Spinner />}
+							Put it on every page now
+						</Button>
+					)}
 					{dirty && (
 						<Button
 							variant="ghost"
@@ -480,8 +527,12 @@ export function BrandKitCard({
 						onClick={async () => {
 							setBusy("save");
 							try {
-								await saveKitFn({ data: { brand, kit: kitOf(kit) } });
-								toast.success("Brand kit saved");
+								const r = await saveKitFn({ data: { brand, kit: kitOf(kit) } });
+								toast.success(
+									"applied" in r && r.applied
+										? `Brand kit saved. ${appliedText(r.applied)}`
+										: "Brand kit saved",
+								);
 								await router.invalidate();
 							} catch (error) {
 								toast.error(await errorMessage(error));

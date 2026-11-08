@@ -49,7 +49,8 @@ export async function saveSection(o: {
 	if (!name) throw new ApiError(422, "validation_error", "Name the section");
 	const blocks = cleanBlocks(o.blocks);
 	if (!blocks.length) throw new ApiError(422, "validation_error", "Pick at least one block");
-	if (blocks.length > 30) throw new ApiError(422, "validation_error", "A section holds up to 30 blocks");
+	if (blocks.length > 30)
+		throw new ApiError(422, "validation_error", "A section holds up to 30 blocks");
 	const now = iso(o.now);
 	if (o.id) {
 		const [row] = await db
@@ -105,7 +106,12 @@ export async function getKit(brand: string): Promise<BrandKit | null> {
 	return row ? kitOf(row.kit) : null;
 }
 
-export async function saveKit(brand: string, raw: unknown, userId: string | null, now = Date.now()) {
+export async function saveKit(
+	brand: string,
+	raw: unknown,
+	userId: string | null,
+	now = Date.now(),
+) {
 	const kit = kitOf(raw);
 	await db
 		.insert(schema.brandKits)
@@ -114,7 +120,97 @@ export async function saveKit(brand: string, raw: unknown, userId: string | null
 			target: schema.brandKits.organization_id,
 			set: { kit, updated_by: userId, updated_at: iso(now) },
 		});
-	return kit;
+	// "Everywhere": every page of the brand changes with it.
+	const applied = kit.everywhere ? await applyKitEverywhere(brand, kit, now) : null;
+	return Object.assign(kit, applied ? { applied } : {});
+}
+
+/**
+ * The kit's color (and its fonts, where a page can use them) on everything else the brand
+ * shows people: sign-up forms, website chat widgets, newsletter pages, the help center, and the
+ * unsubscribe page (which then follows the kit by itself). Returns how many of each changed.
+ */
+export async function applyKitEverywhere(brand: string, kit: BrandKit, now = Date.now()) {
+	const at = iso(now);
+	const { FONTS } = await import("../lib/email-doc");
+	const builtIn = (f: string) => (f in FONTS ? f : null);
+	const [forms, widgets, newsletters, pages] = await Promise.all([
+		db
+			.select({ id: schema.signupForms.id, design: schema.signupForms.design })
+			.from(schema.signupForms)
+			.where(eq(schema.signupForms.organization_id, brand)),
+		db
+			.select({ id: schema.chatWidgets.inbox_id, design: schema.chatWidgets.design })
+			.from(schema.chatWidgets)
+			.where(eq(schema.chatWidgets.organization_id, brand)),
+		db
+			.select({ id: schema.newsletters.id, look: schema.newsletters.look })
+			.from(schema.newsletters)
+			.where(eq(schema.newsletters.organization_id, brand)),
+		db
+			.select({ look: schema.subscriberPages.look })
+			.from(schema.subscriberPages)
+			.where(eq(schema.subscriberPages.organization_id, brand))
+			.get(),
+	]);
+	const font = builtIn(kit.font);
+	const heading = builtIn(kit.heading_font);
+	await Promise.all([
+		...forms.map((f) =>
+			db
+				.update(schema.signupForms)
+				.set({
+					design: {
+						...((f.design as Record<string, unknown>) ?? {}),
+						accent: kit.accent,
+					},
+					updated_at: at,
+				})
+				.where(eq(schema.signupForms.id, f.id)),
+		),
+		...widgets.map((w) =>
+			db
+				.update(schema.chatWidgets)
+				.set({ design: { ...(w.design ?? {}), color: kit.accent }, updated_at: at })
+				.where(eq(schema.chatWidgets.inbox_id, w.id)),
+		),
+		...newsletters.map((n) =>
+			db
+				.update(schema.newsletters)
+				.set({
+					accent: kit.accent,
+					look: {
+						...(n.look ?? {}),
+						...(font ? { font } : {}),
+						...(heading ? { heading_font: heading } : {}),
+					},
+					updated_at: at,
+				})
+				.where(eq(schema.newsletters.id, n.id)),
+		),
+		db
+			.update(schema.helpCenters)
+			.set({ accent: kit.accent, updated_at: at })
+			.where(eq(schema.helpCenters.organization_id, brand)),
+		pages
+			? db
+					.update(schema.subscriberPages)
+					.set({ look: { ...pages.look, accent: null }, updated_at: at })
+					.where(eq(schema.subscriberPages.organization_id, brand))
+			: Promise.resolve(),
+	]);
+	const help = await db
+		.select({ id: schema.helpCenters.organization_id })
+		.from(schema.helpCenters)
+		.where(eq(schema.helpCenters.organization_id, brand))
+		.get();
+	return {
+		signup_forms: forms.length,
+		chat_widgets: widgets.length,
+		newsletters: newsletters.length,
+		help_center: !!help,
+		unsubscribe_page: true,
+	};
 }
 
 export async function removeKit(brand: string) {

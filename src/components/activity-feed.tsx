@@ -47,6 +47,7 @@ const VERB: Record<string, string> = {
 	"brand.updated": "changed the brand",
 	"brand.removed": "removed the brand",
 	"brand_kit.edited": "edited the brand kit of",
+	"brand_kit.applied": "put the brand kit on every page of",
 	"unsubscribe_page.edited": "edited the unsubscribe page of",
 	"unsubscribe_page.reset": "reset the unsubscribe page of",
 	"api_key.created": "created the API key",
