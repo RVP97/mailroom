@@ -189,6 +189,11 @@ An organization that should be fully apart can optionally use its own SES accoun
   the person's conversations show with them, the inbox's person panel shows the open follow-ups
   and the last note, and your follow-ups due today or late are on Today (MCP
   `list_contact_notes`, `save_contact_note`, `delete_contact_note`, `list_follow_ups`).
+- **One person across your brands**: with several brands, a contact's page shows the same address
+  in each of them side by side (its contact there or none, subscribed or not, emails and opens,
+  conversations, lead score, follow-ups, blocks and what they spent), with a link to each. Each
+  brand still keeps its own contact and consent; this only joins them for viewing (MCP
+  `get_person`).
 - **Automations**, built on a canvas: when a contact is added, joins a segment, opens a broadcast,
   clicks a link in one, or your app sends an event (`POST /api/events`), wait, branch on a check
   (in a segment, a property, opened or clicked the last email) into yes and no paths, add to or

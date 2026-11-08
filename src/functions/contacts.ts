@@ -133,6 +133,7 @@ export const getContactFn = createServerFn({ method: "GET" })
 				lead,
 				notes,
 				team,
+				across,
 			] = await Promise.all([
 				listSegments(brand),
 				segmentsOfContact(found.id),
@@ -144,6 +145,12 @@ export const getContactFn = createServerFn({ method: "GET" })
 				contactLeadScore(brand, found.id),
 				contactNotes(brand, found),
 				teamMembers(context.organizationId),
+				// The same person in the organization's other brands (when it has several).
+				brands.length > 1
+					? import("@/server/person-across").then((m) =>
+							m.personAcrossBrands(context.organizationId, found.email),
+						)
+					: null,
 			]);
 			const member = new Set(mine.map((m) => m.id));
 			return {
@@ -154,6 +161,7 @@ export const getContactFn = createServerFn({ method: "GET" })
 				canNote: context.access.can("contacts:edit") || context.access.can("inbox:reply"),
 				me: context.userId,
 				team,
+				across,
 				referrals,
 				brand: brands.find((b) => b.id === brand) ?? null,
 				segments: segments.map((s) => ({

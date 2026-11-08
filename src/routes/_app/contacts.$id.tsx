@@ -19,6 +19,7 @@ import { CopyButton } from "@/components/copy";
 import { EngagementCard } from "@/components/engagement";
 import { LeadCard } from "@/components/lead-score";
 import { Page } from "@/components/page";
+import { PersonAcrossCard } from "@/components/person-across";
 import { Fact, Facts, IdChip, RecordHeader } from "@/components/record";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
@@ -108,6 +109,7 @@ function ContactSketch() {
 					canNote: false,
 					me: "",
 					team: [],
+					across: null,
 					brand: null,
 					segments: [],
 					topics: [],
@@ -454,6 +456,12 @@ function ContactPage() {
 							</div>
 						)}
 					</Card>
+					{data.across && (
+						<PersonAcrossCard
+							across={data.across}
+							current={contact.brand_id}
+						/>
+					)}
 					{data.referrals && (
 						<ReferralCard
 							r={data.referrals}
