@@ -417,7 +417,16 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 										.map((x) => x.trim())
 										.filter(Boolean),
 								}))
-								.filter((p) => p.text.trim() && p.pages.length),
+								.filter((p) => p.text.trim() && p.pages.length)
+								.map((p) => ({
+									...p,
+									// A button needs both its words and its link.
+									button:
+										p.button?.label.trim() && p.button.url.trim()
+											? p.button
+											: null,
+									signup: !!p.signup && !!v.design.newsletter_id,
+								})),
 						},
 					},
 				},
@@ -568,6 +577,9 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 									inboxId={data.inbox.id}
 									hasHours={!!data.hours}
 									assignees={data.assignees}
+									newsletters={data.newsletters}
+									segments={data.segments}
+									identityOn={data.identity_on}
 								/>
 							</TabsContent>
 							<TabsContent value="settings">
@@ -1387,6 +1399,9 @@ function MessagesPanel({
 	inboxId,
 	hasHours,
 	assignees,
+	newsletters,
+	segments,
+	identityOn,
 }: {
 	v: Fields;
 	look: (x: Partial<Design>) => void;
@@ -1395,6 +1410,9 @@ function MessagesPanel({
 	inboxId: string;
 	hasHours: boolean;
 	assignees: Data["assignees"];
+	newsletters: Data["newsletters"];
+	segments: Data["segments"];
+	identityOn: boolean;
 }) {
 	const d = v.design;
 	const topics = d.topics ?? [];
@@ -1580,16 +1598,96 @@ function MessagesPanel({
 					</Button>
 				)}
 			</Group>
+			<Group title="Newsletter">
+				<p className="text-xs text-muted-foreground">
+					A card in the chat with your newsletter's latest issue and a sign-up. Visitors
+					your website signs in see whether they get it and change it right there; anyone
+					else gets a confirmation email from the newsletter's sign-up form.
+				</p>
+				<Select
+					value={d.newsletter_id ?? "none"}
+					onValueChange={(x) => look({ newsletter_id: x === "none" ? null : x })}
+				>
+					<SelectTrigger aria-label="Newsletter in the chat">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="none">No newsletter</SelectItem>
+						{newsletters.map((n) => (
+							<SelectItem
+								key={n.id}
+								value={n.id}
+							>
+								{n.name}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+			</Group>
 			<Group title="Pop-up messages">
 				<p className="text-xs text-muted-foreground">
-					A message by the launcher on the pages you choose, once a visit. Opening the
-					chat shows it as the greeting. Not shown to someone in the middle of a chat.
+					A message on the pages you choose, once a visit: by the launcher like a chat
+					message (opening the chat shows it as the greeting), a banner across the top, or
+					a pop-up in the middle. Not shown to someone in the middle of a chat.
 				</p>
 				{popups.map((p, i) => (
 					<div
 						key={i}
 						className="flex flex-col gap-2 rounded-md border border-border/80 p-2.5"
 					>
+						<div className="grid grid-cols-2 gap-2">
+							<Select
+								value={p.style ?? "nudge"}
+								onValueChange={(x) =>
+									setPopup(i, { style: x as "nudge" | "banner" | "popup" })
+								}
+							>
+								<SelectTrigger aria-label={`How pop-up ${i + 1} shows`}>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="nudge">By the launcher</SelectItem>
+									<SelectItem value="banner">Banner at the top</SelectItem>
+									<SelectItem value="popup">Pop-up in the middle</SelectItem>
+								</SelectContent>
+							</Select>
+							<Select
+								value={p.segment_id ?? "all"}
+								onValueChange={(x) =>
+									setPopup(i, { segment_id: x === "all" ? null : x })
+								}
+							>
+								<SelectTrigger aria-label={`Who sees pop-up ${i + 1}`}>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="all">Everyone</SelectItem>
+									{segments.map((s) => (
+										<SelectItem
+											key={s.id}
+											value={s.id}
+										>
+											Only {s.name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+						{p.segment_id && !identityOn && (
+							<p className="text-xs text-warning">
+								Only visitors your website signs in can be matched to a segment.
+								Make the identity secret in Settings and pass a signed token.
+							</p>
+						)}
+						{(p.style === "banner" || p.style === "popup") && (
+							<Input
+								aria-label={`Pop-up ${i + 1}'s heading`}
+								maxLength={80}
+								placeholder="Heading (optional)"
+								value={p.title ?? ""}
+								onChange={(e) => setPopup(i, { title: e.target.value || null })}
+							/>
+						)}
 						<div className="flex gap-2">
 							<Textarea
 								aria-label={`Pop-up ${i + 1}`}
@@ -1634,6 +1732,58 @@ function MessagesPanel({
 								</SelectContent>
 							</Select>
 						</div>
+						{(p.style === "banner" || p.style === "popup") && (
+							<>
+								<div className="grid grid-cols-[2fr_3fr] gap-2">
+									<Input
+										aria-label={`Pop-up ${i + 1}'s button`}
+										maxLength={40}
+										placeholder="Button (optional)"
+										value={p.button?.label ?? ""}
+										onChange={(e) =>
+											setPopup(i, {
+												button:
+													e.target.value || p.button?.url
+														? {
+																label: e.target.value,
+																url: p.button?.url ?? "",
+															}
+														: null,
+											})
+										}
+									/>
+									<Input
+										aria-label={`Pop-up ${i + 1}'s button link`}
+										maxLength={500}
+										placeholder="https://… or /rooms"
+										value={p.button?.url ?? ""}
+										onChange={(e) =>
+											setPopup(i, {
+												button:
+													e.target.value || p.button?.label
+														? {
+																label: p.button?.label ?? "",
+																url: e.target.value,
+															}
+														: null,
+											})
+										}
+									/>
+								</div>
+								{d.newsletter_id && (
+									// biome-ignore lint/a11y/noLabelWithoutControl: the checkbox inside is a button, which a label names
+									<label className="flex items-center gap-2 text-sm">
+										<Checkbox
+											checked={!!p.signup}
+											onCheckedChange={(x) =>
+												setPopup(i, { signup: x === true })
+											}
+										/>
+										Ask for an email for the newsletter
+									</label>
+								)}
+							</>
+						)}
 					</div>
 				))}
 				<p className="text-xs text-muted-foreground">

@@ -142,6 +142,13 @@ An organization that should be fully apart can optionally use its own SES accoun
   now) and a frequency cap (at most N broadcasts per person in D days; automation emails count but
   always go). The send dialog says how many sit a broadcast out. Transactional email is never
   held.
+- **Website chat as a marketing channel**: the chat can carry a newsletter, as a card with its
+  latest issue and a sign-up. Visitors your website signs in (an identity token) see whether they
+  get it and subscribe or unsubscribe right there; anyone else gets the newsletter's sign-up
+  form's confirmation email. Its pop-up messages can show by the launcher, as a banner across the
+  top of the page or as a pop-up in the middle, with a heading, a button and an email field for
+  the newsletter, and can be kept for one segment (a live one stays current). Who a message is for
+  never reaches the page: the widget asks Mailroom with the visitor's signed token.
   `GET /api/contacts/:id/timeline` and `GET /api/contacts/:id/events` (`?event=`) read them.
 - **Automations**, built on a canvas: when a contact is added, joins a segment, opens a broadcast,
   clicks a link in one, or your app sends an event (`POST /api/events`), wait, branch on a check

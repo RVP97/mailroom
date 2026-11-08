@@ -979,7 +979,7 @@ describe("website chat: pop-up messages", () => {
 			await handleChat(new Request(`https://mailroom.test/chat/${widget.public_key}.js`))
 		).text();
 		expect(js).toContain(
-			'"popups":[{"pages":["/pricing"],"text":"Questions about our plans?","after":5}]',
+			'"popups":[{"pages":["/pricing"],"text":"Questions about our plans?","after":5,"style":"nudge","title":null,"button":null,"signup":false,"targeted":false}]',
 		);
 		const chat = await start(widget.public_key, "Is there a yearly plan?", { popup: 0 });
 		const activity = await db

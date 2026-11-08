@@ -77,6 +77,16 @@ export const getChatSettingsFn = createServerFn({ method: "GET" })
 				assignees: (
 					await workflow.assignees(await orgOf(inbox.organization_id), inbox)
 				).map((p) => ({ reader: p.reader, name: p.name, type: p.type })),
+				/** What the chat can offer and show messages to: the brand's newsletters and segments. */
+				newsletters: await db
+					.select({ id: schema.newsletters.id, name: schema.newsletters.name })
+					.from(schema.newsletters)
+					.where(eq(schema.newsletters.organization_id, inbox.organization_id)),
+				segments: await db
+					.select({ id: schema.segments.id, name: schema.segments.name })
+					.from(schema.segments)
+					.where(eq(schema.segments.organization_id, inbox.organization_id)),
+				identity_on: !!widget?.identity_secret,
 				/** The agents that may answer chats first (their credential can send). */
 				agents: (await (await import("@/server/inboxes")).listCredentials(inbox))
 					.filter((x) => !x.revoked_at && (x.permissions as string[]).includes("send"))

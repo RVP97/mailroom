@@ -98,6 +98,19 @@ function mailroomChat(c) {
 		"Back today at {t}": "Volvemos hoy a las {t}",
 		"Back tomorrow at {t}": "Volvemos mañana a las {t}",
 		"Back {day} at {t}": "Volvemos el {day} a las {t}",
+		Newsletter: "Boletín",
+		Subscribe: "Suscribirme",
+		Unsubscribe: "Cancelar la suscripción",
+		"Latest issue": "El número más reciente",
+		"All issues": "Todos los números",
+		"You're subscribed as {x}.": "Está suscrito como {x}.",
+		"You're not subscribed yet.": "Aún no está suscrito.",
+		"Subscribe as {x}": "Suscribirme como {x}",
+		"Check your inbox to confirm.": "Revise su correo para confirmar.",
+		"You're unsubscribed. Come back any time.": "Canceló su suscripción. Vuelva cuando quiera.",
+		"Done! You're subscribed.": "¡Listo! Ya está suscrito.",
+		"Chat with us": "Chatee con nosotros",
+		Close: "Cerrar",
 	};
 	/** The server's errors, by code (its messages are in English). */
 	var ES_ERRORS = {
@@ -412,6 +425,15 @@ function mailroomChat(c) {
 			".hx{min-width:0;flex:1}.hx b{display:block;font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hx small{font-size:12.5px;color:var(--muted)}" +
 			".hempty{padding:28px 16px;text-align:center;color:var(--muted);font-size:14px}" +
 			".hf{padding:12px;border-top:1px solid var(--line);background:var(--panel)}" +
+			// The newsletter card
+			".nl{position:relative}.nl .nh{display:flex;gap:10px;align-items:center;margin-bottom:6px;padding-right:22px}.nl .nh span{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:none;background:color-mix(in srgb,var(--accent) 14%,var(--panel));color:var(--accent)}.nl .nh b{font-size:14.5px}" +
+			".nl .nd{font-size:13.5px;color:var(--muted);margin:0 0 10px}.nl .latest{display:block;padding:10px 12px;border-radius:10px;background:var(--soft);color:var(--text);text-decoration:none;margin-bottom:10px}.nl .latest:hover{background:var(--soft2)}.nl .latest small{display:block;font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}.nl .latest b{font-size:14px;font-weight:600}" +
+			".nl .state{font-size:13.5px;color:var(--muted);margin:0 0 8px}.nl .state b{color:var(--text)}.nl .more{display:flex;gap:12px;margin-top:10px}.nl .x{position:absolute;top:8px;right:8px;width:24px;height:24px;border-radius:6px;display:grid;place-items:center;color:var(--muted)}.nl .x:hover{background:var(--soft)}" +
+			// A banner across the top of the page, or a pop-up in the middle
+			".bar{position:fixed;top:0;left:0;right:0;z-index:2147483000;background:var(--accent);color:var(--on-accent);padding:10px 48px 10px 16px;display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:center;font-size:14.5px;box-shadow:0 2px 12px rgba(0,0,0,.15);animation:pop .25s ease}" +
+			".bar .pt{font-weight:700}.bar .pa{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.bar .btn{height:34px;background:var(--on-accent);color:var(--accent)}.bar .in{height:34px;max-width:220px;background:#fff;color:#111;border:0}.bar .px a{color:inherit}.bar .x{position:absolute;top:50%;right:10px;transform:translateY(-50%);width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:inherit}.bar .x:hover{background:rgba(255,255,255,.18)}.bar .err{color:inherit;font-weight:600}.bar .ok{font-weight:600}" +
+			".modal{position:fixed;inset:0;z-index:2147483000;background:rgba(17,24,39,.45);display:grid;place-items:center;padding:16px;animation:pop .2s ease}.modal .pbox{position:relative;width:100%;max-width:420px;background:var(--panel);color:var(--text);border-radius:18px;padding:24px;box-shadow:0 24px 60px -12px rgba(0,0,0,.35)}" +
+			".modal .pt{display:block;font-size:19px;font-weight:700;margin:0 24px 8px 0}.modal .px{display:block;font-size:15px;color:var(--muted);margin-bottom:16px}.modal .pa{display:flex;flex-direction:column;gap:8px}.modal .pa .row{display:flex;gap:8px}.modal .btn{width:100%}.modal .row .btn{width:auto}.modal .ok{font-weight:600;color:var(--accent)}.modal .x{position:absolute;top:12px;right:12px;width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--muted)}.modal .x:hover{background:var(--soft)}a.btn{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}" +
 			extras(cfg) +
 			// The brand's own CSS goes last (it only reaches inside the widget).
 			(cfg.custom_css ? String(cfg.custom_css) : "")
@@ -1156,6 +1178,7 @@ function mailroomChat(c) {
 			return;
 		}
 		if (showTopics()) cards.appendChild(topicsEl());
+		if (showNewsletter()) cards.appendChild(newsletterCard());
 		// An agent answers: the visitor can ask for a person at any time.
 		if (state.conversation && state.conversation.with_agent)
 			cards.appendChild(
@@ -1296,6 +1319,262 @@ function mailroomChat(c) {
 					: null,
 			),
 		);
+	}
+
+	// ── The chat's newsletter ──────────────────────────────────────────────────
+	// Its latest issue and a sign-up. A visitor the website signed in sees whether they get it and
+	// changes it here; anyone else is sent a confirmation email (the newsletter's sign-up form).
+
+	/** What the server says about the signed-in visitor: { known, popups, newsletter }. */
+	var audience = null;
+	/** Opened from the ⋯ menu. */
+	var nlOpen = false;
+	var nlNote = null;
+	function hasTargeted() {
+		return (cfg.popups || []).some((p) => p && p.targeted);
+	}
+	function loadAudience() {
+		audience = null;
+		if (!identity || cfg.preview || !(cfg.newsletter || hasTargeted())) return;
+		var mine = identity;
+		api("POST", "/audience", { identity: mine })
+			.then((r) => {
+				if (mine !== identity) return;
+				audience = r;
+				popupPath = null;
+				checkPopups();
+				renderCards();
+			})
+			.catch(() => {});
+	}
+	function nlKnown() {
+		return audience && audience.newsletter ? audience.newsletter : null;
+	}
+	function showNewsletter() {
+		if (!cfg.newsletter || state.sending) return false;
+		if (nlOpen) return true;
+		if (stored.nlDismissed || ended()) return false;
+		if (cfg.preview) return !state.previewUsed;
+		return !state.conversation && !state.messages.some((m) => m.author === "visitor");
+	}
+	/** Subscribe (or not), from the card or a banner. Resolves with the words to show. */
+	function subscribeNl(action, email) {
+		var known = nlKnown();
+		if (known)
+			return api("POST", "/subscribe", { identity: identity, action: action }).then((r) => {
+				audience.newsletter = { subscribed: r.subscribed, email: r.email };
+				return r.subscribed
+					? T("Done! You're subscribed.")
+					: T("You're unsubscribed. Come back any time.");
+			});
+		if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email || ""))
+			return Promise.reject(new Error(T("That doesn't look like an email address.")));
+		return turnstileToken().then((t) =>
+			api("POST", "/subscribe", {
+				action: "subscribe",
+				email: email,
+				name: stored.name || undefined,
+				turnstile: t || undefined,
+			}).then(() => {
+				stored = save({ nlDone: true });
+				return T("Check your inbox to confirm.");
+			}),
+		);
+	}
+	/** The sign-up part: a button for a known visitor, an email field for anyone else. */
+	function signupEl(onDone) {
+		var known = nlKnown();
+		var err = h("div", { class: "err" });
+		var fail = (e) => {
+			err.textContent = e.message;
+			err.classList.add("on");
+		};
+		if (known) {
+			var btn = h("button", {
+				type: "button",
+				class: known.subscribed ? "btn ghost" : "btn",
+				text: known.subscribed
+					? T("Unsubscribe")
+					: T("Subscribe as {x}").replace("{x}", known.email),
+				onclick: () => {
+					btn.disabled = true;
+					subscribeNl(known.subscribed ? "unsubscribe" : "subscribe")
+						.then(onDone)
+						.catch((e) => {
+							btn.disabled = false;
+							fail(e);
+						});
+				},
+			});
+			return h("div", null, [btn, err]);
+		}
+		if (!cfg.newsletter.signup) return null;
+		if (stored.nlDone) return h("p", { class: "ok", text: T("Check your inbox to confirm.") });
+		var email = h("input", {
+			class: "in",
+			type: "email",
+			placeholder: T("you@example.com"),
+			autocomplete: "email",
+			required: true,
+			"aria-label": T("Your email"),
+			value: stored.email || "",
+		});
+		var go = h("button", { class: "btn", type: "submit", text: T("Subscribe") });
+		var f = h("form", null, [h("div", { class: "row" }, [email, go]), err]);
+		f.addEventListener("submit", (e) => {
+			e.preventDefault();
+			go.disabled = true;
+			subscribeNl("subscribe", email.value.trim())
+				.then(onDone)
+				.catch((e2) => {
+					go.disabled = false;
+					fail(e2);
+				});
+		});
+		return f;
+	}
+	function newsletterCard() {
+		var n = cfg.newsletter;
+		var known = nlKnown();
+		var kids = [
+			h("button", {
+				type: "button",
+				class: "x",
+				"aria-label": T("Close"),
+				html: svg(ICON.close, 14),
+				onclick: () => {
+					nlOpen = false;
+					stored = save({ nlDismissed: true });
+					renderCards();
+				},
+			}),
+			h("div", { class: "nh" }, [
+				h("span", { html: svg(ICON.mail, 16) }),
+				h("b", { text: n.name }),
+			]),
+		];
+		if (n.description) kids.push(h("p", { class: "nd", text: n.description }));
+		if (n.latest)
+			kids.push(
+				h("a", { class: "latest", href: n.latest.url, target: "_blank", rel: "noopener" }, [
+					h("small", { text: T("Latest issue") }),
+					h("b", { text: n.latest.title }),
+				]),
+			);
+		if (nlNote) kids.push(h("p", { class: "state", text: nlNote }));
+		else if (known) {
+			var st = h("p", { class: "state" });
+			if (known.subscribed) {
+				var parts = T("You're subscribed as {x}.").split("{x}");
+				st.appendChild(document.createTextNode(parts[0]));
+				st.appendChild(h("b", { text: known.email }));
+				st.appendChild(document.createTextNode(parts[1] || ""));
+			} else st.textContent = T("You're not subscribed yet.");
+			kids.push(st);
+		}
+		if (!nlNote || known)
+			kids.push(
+				signupEl((words) => {
+					nlNote = words;
+					renderCards();
+				}),
+			);
+		if (n.archive)
+			kids.push(
+				h("div", { class: "more" }, [
+					h("a", {
+						class: "link",
+						href: n.archive,
+						target: "_blank",
+						rel: "noopener",
+						text: T("All issues"),
+					}),
+				]),
+			);
+		return h("div", { class: "card nl" }, kids);
+	}
+
+	// ── A banner or pop-up on the page (the chat's messages with that style) ──
+
+	var placed = null;
+	function closePlacement() {
+		if (placed) placed.remove();
+		placed = null;
+		document.removeEventListener("keydown", escPlacement, true);
+	}
+	function escPlacement(e) {
+		if (e.key === "Escape") closePlacement();
+	}
+	function showPlacement(hit) {
+		closePlacement();
+		var p = hit.p;
+		var modal = p.style === "popup";
+		var actions = h("div", { class: "pa" });
+		if (p.button)
+			actions.appendChild(
+				h("a", {
+					class: "btn",
+					href: p.button.url,
+					text: p.button.label,
+					onclick: () => {
+						closePlacement();
+					},
+				}),
+			);
+		if (p.signup && cfg.newsletter) {
+			var s = signupEl((words) => {
+				s.replaceWith(h("span", { class: "ok", text: words }));
+			});
+			if (s) actions.appendChild(s);
+		}
+		if (modal && !p.button && !(p.signup && cfg.newsletter))
+			actions.appendChild(
+				h("button", {
+					type: "button",
+					class: "btn",
+					text: T("Chat with us"),
+					onclick: () => {
+						closePlacement();
+						state.popup = hit;
+						render();
+						openPanel();
+					},
+				}),
+			);
+		var box = h("div", { class: "pbox" }, [
+			p.title ? h("b", { class: "pt", text: p.title }) : null,
+			h("span", { class: "px", text: p.text }),
+			actions.childNodes.length ? actions : null,
+			h("button", {
+				type: "button",
+				class: "x",
+				"aria-label": T("Close"),
+				html: svg(ICON.close, 16),
+				onclick: () => {
+					closePlacement();
+				},
+			}),
+		]);
+		placed = modal
+			? h(
+					"div",
+					{
+						class: "modal",
+						role: "dialog",
+						"aria-modal": "true",
+						"aria-label": p.title || cfg.title,
+					},
+					[box],
+				)
+			: h("div", { class: "bar", role: "region", "aria-label": p.title || cfg.title }, [box]);
+		if (modal)
+			placed.addEventListener("click", (e) => {
+				if (e.target === placed) closePlacement();
+			});
+		else box.style.cssText = "display:contents";
+		root.appendChild(placed);
+		document.addEventListener("keydown", escPlacement, true);
+		emit("popup", { style: p.style, title: p.title || null });
 	}
 
 	// A closed chat (by the team, or the visitor): how did it go, and another one. Writing again
@@ -1720,6 +1999,16 @@ function mailroomChat(c) {
 				run: () => {
 					stored = save({ emailDismissed: false, emailJustSaved: false });
 					if (state.conversation.visitor) state.conversation.visitor.email = null;
+					renderCards();
+					scrollDown();
+				},
+			});
+		if (cfg.newsletter)
+			items.push({
+				icon: ICON.mail,
+				text: cfg.newsletter.name || T("Newsletter"),
+				run: () => {
+					nlOpen = true;
 					renderCards();
 					scrollDown();
 				},
@@ -2703,8 +2992,10 @@ function mailroomChat(c) {
 			openPanel();
 			return;
 		}
-		if (identity) identifyNow();
-		else if (stored.token && recent()) {
+		if (identity) {
+			identifyNow();
+			loadAudience();
+		} else if (stored.token && recent()) {
 			refresh();
 			connect();
 		}
@@ -2731,11 +3022,15 @@ function mailroomChat(c) {
 		);
 		return re.test(target);
 	}
+	/** The first message for this page (and, when it's for a segment, for this person). */
 	function popupHere() {
 		var list = cfg.popups || [];
-		for (var i = 0; i < list.length; i++)
-			if (list[i] && list[i].text && (list[i].pages || []).some(pageMatches))
-				return { i: i, text: list[i].text, after: Number(list[i].after) || 0 };
+		for (var i = 0; i < list.length; i++) {
+			var p = list[i];
+			if (!p || !p.text || !(p.pages || []).some(pageMatches)) continue;
+			if (p.targeted && !(audience && (audience.popups || []).indexOf(i) >= 0)) continue;
+			return { i: i, text: p.text, after: Number(p.after) || 0, p: p };
+		}
 		return null;
 	}
 	var popupPath = null;
@@ -2757,6 +3052,10 @@ function mailroomChat(c) {
 			try {
 				sessionStorage.setItem(key, "1");
 			} catch (_) {}
+			if (hit.p.style === "banner" || hit.p.style === "popup") {
+				showPlacement(hit);
+				return;
+			}
 			state.popup = hit;
 			render();
 			showNudge({ name: null, text: hit.text });
@@ -2790,7 +3089,10 @@ function mailroomChat(c) {
 			if (typeof who.token === "string") {
 				var changed = who.token !== identity;
 				identity = who.token;
-				if (changed) identifyNow();
+				if (changed) {
+					identifyNow();
+					loadAudience();
+				}
 				return;
 			}
 			var patch = {};
@@ -2804,6 +3106,9 @@ function mailroomChat(c) {
 		/** The person signed out: forget their chat on this browser (it stays theirs). */
 		reset: () => {
 			identity = null;
+			audience = null;
+			nlNote = null;
+			closePlacement();
 			closePanel();
 			endChat();
 			// Their chats aren't listed for whoever uses this browser next.

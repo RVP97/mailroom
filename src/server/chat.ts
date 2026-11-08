@@ -195,18 +195,44 @@ export const chatDesign = z.object({
 		)
 		.max(8)
 		.optional(),
-	/** Messages that pop up by the launcher on chosen pages ("/pricing", "/blog/*"), after a few
-	 * seconds, once a visit; opening the chat shows it as the greeting. */
+	/** Messages on chosen pages ("/pricing", "/blog/*"), after a few seconds, once a visit: by the
+	 * launcher like a chat message (opening the chat shows it as the greeting), a banner across
+	 * the top of the page, or a pop-up in the middle. With a segment, only people in it see it,
+	 * and only when the website tells the chat who they are with a signed identity. */
 	popups: z
 		.array(
 			z.object({
 				pages: z.array(shortText(300).min(1)).min(1, "popups: on which pages").max(10),
 				text: shortText(300).min(1, "popups: each needs its words"),
 				after: z.number().int().min(0).max(300).optional(),
+				style: z.enum(["nudge", "banner", "popup"]).optional(),
+				/** A banner's or pop-up's heading. */
+				title: shortText(80).nullish(),
+				/** A button to a page ("See the rooms" → /rooms). */
+				button: z
+					.object({
+						label: shortText(40).min(1, "popups: the button needs its words"),
+						url: z
+							.string()
+							.trim()
+							.max(500)
+							.regex(
+								/^(https?:\/\/|\/)/,
+								"popups: the button's link starts with https:// or /",
+							),
+					})
+					.nullish(),
+				/** A banner or pop-up asks for an email for the chat's newsletter. */
+				signup: z.boolean().optional(),
+				/** Only people in this segment (a live one keeps itself up to date). */
+				segment_id: shortText(64).nullish(),
 			}),
 		)
 		.max(10)
 		.optional(),
+	/** A newsletter in the chat: its sign-up and its latest issue, and a signed-in visitor sees
+	 * whether they're subscribed and can change it. */
+	newsletter_id: shortText(64).nullish(),
 });
 export type ChatDesign = z.infer<typeof chatDesign>;
 
@@ -252,6 +278,7 @@ export const DESIGN_DEFAULTS: Required<{
 	show_hours: true,
 	topics: [],
 	popups: [],
+	newsletter_id: null,
 };
 
 /** The default texts of a chat in Spanish (design.language "es"). */
@@ -337,6 +364,37 @@ export const settingsInput = z.object({
 		.optional(),
 });
 
+/** The chat's newsletter and its messages' segments are the brand's own. */
+async function checkMarketing(brand: string, d: ChatDesign) {
+	if (d.newsletter_id) {
+		const n = await db
+			.select({ id: schema.newsletters.id })
+			.from(schema.newsletters)
+			.where(
+				and(
+					eq(schema.newsletters.id, d.newsletter_id),
+					eq(schema.newsletters.organization_id, brand),
+				),
+			)
+			.get();
+		if (!n) throw validation("newsletter_id: one of this brand's newsletters");
+	}
+	const segs = [
+		...new Set((d.popups ?? []).map((p) => p.segment_id).filter(Boolean)),
+	] as string[];
+	if (segs.length) {
+		const found = await db
+			.select({ id: schema.segments.id })
+			.from(schema.segments)
+			.where(
+				and(eq(schema.segments.organization_id, brand), inArray(schema.segments.id, segs)),
+			);
+		if (found.length !== segs.length) throw validation("popups: a segment of this brand");
+	}
+	if ((d.popups ?? []).some((p) => p.signup) && !d.newsletter_id)
+		throw validation("popups: pick the chat's newsletter to ask for emails");
+}
+
 /** The agent that answers first must be one of the inbox's credentials that may send. */
 async function firstAgentFor(inbox: Inbox, id: string | null | undefined) {
 	if (!id) return null;
@@ -414,6 +472,7 @@ export async function saveChatWidget(
 				),
 			)
 		: (existing?.design ?? {});
+	if (v.design) await checkMarketing(inbox.organization_id, design as ChatDesign);
 	const row = {
 		inbox_id: inbox.id,
 		organization_id: inbox.organization_id,

@@ -368,6 +368,21 @@ export async function issuesOf(id: string, o: { web?: boolean; limit?: number } 
 		.limit(o.limit ?? 100);
 }
 
+/** Its latest issue on the web (public newsletters only): its subject and address. */
+export async function latestIssue(n: Newsletter) {
+	if (!n.public) return null;
+	const [x] = await issuesOf(n.id, { web: true, limit: 1 });
+	if (!x) return null;
+	return {
+		title: subjectOf(x)
+			.replace(/\{\{\{?[^}]*\}?\}\}/g, "")
+			.replace(/\s+/g, " ")
+			.trim(),
+		url: webUrl(x, n),
+		sent_at: x.started_at,
+	};
+}
+
 /** Issue counts, for the dashboard's list. */
 export async function issueCounts(ids: string[]) {
 	if (!ids.length) return new Map<string, number>();

@@ -54,6 +54,10 @@ import { ApiError } from "./errors";
  *   POST /chat/<key>/rate          the visitor's rating, 1-5, and a comment
  *   POST /chat/<key>/history       the visitor's chats: { tokens, identity? }
  *   POST /chat/<key>/handoff       the visitor asks for a person (an agent has the chat)
+ *   POST /chat/<key>/audience      { identity }: the segment messages for this person, and
+ *                                  whether they get the chat's newsletter
+ *   POST /chat/<key>/subscribe     the chat's newsletter: { identity, action } at once, or
+ *                                  { email, turnstile } by a confirmation email
  *   GET  /chat/<key>/live          WebSocket (the ChatRoom)
  *   GET  /chat/files/…             a file, by its signed link
  */
@@ -277,6 +281,20 @@ export async function handleChat(request: Request, now = Date.now()): Promise<Re
 				const conversations = await visitorHistory(w, await readJson(request), now);
 				return json({ conversations }, { headers });
 			}
+			case "POST audience": {
+				const { visitorAudience } = await import("./chat-marketing");
+				return json(await visitorAudience(w, await readJson(request), now), { headers });
+			}
+			case "POST subscribe": {
+				const { chatSubscribe } = await import("./chat-marketing");
+				const r = await chatSubscribe(
+					w,
+					await readJson(request),
+					{ ip: request.headers.get("cf-connecting-ip"), origin },
+					now,
+				);
+				return json(r, { headers });
+			}
 			case "GET live": {
 				if (request.headers.get("upgrade")?.toLowerCase() !== "websocket")
 					return fail(426, "upgrade_required", "Expected a WebSocket", headers);
@@ -469,7 +487,18 @@ export async function publicConfig(w: NonNullable<Awaited<ReturnType<typeof widg
 		usual_reply: d.reply_time === "auto" ? await usualReply(w.inbox.id) : null,
 		// Only the words: which tag and who gets it stay here.
 		topics: (d.topics ?? []).map((t) => ({ label: t.label })),
-		popups: d.popups ?? [],
+		// Which segment a message is for stays here: the widget asks (with a signed identity).
+		popups: (d.popups ?? []).map((p) => ({
+			pages: p.pages,
+			text: p.text,
+			after: p.after ?? 0,
+			style: p.style ?? "nudge",
+			title: p.title ?? null,
+			button: p.button ?? null,
+			signup: !!p.signup,
+			targeted: !!p.segment_id,
+		})),
+		newsletter: await import("./chat-marketing").then((m) => m.chatNewsletter(w)),
 		show_hours: d.show_hours,
 		// The inbox's business hours (its workflow): the widget works out "back at 9" itself.
 		hours: d.show_hours ? settingsOf(w.inbox).sla.business_hours : null,

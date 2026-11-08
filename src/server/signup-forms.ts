@@ -434,6 +434,39 @@ type Limiter = { limit(o: { key: string }): Promise<{ success: boolean }> };
 
 const EMAIL = /^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[^\s@<>()",;:]{2,}$/;
 
+/**
+ * A sign-up from elsewhere (the website chat's newsletter card): the same double opt-in, robot
+ * check and limits as the form's own page. Returns what the form would have said.
+ */
+export async function signUpWith(
+	formId: string,
+	v: { email: string; name?: string | null; turnstile?: string | null; source?: string | null },
+	from: { ip: string | null; origin: string | null },
+	now = Date.now(),
+): Promise<{ ok: boolean; message: string; status: number }> {
+	const f = await liveForm(formId);
+	if (!f) return { ok: false, message: "Sign-ups are closed for now.", status: 410 };
+	const headers: Record<string, string> = { "content-type": "application/json" };
+	if (from.ip) headers["cf-connecting-ip"] = from.ip;
+	if (from.origin) headers.origin = from.origin;
+	const r = await signUp(
+		new Request(formUrl(f.id), {
+			method: "POST",
+			headers,
+			body: JSON.stringify({
+				email: v.email,
+				name: v.name ?? "",
+				"cf-turnstile-response": v.turnstile ?? "",
+				utm_source: v.source ?? "",
+			}),
+		}),
+		f,
+		now,
+	);
+	const out = (await r.json()) as { ok: boolean; message: string };
+	return { ...out, status: r.status };
+}
+
 async function signUp(request: Request, f: SignupForm, now: number) {
 	const wantsJson =
 		(request.headers.get("accept") ?? "").includes("application/json") ||
