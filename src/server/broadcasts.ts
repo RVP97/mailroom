@@ -17,6 +17,7 @@ import type { BroadcastStatus } from "./db/schema";
 import { timezone } from "./env";
 import { ApiError, notFound, validation } from "./errors";
 import { domainFor, orgContext } from "./org";
+import { publicUrl } from "./public-host";
 import type { StoredContent } from "./send";
 import { designFilled, getTemplate, variableValues } from "./templates";
 import { iso } from "./time";
@@ -876,7 +877,12 @@ export async function broadcastContent(email: {
 	const values = {
 		...(contact
 			? await contactValues(email.organization_id, contact)
-			: { FIRST_NAME: "", LAST_NAME: "", EMAIL: address }),
+			: {
+					FIRST_NAME: "",
+					LAST_NAME: "",
+					EMAIL: address,
+					SURVEY_URL: `${publicUrl()}/s/web`,
+				}),
 		...(await broadcastValues(x, contact ?? null, `${x.html}\n${x.text ?? ""}`)),
 	};
 	const escaped = Object.fromEntries(

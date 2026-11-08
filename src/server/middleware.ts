@@ -112,6 +112,8 @@ const LOGGED: Record<string, [action: string, subject: string]> = {
 	saveArticleFn: ["article.edited", "article"],
 	deleteArticleFn: ["article.deleted", "article"],
 	saveHelpCenterFn: ["help_center.edited", "help_center"],
+	saveSurveyFn: ["survey.edited", "survey"],
+	deleteSurveyFn: ["survey.deleted", "survey"],
 	saveCampaignFn: ["campaign.edited", "campaign"],
 	deleteCampaignFn: ["campaign.deleted", "campaign"],
 	saveFormFn: ["form.edited", "form"],

@@ -38,12 +38,14 @@ export const getWorkflowFn = createServerFn({ method: "GET" })
 				throw new Response("Inbox not found", { status: 404 });
 			});
 			const { listSegments } = await import("@/server/contacts");
-			const [rules, people, saved, brands, segments] = await Promise.all([
+			const { listSurveys } = await import("@/server/surveys");
+			const [rules, people, saved, brands, segments, surveys] = await Promise.all([
 				listRules(inbox.id),
 				assignees(context.organizationId, inbox),
 				listSavedReplies(actor, { inbox: inbox.id }),
 				viewScope(context.organizationId).then((v) => v.brands),
 				listSegments(inbox.organization_id),
+				listSurveys([inbox.organization_id]),
 			]);
 			const { timezone } = await import("@/server/env");
 			return {
@@ -53,6 +55,13 @@ export const getWorkflowFn = createServerFn({ method: "GET" })
 				people: people.map(({ email: _e, ...p }) => p),
 				saved: saved.map(savedReplyView),
 				segments: segments.map((s) => ({ id: s.id, name: s.name, live: !!s.rules })),
+				surveys: surveys.map((s) => ({
+					id: s.id,
+					name: s.name,
+					kind: s.kind,
+					question: s.question,
+					enabled: s.enabled,
+				})),
 				brand: brands.find((b) => b.id === inbox.organization_id) ?? null,
 				timezone: timezone(),
 				catalog: {

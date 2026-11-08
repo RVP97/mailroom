@@ -75,6 +75,8 @@ const VERB: Record<string, string> = {
 	"article.edited": "edited the help article",
 	"article.deleted": "deleted the help article",
 	"help_center.edited": "changed the help center",
+	"survey.edited": "edited the survey",
+	"survey.deleted": "deleted the survey",
 	"campaign.edited": "edited the campaign",
 	"campaign.deleted": "deleted the campaign",
 	"form.edited": "edited the sign-up form",

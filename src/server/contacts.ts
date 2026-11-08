@@ -924,6 +924,8 @@ export async function contactValues(brand: string, c: Contact) {
 		"contact.email": c.email,
 		"contact.first_name": c.first_name ?? "",
 		"contact.last_name": c.last_name ?? "",
+		// Their survey links (signed, so nobody answers for someone else).
+		SURVEY_URL: await (await import("./surveys")).surveyBase(c.id),
 	};
 	for (const p of props) {
 		const v = c.properties?.[p.key];

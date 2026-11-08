@@ -56,6 +56,8 @@ import { Route as AppReceivedReportsRouteImport } from './routes/_app/received.r
 import { Route as AppReceivedRulesRouteImport } from './routes/_app/received.rules'
 import { Route as AppSuppressionsIndexRouteImport } from './routes/_app/suppressions.index'
 import { Route as AppSuppressionsIdRouteImport } from './routes/_app/suppressions.$id'
+import { Route as AppSurveysIndexRouteImport } from './routes/_app/surveys.index'
+import { Route as AppSurveysIdRouteImport } from './routes/_app/surveys.$id'
 import { Route as AppTemplatesIndexRouteImport } from './routes/_app/templates.index'
 import { Route as AppTemplatesIdRouteImport } from './routes/_app/templates.$id'
 import { Route as AppWebhooksIndexRouteImport } from './routes/_app/webhooks.index'
@@ -305,6 +307,16 @@ const AppSuppressionsIdRoute = AppSuppressionsIdRouteImport.update({
   path: '/suppressions/$id',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSurveysIndexRoute = AppSurveysIndexRouteImport.update({
+  id: '/surveys/',
+  path: '/surveys/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSurveysIdRoute = AppSurveysIdRouteImport.update({
+  id: '/surveys/$id',
+  path: '/surveys/$id',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppTemplatesIndexRoute = AppTemplatesIndexRouteImport.update({
   id: '/templates/',
   path: '/templates/',
@@ -410,6 +422,7 @@ export interface FileRoutesByFullPath {
   '/received/reports': typeof AppReceivedReportsRoute
   '/received/rules': typeof AppReceivedRulesRoute
   '/suppressions/$id': typeof AppSuppressionsIdRoute
+  '/surveys/$id': typeof AppSurveysIdRoute
   '/templates/$id': typeof AppTemplatesIdRoute
   '/webhooks/$id': typeof AppWebhooksIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -426,6 +439,7 @@ export interface FileRoutesByFullPath {
   '/newsletters/': typeof AppNewslettersIndexRoute
   '/received/': typeof AppReceivedIndexRoute
   '/suppressions/': typeof AppSuppressionsIndexRoute
+  '/surveys/': typeof AppSurveysIndexRoute
   '/templates/': typeof AppTemplatesIndexRoute
   '/webhooks/': typeof AppWebhooksIndexRoute
   '/contacts/forms/$id': typeof AppContactsFormsIdRoute
@@ -472,6 +486,7 @@ export interface FileRoutesByTo {
   '/received/reports': typeof AppReceivedReportsRoute
   '/received/rules': typeof AppReceivedRulesRoute
   '/suppressions/$id': typeof AppSuppressionsIdRoute
+  '/surveys/$id': typeof AppSurveysIdRoute
   '/templates/$id': typeof AppTemplatesIdRoute
   '/webhooks/$id': typeof AppWebhooksIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -488,6 +503,7 @@ export interface FileRoutesByTo {
   '/newsletters': typeof AppNewslettersIndexRoute
   '/received': typeof AppReceivedIndexRoute
   '/suppressions': typeof AppSuppressionsIndexRoute
+  '/surveys': typeof AppSurveysIndexRoute
   '/templates': typeof AppTemplatesIndexRoute
   '/webhooks': typeof AppWebhooksIndexRoute
   '/contacts/forms/$id': typeof AppContactsFormsIdRoute
@@ -536,6 +552,7 @@ export interface FileRoutesById {
   '/_app/received/reports': typeof AppReceivedReportsRoute
   '/_app/received/rules': typeof AppReceivedRulesRoute
   '/_app/suppressions/$id': typeof AppSuppressionsIdRoute
+  '/_app/surveys/$id': typeof AppSurveysIdRoute
   '/_app/templates/$id': typeof AppTemplatesIdRoute
   '/_app/webhooks/$id': typeof AppWebhooksIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -552,6 +569,7 @@ export interface FileRoutesById {
   '/_app/newsletters/': typeof AppNewslettersIndexRoute
   '/_app/received/': typeof AppReceivedIndexRoute
   '/_app/suppressions/': typeof AppSuppressionsIndexRoute
+  '/_app/surveys/': typeof AppSurveysIndexRoute
   '/_app/templates/': typeof AppTemplatesIndexRoute
   '/_app/webhooks/': typeof AppWebhooksIndexRoute
   '/_app/contacts/forms/$id': typeof AppContactsFormsIdRoute
@@ -600,6 +618,7 @@ export interface FileRouteTypes {
     | '/received/reports'
     | '/received/rules'
     | '/suppressions/$id'
+    | '/surveys/$id'
     | '/templates/$id'
     | '/webhooks/$id'
     | '/api/auth/$'
@@ -616,6 +635,7 @@ export interface FileRouteTypes {
     | '/newsletters/'
     | '/received/'
     | '/suppressions/'
+    | '/surveys/'
     | '/templates/'
     | '/webhooks/'
     | '/contacts/forms/$id'
@@ -662,6 +682,7 @@ export interface FileRouteTypes {
     | '/received/reports'
     | '/received/rules'
     | '/suppressions/$id'
+    | '/surveys/$id'
     | '/templates/$id'
     | '/webhooks/$id'
     | '/api/auth/$'
@@ -678,6 +699,7 @@ export interface FileRouteTypes {
     | '/newsletters'
     | '/received'
     | '/suppressions'
+    | '/surveys'
     | '/templates'
     | '/webhooks'
     | '/contacts/forms/$id'
@@ -725,6 +747,7 @@ export interface FileRouteTypes {
     | '/_app/received/reports'
     | '/_app/received/rules'
     | '/_app/suppressions/$id'
+    | '/_app/surveys/$id'
     | '/_app/templates/$id'
     | '/_app/webhooks/$id'
     | '/api/auth/$'
@@ -741,6 +764,7 @@ export interface FileRouteTypes {
     | '/_app/newsletters/'
     | '/_app/received/'
     | '/_app/suppressions/'
+    | '/_app/surveys/'
     | '/_app/templates/'
     | '/_app/webhooks/'
     | '/_app/contacts/forms/$id'
@@ -1097,6 +1121,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSuppressionsIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/surveys/': {
+      id: '/_app/surveys/'
+      path: '/surveys'
+      fullPath: '/surveys/'
+      preLoaderRoute: typeof AppSurveysIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/surveys/$id': {
+      id: '/_app/surveys/$id'
+      path: '/surveys/$id'
+      fullPath: '/surveys/$id'
+      preLoaderRoute: typeof AppSurveysIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/templates/': {
       id: '/_app/templates/'
       path: '/templates'
@@ -1225,6 +1263,7 @@ interface AppRouteChildren {
   AppReceivedReportsRoute: typeof AppReceivedReportsRoute
   AppReceivedRulesRoute: typeof AppReceivedRulesRoute
   AppSuppressionsIdRoute: typeof AppSuppressionsIdRoute
+  AppSurveysIdRoute: typeof AppSurveysIdRoute
   AppTemplatesIdRoute: typeof AppTemplatesIdRoute
   AppWebhooksIdRoute: typeof AppWebhooksIdRoute
   AppArticlesIndexRoute: typeof AppArticlesIndexRoute
@@ -1240,6 +1279,7 @@ interface AppRouteChildren {
   AppNewslettersIndexRoute: typeof AppNewslettersIndexRoute
   AppReceivedIndexRoute: typeof AppReceivedIndexRoute
   AppSuppressionsIndexRoute: typeof AppSuppressionsIndexRoute
+  AppSurveysIndexRoute: typeof AppSurveysIndexRoute
   AppTemplatesIndexRoute: typeof AppTemplatesIndexRoute
   AppWebhooksIndexRoute: typeof AppWebhooksIndexRoute
   AppContactsFormsIdRoute: typeof AppContactsFormsIdRoute
@@ -1280,6 +1320,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppReceivedReportsRoute: AppReceivedReportsRoute,
   AppReceivedRulesRoute: AppReceivedRulesRoute,
   AppSuppressionsIdRoute: AppSuppressionsIdRoute,
+  AppSurveysIdRoute: AppSurveysIdRoute,
   AppTemplatesIdRoute: AppTemplatesIdRoute,
   AppWebhooksIdRoute: AppWebhooksIdRoute,
   AppArticlesIndexRoute: AppArticlesIndexRoute,
@@ -1295,6 +1336,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppNewslettersIndexRoute: AppNewslettersIndexRoute,
   AppReceivedIndexRoute: AppReceivedIndexRoute,
   AppSuppressionsIndexRoute: AppSuppressionsIndexRoute,
+  AppSurveysIndexRoute: AppSurveysIndexRoute,
   AppTemplatesIndexRoute: AppTemplatesIndexRoute,
   AppWebhooksIndexRoute: AppWebhooksIndexRoute,
   AppContactsFormsIdRoute: AppContactsFormsIdRoute,

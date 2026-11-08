@@ -140,6 +140,7 @@ function ArticlePage() {
 					kit={data.look.kit}
 					title={form.title || "Article"}
 					variables={[]}
+					surveys={false}
 					onClose={() => setBuilding(false)}
 					actions={
 						<>

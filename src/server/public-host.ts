@@ -43,7 +43,7 @@ export const shownHere = (organizationId: string | null | undefined) => {
 
 /** The paths a domain's host serves besides /c/ and /o/ (and / itself). */
 export const PUBLIC_PATH =
-	/^\/(?:unsubscribe$|view\/|n\/|help\/|poll\/|r\/|media\/|subscribe\/|logos\/|bimi\/)/;
+	/^\/(?:unsubscribe$|view\/|n\/|help\/|poll\/|s\/|r\/|media\/|subscribe\/|logos\/|bimi\/)/;
 
 const hosts = new Map<string, { at: number; value: PublicScope | null }>();
 

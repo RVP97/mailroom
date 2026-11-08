@@ -235,6 +235,8 @@ export const chatDesign = z.object({
 	newsletter_id: shortText(64).nullish(),
 	/** After the visitor's first message, the brand's help center articles that may answer it. */
 	suggest_articles: z.boolean().optional(),
+	/** When a chat ends, ask this survey (an NPS, say) instead of the five faces. */
+	survey_id: shortText(64).nullish(),
 });
 export type ChatDesign = z.infer<typeof chatDesign>;
 
@@ -282,6 +284,7 @@ export const DESIGN_DEFAULTS: Required<{
 	popups: [],
 	newsletter_id: null,
 	suggest_articles: true,
+	survey_id: null,
 };
 
 /** The default texts of a chat in Spanish (design.language "es"). */
@@ -396,6 +399,10 @@ async function checkMarketing(brand: string, d: ChatDesign) {
 	}
 	if ((d.popups ?? []).some((p) => p.signup) && !d.newsletter_id)
 		throw validation("popups: pick the chat's newsletter to ask for emails");
+	if (d.survey_id) {
+		const { checkSurvey } = await import("./surveys");
+		await checkSurvey(brand, d.survey_id);
+	}
 }
 
 /** The agent that answers first must be one of the inbox's credentials that may send. */

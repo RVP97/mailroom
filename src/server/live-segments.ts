@@ -82,6 +82,22 @@ export const condition = z.discriminatedUnion("type", [
 		days: days.optional(),
 	}),
 	z.object({
+		type: z.literal("survey"),
+		survey_id: z.string().min(1),
+		/** any answer; an NPS group; a score at least/at most `value`; or the choice `value`. */
+		answer: z.enum([
+			"any",
+			"promoter",
+			"passive",
+			"detractor",
+			"at_least",
+			"at_most",
+			"choice",
+		]),
+		value: z.number().int().min(0).max(10).optional(),
+		days: days.optional(),
+	}),
+	z.object({
 		type: z.literal("chatted"),
 		page: z.string().trim().max(500).optional(),
 		days: days.optional(),
@@ -176,6 +192,26 @@ function compile(brand: string, c: SegmentCondition, now: number): SQL | null {
 			// Their latest rating.
 			return sql`(SELECT csat_rating FROM conversations WHERE organization_id = ${brand} AND contact_address = ${ct.email} AND csat_rating IS NOT NULL ${window} ORDER BY csat_at DESC LIMIT 1) ${cmp}`;
 		}
+		case "survey": {
+			const window = c.days ? sql`AND updated_at >= ${since(c.days, now)}` : sql``;
+			const v = c.value ?? 0;
+			const answer =
+				c.answer === "promoter"
+					? sql`AND score >= 9`
+					: c.answer === "passive"
+						? sql`AND score BETWEEN 7 AND 8`
+						: c.answer === "detractor"
+							? sql`AND score <= 6`
+							: c.answer === "at_least"
+								? sql`AND score >= ${v}`
+								: c.answer === "at_most"
+									? sql`AND score <= ${v}`
+									: c.answer === "choice"
+										? sql`AND score = ${v}`
+										: sql``;
+			// Their latest answer to it.
+			return sql`EXISTS (SELECT 1 FROM survey_responses WHERE id = (SELECT id FROM survey_responses WHERE contact_id = ${ct.id} AND survey_id = ${c.survey_id} ORDER BY updated_at DESC LIMIT 1) ${answer} ${window})`;
+		}
 		case "chatted": {
 			const window = c.days ? sql`AND created_at >= ${since(c.days, now)}` : sql``;
 			const page = c.page ? sql`AND instr(lower(page_url), lower(${c.page})) > 0` : sql``;
@@ -212,6 +248,17 @@ export async function checkRules(brand: string, raw: unknown, selfId?: string) {
 			);
 		if (rows.length < new Set(topics).size)
 			throw validation("A rule names a topic this brand doesn't have");
+	}
+	const surveys = rules.conditions.filter((c) => c.type === "survey").map((c) => c.survey_id);
+	if (surveys.length) {
+		const rows = await db
+			.select({ id: schema.surveys.id })
+			.from(schema.surveys)
+			.where(
+				and(eq(schema.surveys.organization_id, brand), inArray(schema.surveys.id, surveys)),
+			);
+		if (rows.length < new Set(surveys).size)
+			throw validation("A rule names a survey this brand doesn't have");
 	}
 	return rules;
 }
@@ -365,7 +412,7 @@ export async function segmentOptions(brand: string) {
 	const { eventNames } = await import("./contact-events");
 	const { pollsIn } = await import("./polls");
 	const b = schema.broadcasts;
-	const [events, forms, topics, segments, recent, props] = await Promise.all([
+	const [events, forms, topics, segments, recent, props, surveys] = await Promise.all([
 		eventNames(brand),
 		db
 			.select({ id: schema.signupForms.id, name: schema.signupForms.name })
@@ -393,12 +440,22 @@ export async function segmentOptions(brand: string) {
 			.select({ key: schema.contactProperties.key, type: schema.contactProperties.type })
 			.from(schema.contactProperties)
 			.where(eq(schema.contactProperties.organization_id, brand)),
+		db
+			.select({
+				id: schema.surveys.id,
+				name: schema.surveys.name,
+				kind: schema.surveys.kind,
+				options: schema.surveys.options,
+			})
+			.from(schema.surveys)
+			.where(eq(schema.surveys.organization_id, brand)),
 	]);
 	return {
 		events,
 		forms,
 		topics,
 		properties: props,
+		surveys,
 		segments: segments.filter((s) => !s.rules).map(({ rules: _r, ...s }) => s),
 		polls: recent.flatMap((x) =>
 			pollsIn(x.design).map((p) => ({
@@ -460,6 +517,14 @@ export function describeCondition(c: SegmentCondition): string {
 			return `${c.did ? "has" : "has no"} ${c.status === "open" ? "open " : ""}conversation`;
 		case "rating":
 			return `rated ${c.op === "at_most" ? "≤" : "≥"} ${c.value}`;
+		case "survey":
+			return c.answer === "any"
+				? "answered a survey"
+				: c.answer === "at_least" || c.answer === "at_most"
+					? `survey score ${c.answer === "at_most" ? "≤" : "≥"} ${c.value ?? 0}`
+					: c.answer === "choice"
+						? "picked a survey answer"
+						: `a survey ${c.answer}`;
 		case "chatted":
 			return `chatted${c.page ? ` on ${c.page}` : ""}`;
 	}

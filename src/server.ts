@@ -101,6 +101,11 @@ async function publicPage(request: Request, url: URL): Promise<Response | null> 
 		const { handleHelpPage } = await import("./server/help-center");
 		return secured(await handleHelpPage(request));
 	}
+	// Surveys: a website's link, an email's answer links (src/server/surveys.ts).
+	if (url.pathname.startsWith("/s/") && (request.method === "GET" || request.method === "POST")) {
+		const { handleSurveyPage } = await import("./server/surveys");
+		return secured(await handleSurveyPage(request));
+	}
 	// A subscriber's referral link (src/server/referrals.ts).
 	const referral = /^\/r\/([A-Za-z0-9]{1,32})$/.exec(url.pathname);
 	if (referral?.[1] && request.method === "GET") {

@@ -52,6 +52,7 @@ import { ApiError } from "./errors";
  *   POST /chat/<key>/seen          the visitor has it in front of them
  *   POST /chat/<key>/end           the visitor ends it (resolved)
  *   POST /chat/<key>/rate          the visitor's rating, 1-5, and a comment
+ *   POST /chat/<key>/survey        the chat's survey: { value, comment? } (src/server/surveys.ts)
  *   POST /chat/<key>/history       the visitor's chats: { tokens, identity? }
  *   POST /chat/<key>/handoff       the visitor asks for a person (an agent has the chat)
  *   GET  /chat/<key>/articles      ?q=: the help center's articles that answer it (&record=1:
@@ -272,6 +273,29 @@ export async function handleChat(request: Request, now = Date.now()): Promise<Re
 				const chat = await need(key, request);
 				const fresh = await visitorRates(chat, await readJson(request), now);
 				return json({ conversation: await chatState(fresh) }, { headers });
+			}
+			case "POST survey": {
+				// The chat's survey, answered when it ends (and its comment after).
+				const chat = await need(key, request);
+				const body = (await readJson(request)) as { value?: unknown; comment?: unknown };
+				const { chatSurvey, answerForConversation } = await import("./surveys");
+				const s = await chatSurvey(
+					chat.conversation.organization_id,
+					designOf(chat.widget).survey_id,
+				);
+				if (!s) throw new ApiError(403, "survey_off", "This chat doesn't ask a survey");
+				const value = Number(body?.value);
+				if (!Number.isInteger(value))
+					throw new ApiError(422, "validation_error", "value: a number");
+				await answerForConversation(
+					s,
+					chat.conversation.id,
+					value,
+					typeof body?.comment === "string" ? body.comment.slice(0, 2000) : undefined,
+					"chat",
+					now,
+				);
+				return json({ ok: true }, { headers });
 			}
 			case "POST handoff": {
 				// The visitor asks for a person (while an agent answers).
@@ -502,6 +526,21 @@ export async function publicConfig(w: NonNullable<Awaited<ReturnType<typeof widg
 		custom_css: d.custom_css,
 		language: d.language,
 		ask_rating: d.ask_rating,
+		// A survey asked when the chat ends, in place of the faces.
+		survey: await import("./surveys").then(async (m) => {
+			const s = await m.chatSurvey(w.inbox.organization_id, d.survey_id);
+			return s
+				? {
+						kind: s.kind,
+						question: s.question,
+						options: s.kind === "choice" ? s.options : [],
+						low: s.low_label,
+						high: s.high_label,
+						comment: s.comment_prompt,
+						thanks: s.thanks,
+					}
+				: null;
+		}),
 		allow_end: d.allow_end,
 		show_team: d.show_team,
 		team: d.show_team ? await chatTeam(w.inbox.id) : [],

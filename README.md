@@ -128,7 +128,8 @@ An organization that should be fully apart can optionally use its own SES accoun
   newsletters, segments and topics they're in, their last broadcasts, their latest events and the
   last rating they gave. From there they can make them a contact, put them in a segment,
   subscribe them to a newsletter or start an automation for them. Two contacts of the same person
-  can be merged.
+  can be merged. `GET /api/contacts/:id/timeline` and `GET /api/contacts/:id/events` (`?event=`)
+  read them.
 - **Revenue**: send purchases as events with a value, and each is credited to the last thing that
   reached the person within 7 days: a broadcast or automation email they opened or clicked, or a
   website chat they wrote in. Insights has a Revenue page (totals, what email and chat earned, by
@@ -156,7 +157,14 @@ An organization that should be fully apart can optionally use its own SES accoun
   (`GET /api/articles?q=`, `GET /api/articles/:id`, MCP `find_help_articles`). Questions the
   chat or the search couldn't answer are kept and listed on the Help center page and in the inbox
   report, with a button to write the missing article.
-  `GET /api/contacts/:id/timeline` and `GET /api/contacts/:id/events` (`?event=`) read them.
+- **Surveys**: NPS (0-10), satisfaction (1-5) or a question with your own answers, each with an
+  optional comment. Ask them in any email with the editor's Survey block (each contact's answer
+  links are signed, and the page records the answer without letting mail scanners vote), on a
+  public page (`/s/<survey>`), in the website chat when a chat ends, or in the email after a
+  support conversation (instead of the five faces). The Surveys page shows the score, how each
+  answer split, where they came from and the comments, next to support ratings and email polls.
+  An answer from a known contact is the event `survey.answered` (automations can follow up), and
+  live segments can pick promoters, detractors, a score or a choice.
 - **Automations**, built on a canvas: when a contact is added, joins a segment, opens a broadcast,
   clicks a link in one, or your app sends an event (`POST /api/events`), wait, branch on a check
   (in a segment, a property, opened or clicked the last email) into yes and no paths, add to or

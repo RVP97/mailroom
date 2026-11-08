@@ -2352,3 +2352,59 @@ export const helpGaps = sqliteTable(
 		index("help_gaps_last_idx").on(t.organization_id, t.last_at),
 	],
 );
+
+/** A brand's survey (NPS, satisfaction or a choice), asked in emails, on the web and in the chat. */
+export const surveys = sqliteTable(
+	"surveys",
+	{
+		id: text("id").primaryKey(),
+		/** The brand's id. */
+		organization_id: orgId(),
+		name: text("name").notNull(),
+		/** nps (0-10) | csat (1-5) | choice (one of options) */
+		kind: text("kind").notNull(),
+		question: text("question").notNull(),
+		options: text("options", { mode: "json" }).$type<string[]>().notNull().default([]),
+		/** Words under the scale's ends ("Not likely", "Very likely"). */
+		low_label: text("low_label"),
+		high_label: text("high_label"),
+		/** The follow-up question for a comment (none: no comment box). */
+		comment_prompt: text("comment_prompt"),
+		thanks: text("thanks").notNull(),
+		/** Off: its links show a closed page and nothing is recorded. */
+		enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+		created_by: text("created_by"),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [index("surveys_org_idx").on(t.organization_id)],
+);
+
+/** One answer to a survey: a contact's (one per survey and place), or a visitor's. */
+export const surveyResponses = sqliteTable(
+	"survey_responses",
+	{
+		id: text("id").primaryKey(),
+		survey_id: text("survey_id").notNull(),
+		/** The brand's id. */
+		organization_id: orgId(),
+		contact_id: text("contact_id"),
+		email: text("email"),
+		/** nps 0-10, csat 1-5, choice: the option's number. */
+		score: integer("score"),
+		/** A choice's words. */
+		choice: text("choice"),
+		comment: text("comment"),
+		/** email | web | chat | conversation */
+		source: text("source").notNull(),
+		/** The conversation it followed ('' when none). */
+		source_id: text("source_id").notNull().default(""),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [
+		uniqueIndex("survey_responses_one_idx").on(t.survey_id, t.contact_id, t.source_id),
+		index("survey_responses_survey_idx").on(t.survey_id, t.updated_at),
+		index("survey_responses_contact_idx").on(t.contact_id),
+	],
+);

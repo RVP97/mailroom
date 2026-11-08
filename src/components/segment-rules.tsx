@@ -28,9 +28,11 @@ export type RuleOptions = {
 		question: string;
 		options: string[];
 	}[];
+	surveys?: { id: string; name: string; kind: string; options: string[] }[];
 };
 
 type Type = SegmentCondition["type"];
+type SurveyAnswer = Extract<SegmentCondition, { type: "survey" }>["answer"];
 
 /** The kinds of rule, grouped the way people think about them. */
 const KINDS: { group: string; items: [Type, string][] }[] = [
@@ -52,6 +54,7 @@ const KINDS: { group: string; items: [Type, string][] }[] = [
 			["engagement", "How engaged they are"],
 			["email_activity", "Got, opened or clicked"],
 			["poll", "Answered a poll"],
+			["survey", "Answered a survey"],
 			["referrals", "Friends they brought"],
 		],
 	},
@@ -101,6 +104,16 @@ export function newCondition(type: Type, o: RuleOptions): SegmentCondition {
 			return { type, op: "at_most", value: 2, days: 90 };
 		case "chatted":
 			return { type, page: "", days: 30 };
+		case "survey": {
+			const s = o.surveys?.[0];
+			return {
+				type,
+				survey_id: s?.id ?? "",
+				answer: s?.kind === "nps" ? "promoter" : s?.kind === "choice" ? "choice" : "any",
+				...(s?.kind === "choice" ? { value: 0 } : {}),
+				days: 90,
+			};
+		}
 	}
 }
 
@@ -600,6 +613,108 @@ function Fields({
 					<Words>days</Words>
 				</>
 			);
+		case "survey": {
+			const list = o.surveys ?? [];
+			const s = list.find((x) => x.id === c.survey_id);
+			const kind = s?.kind ?? "nps";
+			const answers: [SurveyAnswer, string][] =
+				kind === "nps"
+					? [
+							["any", "any answer"],
+							["promoter", "a promoter (9-10)"],
+							["passive", "a passive (7-8)"],
+							["detractor", "a detractor (0-6)"],
+							["at_least", "a score of at least"],
+							["at_most", "a score of at most"],
+						]
+					: kind === "csat"
+						? [
+								["any", "any answer"],
+								["at_least", "a score of at least"],
+								["at_most", "a score of at most"],
+							]
+						: [
+								["any", "any answer"],
+								["choice", "the answer"],
+							];
+			const scale =
+				kind === "nps"
+					? Array.from(
+							{ length: 11 },
+							(_, i) => [String(i), String(i)] as [string, string],
+						)
+					: [1, 2, 3, 4, 5].map((i) => [String(i), `${i} of 5`] as [string, string]);
+			return (
+				<>
+					<Pick
+						label="Survey"
+						value={c.survey_id}
+						onChange={(survey_id) => {
+							const next = list.find((x) => x.id === survey_id);
+							set({
+								...c,
+								survey_id,
+								answer: next?.kind === "choice" ? "choice" : "any",
+								value: next?.kind === "choice" ? 0 : undefined,
+							});
+						}}
+						items={list.map((x) => [x.id, x.name])}
+						placeholder={list.length ? "Survey" : "No surveys yet"}
+						className="w-44"
+					/>
+					<Words>latest is</Words>
+					<Pick
+						label="Answer"
+						value={c.answer}
+						onChange={(answer) =>
+							set({
+								...c,
+								answer,
+								value:
+									answer === "at_least"
+										? kind === "nps"
+											? 9
+											: 4
+										: answer === "at_most"
+											? kind === "nps"
+												? 6
+												: 2
+											: answer === "choice"
+												? 0
+												: undefined,
+							})
+						}
+						items={answers}
+						className="w-48"
+					/>
+					{(c.answer === "at_least" || c.answer === "at_most") && (
+						<Pick
+							label="Score"
+							value={String(c.value ?? 0)}
+							onChange={(v) => set({ ...c, value: Number(v) })}
+							items={scale}
+							className="w-24"
+						/>
+					)}
+					{c.answer === "choice" && (
+						<Pick
+							label="Which answer"
+							value={String(c.value ?? 0)}
+							onChange={(v) => set({ ...c, value: Number(v) })}
+							items={(s?.options ?? []).map((x, i) => [String(i), x])}
+							className="w-40"
+						/>
+					)}
+					<Words>in the last</Words>
+					<Num
+						label="Days"
+						value={c.days}
+						onChange={(days) => set({ ...c, days })}
+					/>
+					<Words>days</Words>
+				</>
+			);
+		}
 		case "chatted":
 			return (
 				<>

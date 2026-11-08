@@ -1942,9 +1942,43 @@ function SettingsPanel({
 				<SwitchRow
 					label="Ask them to rate it"
 					hint="Five faces and an optional comment, in the chat when it closes. Ratings show on the conversation and in the inbox report."
-					checked={!!v.design.ask_rating}
-					onChange={(ask_rating) => look({ ask_rating })}
+					checked={!!v.design.ask_rating || !!v.design.survey_id}
+					onChange={(ask_rating) =>
+						look(ask_rating ? { ask_rating } : { ask_rating, survey_id: null })
+					}
 				/>
+				{(!!v.design.ask_rating || !!v.design.survey_id) && data.surveys.length > 0 && (
+					<Field>
+						<FieldLabel htmlFor="chat-survey">What to ask</FieldLabel>
+						<Select
+							value={v.design.survey_id ?? "faces"}
+							onValueChange={(x) => look({ survey_id: x === "faces" ? null : x })}
+						>
+							<SelectTrigger
+								id="chat-survey"
+								className="w-full"
+							>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="faces">Five faces (a 1 to 5 rating)</SelectItem>
+								{data.surveys.map((s) => (
+									<SelectItem
+										key={s.id}
+										value={s.id}
+									>
+										{s.name}: {s.question}
+										{s.enabled ? "" : " (closed)"}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+						<FieldDescription>
+							A survey's answers go to Surveys and the visitor's contact; a
+							satisfaction survey rates the conversation too.
+						</FieldDescription>
+					</Field>
+				)}
 				<p className="text-xs text-muted-foreground">
 					Writing again reopens a closed chat. Visitors can also see their past chats and
 					download a transcript from the ⋯ menu.

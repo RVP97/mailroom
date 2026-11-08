@@ -13,6 +13,7 @@ import {
 	Building2,
 	ChartColumn,
 	ChevronsUpDown,
+	ClipboardCheck,
 	Cloud,
 	Contact as ContactIcon,
 	Flag,
@@ -123,6 +124,7 @@ const AUDIENCE: NavItem[] = [
 	{ to: "/campaigns", label: "Campaigns", icon: Flag, key: "g" },
 	{ to: "/newsletters", label: "Newsletters", icon: Newspaper, key: "p" },
 	{ to: "/automations", label: "Automations", icon: Workflow, key: "m" },
+	{ to: "/surveys", label: "Surveys", icon: ClipboardCheck, key: "v" },
 	{ to: "/templates", label: "Templates", icon: LayoutTemplate, key: "t" },
 ];
 const ORGANIZATION: NavItem[] = [

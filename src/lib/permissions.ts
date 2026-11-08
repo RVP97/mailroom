@@ -21,6 +21,7 @@ export const STATEMENTS = {
 	automations: ["edit", "activate"],
 	inbox: ["reply", "rules", "agents"],
 	help: ["edit"],
+	surveys: ["edit"],
 	emails: ["unmasked"],
 	recipients: ["unblock", "block"],
 	brands: ["edit"],
@@ -125,6 +126,7 @@ export const CATALOG: CatalogGroup[] = [
 			{ id: "contacts:import", label: "Import contacts" },
 			{ id: "contacts:delete", label: "Delete contacts", hint: "And clean up the list" },
 			{ id: "forms:edit", label: "Edit sign-up forms" },
+			{ id: "surveys:edit", label: "Edit surveys", hint: "NPS, satisfaction and questions" },
 		],
 	},
 	{
@@ -238,6 +240,7 @@ export const STARTER_ROLES: RoleDefinition[] = [
 			"contacts:import",
 			"forms:edit",
 			"help:edit",
+			"surveys:edit",
 			"activity:view",
 		],
 		starter: true,
@@ -255,7 +258,7 @@ export const STARTER_ROLES: RoleDefinition[] = [
 		name: "Support",
 		description: "Replies to received email and lets a recipient get email again.",
 		all: false,
-		permissions: ["inbox:reply", "recipients:unblock", "help:edit"],
+		permissions: ["inbox:reply", "recipients:unblock", "help:edit", "surveys:edit"],
 		starter: true,
 	},
 	{

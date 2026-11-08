@@ -479,6 +479,7 @@ async function webValues(x: Broadcast, n: Newsletter | null) {
 		REFERRAL_PAGE_URL: n?.public ? newsletterUrl(n.slug) : "#",
 		REFERRAL_COUNT: "",
 		POLL_URL: `${publicUrl()}/poll/web/${x.id}`,
+		SURVEY_URL: `${publicUrl()}/s/web`,
 		UNSUBSCRIBE_URL: n?.public ? newsletterUrl(n.slug) : "#",
 		MAILROOM_UNSUBSCRIBE_URL: "#",
 		RESEND_UNSUBSCRIBE_URL: "#",

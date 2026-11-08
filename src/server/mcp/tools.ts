@@ -146,6 +146,7 @@ import { AUDIENCE_TOOLS } from "./tools-audience";
 import { CONTENT_TOOLS } from "./tools-content";
 import { HELP_TOOLS } from "./tools-help";
 import { SETTINGS_TOOLS } from "./tools-settings";
+import { SURVEY_TOOLS } from "./tools-surveys";
 import { TEAM_TOOLS } from "./tools-team";
 
 /** Who is calling: the person behind the connection, read again on every call. */
@@ -2160,4 +2161,5 @@ export const TOOLS: Tool[] = [
 	...CONTENT_TOOLS,
 	...SETTINGS_TOOLS,
 	...HELP_TOOLS,
+	...SURVEY_TOOLS,
 ];

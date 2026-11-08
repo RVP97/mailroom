@@ -34,6 +34,7 @@ export const DEFAULT_INBOX_SETTINGS = {
 		question: "How did we do?",
 		thanks: "Thanks for telling us.",
 		delay_minutes: 10,
+		survey_id: null,
 	},
 	hold_suspicious: true,
 	undo_seconds: 5,

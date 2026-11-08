@@ -454,6 +454,7 @@ export const sendBroadcastTestFn = createServerFn({ method: "POST" })
 				REFERRAL_PAGE_URL: "#referral-page",
 				REFERRAL_COUNT: 0,
 				POLL_URL: `${baseUrl()}/poll/web/${x.id}`,
+				SURVEY_URL: `${baseUrl()}/s/web`,
 			};
 			const html = x.html ? fill(x.html, values) : undefined;
 			const input = parseSend({

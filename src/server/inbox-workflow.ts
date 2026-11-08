@@ -114,12 +114,15 @@ export const inboxSettings = z.object({
 				.min(1)
 				.max(7 * 24 * 60)
 				.default(10),
+			/** Ask one of the brand's surveys (an NPS, say) instead of the five faces. */
+			survey_id: z.string().nullable().default(null),
 		})
 		.default({
 			enabled: false,
 			question: "How did we do?",
 			thanks: "Thanks for telling us.",
 			delay_minutes: 10,
+			survey_id: null,
 		}),
 	/** Messages that look like spam, phishing or prompt injection wait for a person. */
 	hold_suspicious: z.boolean().default(true),
@@ -160,6 +163,12 @@ export async function updateSettings(inbox: Inbox, patch: unknown, now = Date.no
 		}
 		if (next.sla.business_hours.end <= next.sla.business_hours.start)
 			throw validation("sla.business_hours: the day must end after it starts");
+	}
+	if (next.csat.survey_id && next.csat.survey_id !== current.csat.survey_id) {
+		const { checkSurvey } = await import("./surveys");
+		await checkSurvey(inbox.organization_id, next.csat.survey_id).catch(() => {
+			throw validation("csat.survey_id: no survey of this inbox's brand has that id");
+		});
 	}
 	await db
 		.update(schema.inboxes)
@@ -1821,6 +1830,22 @@ const FACES = ["😞", "🙁", "😐", "🙂", "😍"];
 
 /** The survey email: five links, one per answer. */
 export async function surveyEmail(x: Conversation, s: InboxSettings["csat"]) {
+	// One of the brand's surveys: its question and scale, answered on its page.
+	const { chatSurvey, conversationSurveyBase } = await import("./surveys");
+	const own = await chatSurvey(x.organization_id, s.survey_id);
+	if (own) {
+		const { scaleLinks, scaleOf } = await import("../lib/survey-scale");
+		const start = `${await conversationSurveyBase(x.id)}/${own.id}`;
+		const q = own.question.replace(/[<>&"]/g, "");
+		const font = "-apple-system,Segoe UI,Helvetica,Arial,sans-serif";
+		return {
+			subject: `${q} · ${x.subject || "your conversation"}`.slice(0, 200),
+			text: `${own.question}\n\n${scaleOf(own)
+				.map(([v, l]) => `${l}: ${start}/${v}`)
+				.join("\n")}`,
+			html: `<div style="font-family:${font};font-size:15px;line-height:1.5;color:#1c1c1a;max-width:560px"><p style="margin:0 0 16px">${q}</p>${scaleLinks(own, (v) => `${start}/${v}`, { font, size: 15, color: "#1c1c1a", border: "#e5e4df", radius: 10, align: "left" })}<p style="margin:16px 0 0;font-size:13px;color:#77756f">One click is enough; you can add a comment after.</p></div>`,
+		};
+	}
 	const base = await csatPath(x.id);
 	const cells = FACES.map(
 		(f, i) =>

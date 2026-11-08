@@ -417,6 +417,7 @@ function mailroomChat(c) {
 			".topics{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin:12px 0 4px}.topic{padding:8px 14px;border-radius:999px;box-shadow:inset 0 0 0 1.5px var(--accent);color:var(--accent);font-weight:600;font-size:14px;background:var(--panel);transition:background .15s}.topic:hover{background:color-mix(in srgb,var(--accent) 10%,var(--panel))}" +
 			// A closed chat: the rating, and starting another
 			".endt{display:flex;gap:8px;align-items:center;font-weight:600;font-size:14.5px;margin-bottom:10px}.endt span{width:26px;height:26px;border-radius:50%;background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent);display:grid;place-items:center;flex:none}" +
+			".svs{display:flex;gap:4px;margin:2px 0 4px}.svs.nps{gap:3px}.sv{flex:1;min-width:0;height:38px;border-radius:9px;background:var(--soft);font-weight:600;font-size:14px;transition:background .15s}.sv:hover{background:var(--soft2)}.svs.choice{flex-direction:column}.svs.choice .sv{text-align:left;padding:0 12px;font-weight:500}.sve{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin:0 2px 4px}" +
 			".faces{display:flex;gap:6px;margin:2px 0 4px}.face{flex:1;height:44px;border-radius:12px;background:var(--soft);font-size:24px;line-height:1;display:grid;place-items:center;transition:transform .15s,background .15s}.face:hover{transform:scale(1.08);background:var(--soft2)}" +
 			".card .hint{font-size:13px;color:var(--muted);margin:12px 0 8px}" +
 			".btn.wide{width:100%;display:flex;gap:8px;align-items:center;justify-content:center}.btn.ghost{background:var(--soft);color:var(--text)}" +
@@ -1594,7 +1595,9 @@ function mailroomChat(c) {
 				h("b", { text: T("This chat has ended") }),
 			]),
 		];
-		if (cfg.ask_rating) {
+		if (cfg.survey) {
+			kids = kids.concat(surveyKids(x));
+		} else if (cfg.ask_rating) {
 			if (x.rating == null) {
 				kids.push(h("p", { text: T("How did we do?") }));
 				kids.push(
@@ -1663,6 +1666,89 @@ function mailroomChat(c) {
 			api("POST", "/rate", { rating: x.rating, comment: text }).catch(() => {});
 		});
 		return f;
+	}
+	// The chat's survey (an NPS, say), in place of the faces: one tap, then maybe a comment.
+	function surveyKids(x) {
+		var s = cfg.survey;
+		var answered = (stored.surveyed || {})[x.id];
+		if (answered == null) {
+			var scale =
+				s.kind === "nps"
+					? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+					: s.kind === "csat"
+						? [1, 2, 3, 4, 5]
+						: s.options.map((_, i) => i);
+			var out = [
+				h("p", { text: s.question }),
+				h(
+					"div",
+					{ class: "svs " + s.kind, role: "group", "aria-label": s.question },
+					scale.map((v) =>
+						h("button", {
+							type: "button",
+							class: "sv",
+							text: s.kind === "choice" ? s.options[v] : String(v),
+							onclick: () => {
+								answerSurvey(v);
+							},
+						}),
+					),
+				),
+			];
+			if (s.kind !== "choice" && (s.low || s.high))
+				out.push(
+					h("div", { class: "sve" }, [
+						h("span", { text: s.low || "" }),
+						h("span", { text: s.high || "" }),
+					]),
+				);
+			return out;
+		}
+		var done = [h("div", { class: "done" }, [h("b", { text: s.thanks })])];
+		if (rateStep[x.id] === "comment" && s.comment) done.push(surveyComment(x, answered));
+		return done;
+	}
+	function surveyComment(x, value) {
+		var s = cfg.survey;
+		var field = h("input", {
+			class: "in",
+			type: "text",
+			maxlength: "2000",
+			placeholder: s.comment,
+			"aria-label": s.comment,
+		});
+		var f = h("form", { class: "row", style: "margin-top:10px" }, [
+			field,
+			h("button", { class: "btn", type: "submit", text: T("Send") }),
+		]);
+		f.addEventListener("submit", (e) => {
+			e.preventDefault();
+			var text = field.value.trim();
+			rateStep[x.id] = "done";
+			renderCards();
+			if (!text || cfg.preview) return;
+			api("POST", "/survey", { value: value, comment: text }).catch(() => {});
+		});
+		return f;
+	}
+	function answerSurvey(v) {
+		var x = state.conversation;
+		var mark = (val) => {
+			var all = stored.surveyed || {};
+			if (val == null) delete all[x.id];
+			else all[x.id] = val;
+			stored = save({ surveyed: all });
+		};
+		mark(v);
+		rateStep[x.id] = "comment";
+		renderCards();
+		scrollDown();
+		if (cfg.preview) return;
+		api("POST", "/survey", { value: v }).catch(() => {
+			mark(null);
+			delete rateStep[x.id];
+			renderCards();
+		});
 	}
 	function rateIt(n) {
 		var x = state.conversation;
@@ -3015,6 +3101,10 @@ function mailroomChat(c) {
 						? { id: "preview", status: "resolved", rating: null }
 						: null;
 				delete rateStep.preview;
+				if (stored.surveyed && stored.surveyed.preview != null) {
+					delete stored.surveyed.preview;
+					stored = save({ surveyed: stored.surveyed });
+				}
 				hideHistory();
 				render();
 				if (e.data.view === "open" || e.data.view === "ended") openPanel();

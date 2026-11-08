@@ -8,6 +8,7 @@ import {
 	Bold,
 	BookmarkPlus,
 	Braces,
+	ClipboardCheck,
 	Code2,
 	Columns2,
 	Copy,
@@ -79,6 +80,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ChipPopover, DEFAULT_GROUPS, TagText, VariableMenu } from "@/components/variables";
 import { deleteSectionFn, saveSectionFn, sectionsFn } from "@/functions/collab";
 import { uploadMediaFn } from "@/functions/media";
+import { surveyChoicesFn } from "@/functions/surveys";
 import { type BrandKit, kitSwatches, kitTheme } from "@/lib/brand-kit";
 import {
 	type Align,
@@ -146,7 +148,9 @@ const BLOCKS: { type: BlockType; label: string; icon: typeof Type }[] = [
 ];
 /** Only where Mailroom fills its links (broadcasts). */
 const POLL = { type: "poll" as BlockType, label: "Poll", icon: Vote };
-const LABEL = Object.fromEntries([...BLOCKS, POLL].map((b) => [b.type, b.label])) as Record<
+/** Wherever a contact (or a visitor) gets the email: not in help articles. */
+const SURVEY = { type: "survey" as BlockType, label: "Survey", icon: ClipboardCheck };
+const LABEL = Object.fromEntries([...BLOCKS, POLL, SURVEY].map((b) => [b.type, b.label])) as Record<
 	BlockType,
 	string
 >;
@@ -335,6 +339,7 @@ export function EmailBuilder({
 	previewText,
 	variables = DEFAULT_GROUPS,
 	polls = false,
+	surveys = true,
 	kit = null,
 	onComment,
 	focus = null,
@@ -351,13 +356,20 @@ export function EmailBuilder({
 	variables?: VariableGroup[];
 	/** Offer the poll block (broadcasts, whose poll links Mailroom fills per contact). */
 	polls?: boolean;
+	/** Offer the survey block (each contact's answer links are filled when it's sent). */
+	surveys?: boolean;
 	/** The brand's kit: its colors first in pickers, its fonts, "Apply brand kit". */
 	kit?: BrandKit | null;
 	onComment?: (id: string, label: string) => void;
 	/** A block to open selected (one a comment is on). */
 	focus?: string | null;
 }) {
-	const blocks = polls ? [...BLOCKS.slice(0, 4), POLL, ...BLOCKS.slice(4)] : BLOCKS;
+	const blocks = [
+		...BLOCKS.slice(0, 4),
+		...(polls ? [POLL] : []),
+		...(surveys ? [SURVEY] : []),
+		...BLOCKS.slice(4),
+	];
 	const [selected, select] = useState<string | null>(focus);
 	useEffect(() => {
 		if (focus)
@@ -2167,6 +2179,56 @@ function BlockPanel({ block: b }: { block: Block }) {
 				</Group>
 			);
 			break;
+		case "survey":
+			body = (
+				<Group title="Settings">
+					<SurveyPick
+						value={b.survey_id}
+						onPick={(s) =>
+							set({
+								survey_id: s.id,
+								kind: s.kind,
+								question: s.question,
+								options: s.options,
+								low_label: s.low_label ?? "",
+								high_label: s.high_label ?? "",
+							})
+						}
+					/>
+					<Field2 label="Question in the email">
+						<Input
+							value={b.question}
+							onChange={(e) => set({ question: e.target.value })}
+						/>
+					</Field2>
+					{b.kind !== "choice" && (
+						<div className="grid grid-cols-2 gap-2">
+							<Field2 label="Low end">
+								<Input
+									value={b.low_label}
+									onChange={(e) => set({ low_label: e.target.value })}
+								/>
+							</Field2>
+							<Field2 label="High end">
+								<Input
+									value={b.high_label}
+									onChange={(e) => set({ high_label: e.target.value })}
+								/>
+							</Field2>
+						</div>
+					)}
+					<AlignPick
+						value={b.align}
+						onChange={(align) => set({ align })}
+					/>
+					<p className="text-xs leading-relaxed text-muted-foreground">
+						Each answer is a link: one click opens the survey's page with it picked and
+						records it for that contact, who can add a comment. Answers show on the
+						survey's page in Surveys, on the contact, and in segments and automations.
+					</p>
+				</Group>
+			);
+			break;
 		case "html":
 			body = (
 				<Group title="Settings">
@@ -2326,6 +2388,7 @@ const HINTS: Partial<Record<BlockType, string>> = {
 	divider: "A thin line between sections.",
 	footer: "Every marketing email needs a way out; this one carries it.",
 	poll: "A question your readers answer in one click, from the email.",
+	survey: "One of your surveys (NPS, satisfaction or a choice), answered in one click.",
 };
 
 function StylePanel({
@@ -2597,6 +2660,66 @@ function FontSelect({
 				))}
 			</SelectContent>
 		</Select>
+	);
+}
+
+// ── Surveys ─────────────────────────────────────────────────────────────────
+
+type SurveyChoice = Awaited<ReturnType<typeof surveyChoicesFn>>[number];
+
+/** Which survey a survey block asks (the brand's surveys, loaded when it opens). */
+function SurveyPick({ value, onPick }: { value: string; onPick: (s: SurveyChoice) => void }) {
+	const [rows, setRows] = useState<SurveyChoice[] | null>(null);
+	useEffect(() => {
+		surveyChoicesFn()
+			.then(setRows)
+			.catch(() => setRows([]));
+	}, []);
+	if (rows === null) return <Spinner className="size-4" />;
+	if (!rows.length)
+		return (
+			<p className="text-sm text-muted-foreground">
+				No surveys yet. Make one in{" "}
+				<a
+					href="/surveys"
+					target="_blank"
+					rel="noreferrer"
+					className="underline"
+				>
+					Surveys
+				</a>
+				, then pick it here.
+			</p>
+		);
+	return (
+		<Field2 label="Survey">
+			<Select
+				value={value || undefined}
+				onValueChange={(id) => {
+					const s = rows.find((x) => x.id === id);
+					if (s) onPick(s);
+				}}
+			>
+				<SelectTrigger
+					className="w-full"
+					aria-label="Survey"
+				>
+					<SelectValue placeholder="Pick a survey" />
+				</SelectTrigger>
+				<SelectContent className="z-[60]">
+					{rows.map((s) => (
+						<SelectItem
+							key={s.id}
+							value={s.id}
+						>
+							{s.name}
+							{s.brand ? ` · ${s.brand}` : ""}
+							{s.enabled ? "" : " (closed)"}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</Field2>
 	);
 }
 

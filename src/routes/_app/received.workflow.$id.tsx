@@ -116,6 +116,7 @@ function WorkflowSketch() {
 		people: [],
 		saved: [],
 		segments: [],
+		surveys: [],
 		brand: null,
 		timezone: "UTC",
 		catalog: { fields: [], ops: [], actions: [] },
@@ -266,6 +267,7 @@ function WorkflowPage() {
 						v={v}
 						set={set}
 						brand={data.brand?.name ?? data.inbox.name}
+						surveys={data.surveys}
 					/>
 				</TabsContent>
 				<TabsContent value="replies">
@@ -762,14 +764,15 @@ const zones = () => {
 
 const FACES = ["😞", "🙁", "😐", "🙂", "😄"];
 
-function Csat({ v, set, brand }: Panel & { brand: string }) {
+function Csat({ v, set, brand, surveys }: Panel & { brand: string; surveys: Data["surveys"] }) {
 	const c = v.csat;
 	const patch = (x: Partial<Settings["csat"]>) => set("csat", { ...c, ...x });
+	const own = surveys.find((s) => s.id === c.survey_id) ?? null;
 	return (
 		<div className="flex flex-col gap-8">
 			<Group
 				title="Ask how it went"
-				description="After a conversation is resolved, they get one short email: five faces, one click. A rating shows on the conversation, in the report, and goes to webhooks as inbox.csat.received."
+				description="After a conversation is resolved, they get one short email: five faces (or one of your surveys), one click. A rating shows on the conversation, in the report, and goes to webhooks as inbox.csat.received."
 			>
 				<Toggle
 					id="csat-on"
@@ -779,6 +782,64 @@ function Csat({ v, set, brand }: Panel & { brand: string }) {
 					onChange={(enabled) => patch({ enabled })}
 				/>
 				<Field>
+					<FieldLabel htmlFor="csat-s">What to ask</FieldLabel>
+					<Select
+						value={c.survey_id ?? "faces"}
+						onValueChange={(x) => patch({ survey_id: x === "faces" ? null : x })}
+					>
+						<SelectTrigger
+							id="csat-s"
+							className="w-full"
+						>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="faces">Five faces (a 1 to 5 rating)</SelectItem>
+							{surveys.map((s) => (
+								<SelectItem
+									key={s.id}
+									value={s.id}
+								>
+									{s.name}: {s.question}
+									{s.enabled ? "" : " (closed)"}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					<FieldDescription>
+						{own ? (
+							<>
+								Answers go to the survey (
+								{own.kind === "nps"
+									? "NPS"
+									: own.kind === "csat"
+										? "satisfaction"
+										: "a choice"}
+								) in{" "}
+								<Link
+									to="/surveys/$id"
+									params={{ id: own.id }}
+									className="underline"
+								>
+									Surveys
+								</Link>
+								{own.kind === "csat" ? ", and rate the conversation too." : "."}
+							</>
+						) : (
+							<>
+								Or ask one of your surveys, like an NPS; make them in{" "}
+								<Link
+									to="/surveys"
+									className="underline"
+								>
+									Surveys
+								</Link>
+								.
+							</>
+						)}
+					</FieldDescription>
+				</Field>
+				<Field className={cn(own && "hidden")}>
 					<FieldLabel htmlFor="csat-q">The question</FieldLabel>
 					<Input
 						id="csat-q"
@@ -787,7 +848,7 @@ function Csat({ v, set, brand }: Panel & { brand: string }) {
 						onChange={(e) => patch({ question: e.target.value })}
 					/>
 				</Field>
-				<Field>
+				<Field className={cn(own && "hidden")}>
 					<FieldLabel htmlFor="csat-t">After they answer</FieldLabel>
 					<Input
 						id="csat-t"
@@ -814,17 +875,43 @@ function Csat({ v, set, brand }: Panel & { brand: string }) {
 			>
 				<Card className="items-center gap-4 px-6 py-8 text-center">
 					<p className="text-xs text-muted-foreground">{brand}</p>
-					<p className="text-lg font-semibold">{c.question || "How did we do?"}</p>
-					<div className="flex gap-2">
-						{FACES.map((f, i) => (
-							<span
-								key={f}
-								className="flex size-11 items-center justify-center rounded-full bg-muted text-2xl"
-								title={`${i + 1} of 5`}
-							>
-								{f}
+					<p className="text-lg font-semibold">
+						{own ? own.question : c.question || "How did we do?"}
+					</p>
+					<div className="flex flex-wrap justify-center gap-2">
+						{own?.kind === "nps" &&
+							Array.from({ length: 11 }, (_, i) => (
+								<span
+									key={i}
+									className="flex size-9 items-center justify-center rounded-md border text-sm font-semibold"
+								>
+									{i}
+								</span>
+							))}
+						{own?.kind === "csat" &&
+							[1, 2, 3, 4, 5].map((i) => (
+								<span
+									key={i}
+									className="flex size-10 items-center justify-center rounded-md border text-sm font-semibold"
+								>
+									{i}
+								</span>
+							))}
+						{own?.kind === "choice" && (
+							<span className="text-sm text-muted-foreground">
+								Its answers, one per line
 							</span>
-						))}
+						)}
+						{!own &&
+							FACES.map((f, i) => (
+								<span
+									key={f}
+									className="flex size-11 items-center justify-center rounded-full bg-muted text-2xl"
+									title={`${i + 1} of 5`}
+								>
+									{f}
+								</span>
+							))}
 					</div>
 					<p className="text-xs text-muted-foreground">
 						One click is enough. A comment is optional.

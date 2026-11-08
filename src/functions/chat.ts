@@ -86,6 +86,16 @@ export const getChatSettingsFn = createServerFn({ method: "GET" })
 					.select({ id: schema.segments.id, name: schema.segments.name })
 					.from(schema.segments)
 					.where(eq(schema.segments.organization_id, inbox.organization_id)),
+				/** The surveys a chat can ask when it ends. */
+				surveys: await db
+					.select({
+						id: schema.surveys.id,
+						name: schema.surveys.name,
+						question: schema.surveys.question,
+						enabled: schema.surveys.enabled,
+					})
+					.from(schema.surveys)
+					.where(eq(schema.surveys.organization_id, inbox.organization_id)),
 				identity_on: !!widget?.identity_secret,
 				/** The agents that may answer chats first (their credential can send). */
 				agents: (await (await import("@/server/inboxes")).listCredentials(inbox))

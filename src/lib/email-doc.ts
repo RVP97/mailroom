@@ -4,6 +4,8 @@
  * Pure: the dashboard renders its preview with it and the server renders what's sent.
  */
 
+import { scaleLinks } from "./survey-scale";
+
 export type Align = "left" | "center" | "right";
 
 type Base = {
@@ -53,6 +55,18 @@ export type LeafBlock = Base &
 		| { type: "html"; html: string }
 		/** One-click answers (broadcasts only): each button links to {{{POLL_URL}}}/<id>/<answer>. */
 		| { type: "poll"; question: string; options: string[]; align: Align }
+		/** A survey's question (a copy, for the email) with its answers, each linking to
+		 * {{{SURVEY_URL}}}/<survey>/<answer>. */
+		| {
+				type: "survey";
+				survey_id: string;
+				kind: "nps" | "csat" | "choice";
+				question: string;
+				options: string[];
+				low_label: string;
+				high_label: string;
+				align: Align;
+		  }
 	);
 export type ColumnsBlock = Base & {
 	type: "columns";
@@ -336,6 +350,25 @@ function leaf(raw: Record<string, unknown>): LeafBlock | null {
 				align: align(raw.align),
 			};
 		}
+		case "survey": {
+			const kind = raw.kind === "csat" || raw.kind === "choice" ? raw.kind : "nps";
+			return {
+				id,
+				type: "survey",
+				survey_id: /^sv_[a-z0-9]{20}$/.test(String(raw.survey_id))
+					? String(raw.survey_id)
+					: "",
+				kind,
+				question: str(raw.question, 300),
+				options: (Array.isArray(raw.options) ? raw.options : [])
+					.slice(0, 10)
+					.map((o) => str(o, 120).trim())
+					.filter(Boolean),
+				low_label: str(raw.low_label, 40),
+				high_label: str(raw.high_label, 40),
+				align: align(raw.align),
+			};
+		}
 		default:
 			return null;
 	}
@@ -569,6 +602,21 @@ export function blockInner(b: Block, t: Theme, inner = t.width - t.padding * 2):
 				.join("");
 			return `${q}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${opts}</table>`;
 		}
+		case "survey": {
+			const q = b.question
+				? `<p style="margin:0 0 14px;font-family:${headingStack(t)};font-size:${t.size + 2}px;line-height:1.4;font-weight:600;color:${t.heading};text-align:${b.align};">${esc(b.question)}</p>`
+				: "";
+			if (!b.survey_id)
+				return `${q}<p style="margin:0;font-family:${font};font-size:13px;color:${t.text};">Pick a survey for this block.</p>`;
+			return `${q}${scaleLinks(b, (v) => `{{{SURVEY_URL}}}/${b.survey_id}/${v}`, {
+				font,
+				size: t.size,
+				color: t.heading,
+				border: mix(t.text, t.surface, 0.78),
+				radius: Math.min(r, 12),
+				align: b.align,
+			})}`;
+		}
 		case "columns": {
 			const [a, _c] = b.ratio === "1-2" ? [33, 67] : b.ratio === "2-1" ? [67, 33] : [50, 50];
 			const gap = 24;
@@ -600,6 +648,7 @@ export function gapAbove(b: Block) {
 		case "columns":
 		case "quote":
 		case "poll":
+		case "survey":
 			return 24;
 		case "footer":
 			return 32;
@@ -814,6 +863,18 @@ export function newBlock(type: BlockType, o: { logo?: string | null; name?: stri
 				type,
 				question: "What should we write about next?",
 				options: ["Travel tips", "Local events", "Special offers"],
+				align: "left",
+			};
+		case "survey":
+			return {
+				id,
+				type,
+				survey_id: "",
+				kind: "nps",
+				question: "How likely are you to recommend us to a friend?",
+				options: [],
+				low_label: "Not likely",
+				high_label: "Very likely",
 				align: "left",
 			};
 		case "columns":

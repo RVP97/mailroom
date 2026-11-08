@@ -6,6 +6,7 @@ import { bareAddress } from "./aws/mime";
 import { db, schema } from "./db";
 import type { TemplateContent, TemplateVariable } from "./db/schema";
 import { ApiError, notFound, validation } from "./errors";
+import { publicUrl } from "./public-host";
 import { iso } from "./time";
 import { PLACEHOLDERS } from "./unsubscribes";
 
@@ -27,7 +28,15 @@ export const MAX_VARIABLES = 50;
  * Names filled from the contact in broadcasts and automations (FIRST_NAME, LAST_NAME, EMAIL) and
  * by Mailroom itself (UNSUBSCRIBE_URL): a template can use them without declaring them.
  */
-export const RESERVED = ["FIRST_NAME", "LAST_NAME", "EMAIL", "UNSUBSCRIBE_URL", "contact", "this"];
+export const RESERVED = [
+	"FIRST_NAME",
+	"LAST_NAME",
+	"EMAIL",
+	"UNSUBSCRIBE_URL",
+	"SURVEY_URL",
+	"contact",
+	"this",
+];
 
 const KEY = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 const ALIAS = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -364,6 +373,8 @@ export async function applyTemplate(
 		FIRST_NAME: "",
 		LAST_NAME: "",
 		EMAIL: typeof to === "string" ? bareAddress(to) : "",
+		// Survey answers from a send to no contact are a visitor's.
+		SURVEY_URL: `${publicUrl()}/s/web`,
 		...values,
 	});
 	const subject = (send.subject as string | undefined) ?? r.subject;
