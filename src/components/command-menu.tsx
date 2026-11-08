@@ -1,13 +1,24 @@
 import { useRouter } from "@tanstack/react-router";
 import { Command } from "cmdk";
 import {
+	ClipboardCheck,
+	Contact as ContactIcon,
 	CornerDownLeft,
+	Flag,
+	Globe,
+	LayoutTemplate,
+	LifeBuoy,
 	type LucideIcon,
+	Megaphone,
+	MessageSquare,
 	Monitor,
 	Moon,
+	Newspaper,
 	Search,
 	Sun,
 	UserSearch,
+	Users,
+	Workflow,
 } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
@@ -15,7 +26,55 @@ import { OrgAvatar } from "@/components/org-avatar";
 import { OPEN_SWITCHER } from "@/components/org-switcher";
 import { useTheme } from "@/components/theme-provider";
 import { Kbd } from "@/components/ui/kbd";
+import { Spinner } from "@/components/ui/spinner";
+import { searchEverythingFn } from "@/functions/search";
 import type { Me } from "@/lib/me";
+
+type Hit = Awaited<ReturnType<typeof searchEverythingFn>>["hits"][number];
+
+const KIND: Record<Hit["kind"], { label: string; icon: LucideIcon }> = {
+	contact: { label: "Contacts", icon: ContactIcon },
+	conversation: { label: "Conversations", icon: MessageSquare },
+	broadcast: { label: "Broadcasts", icon: Megaphone },
+	template: { label: "Templates", icon: LayoutTemplate },
+	segment: { label: "Segments", icon: Users },
+	automation: { label: "Automations", icon: Workflow },
+	newsletter: { label: "Newsletters", icon: Newspaper },
+	campaign: { label: "Campaigns", icon: Flag },
+	survey: { label: "Surveys", icon: ClipboardCheck },
+	article: { label: "Help articles", icon: LifeBuoy },
+	domain: { label: "Domains", icon: Globe },
+};
+
+/** A hit's value for the menu: always matches what was typed, so the menu never hides it. */
+const hitValue = (h: Hit, q: string) => `${h.kind} ${h.id} ${h.title} ${h.detail ?? ""} ${q}`;
+
+/** What the organization has matching what's typed, a moment after typing stops. */
+function useSearch(q: string, open: boolean) {
+	const [state, setState] = useState<{ q: string; hits: Hit[]; busy: boolean }>({
+		q: "",
+		hits: [],
+		busy: false,
+	});
+	useEffect(() => {
+		if (!open || q.length < 2) {
+			setState({ q: "", hits: [], busy: false });
+			return;
+		}
+		let stale = false;
+		setState((s) => ({ ...s, busy: true }));
+		const timer = setTimeout(() => {
+			searchEverythingFn({ data: { q } })
+				.then((r) => !stale && setState({ q, hits: r.hits, busy: false }))
+				.catch(() => !stale && setState({ q, hits: [], busy: false }));
+		}, 180);
+		return () => {
+			stale = true;
+			clearTimeout(timer);
+		};
+	}, [q, open]);
+	return state;
+}
 
 export type NavItem = {
 	to: string;
@@ -91,6 +150,14 @@ export function CommandMenu({
 		fn();
 	};
 	const q = query.trim();
+	const found = useSearch(q, open);
+	const kinds = [...new Set(found.hits.map((h) => h.kind))];
+	const [selected, setSelected] = useState("");
+	// When results come in, the first of them is the one Enter opens.
+	useEffect(() => {
+		const first = found.hits[0];
+		if (first && found.q) setSelected(hitValue(first, found.q));
+	}, [found]);
 
 	return (
 		<Ctx.Provider value={{ open: () => setOpen(true) }}>
@@ -113,6 +180,8 @@ export function CommandMenu({
 						</DialogPrimitive.Title>
 						<Command
 							loop
+							value={selected}
+							onValueChange={setSelected}
 							className="flex flex-col"
 						>
 							<div className="flex h-12 items-center gap-2.5 border-b px-4">
@@ -121,15 +190,56 @@ export function CommandMenu({
 									autoFocus
 									value={query}
 									onValueChange={setQuery}
-									placeholder="Go to, switch, find an email or a recipient…"
+									placeholder="Search contacts, conversations, broadcasts… or go anywhere"
 									className="h-full flex-1 bg-transparent text-base outline-none placeholder:text-faint"
 								/>
+								{found.busy && <Spinner className="size-4 text-faint" />}
 								<Kbd>esc</Kbd>
 							</div>
 							<Command.List className="max-h-[min(24rem,60vh)] scroll-py-2 overflow-y-auto p-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint">
 								<Command.Empty className="px-3 py-8 text-center text-sm text-muted-foreground">
-									Nothing matches “{q}”.
+									{found.busy ? "Searching…" : <>Nothing matches “{q}”.</>}
 								</Command.Empty>
+								{found.q === q &&
+									kinds.map((kind) => (
+										<Command.Group
+											key={kind}
+											heading={KIND[kind].label}
+										>
+											{found.hits
+												.filter((h) => h.kind === kind)
+												.map((h) => (
+													<Command.Item
+														key={`${h.kind}:${h.id}`}
+														value={hitValue(h, q)}
+														onSelect={() =>
+															run(() =>
+																router.navigate({ href: h.path }),
+															)
+														}
+														className={ITEM}
+													>
+														{(() => {
+															const Icon = KIND[kind].icon;
+															return <Icon strokeWidth={1.75} />;
+														})()}
+														<span className="min-w-0 flex-1 truncate">
+															{h.title}
+															{h.detail && (
+																<span className="ml-2 text-muted-foreground">
+																	{h.detail}
+																</span>
+															)}
+														</span>
+														{h.brand && (
+															<span className="shrink-0 text-xs text-faint">
+																{h.brand}
+															</span>
+														)}
+													</Command.Item>
+												))}
+										</Command.Group>
+									))}
 								{/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(q) && (
 									<Command.Group heading="Recipient">
 										<Item
@@ -277,8 +387,9 @@ function Item({
 			<span className="min-w-0 flex-1 truncate">{children}</span>
 			{shortcut && (
 				<span className="flex gap-1">
-					{shortcut.map((k) => (
-						<Kbd key={k}>{k}</Kbd>
+					{shortcut.map((k, i) => (
+						// "G G" (Campaigns) has the same key twice.
+						<Kbd key={`${i}${k}`}>{k}</Kbd>
 					))}
 				</span>
 			)}

@@ -144,6 +144,7 @@ import {
 } from "./kit";
 import { AUDIENCE_TOOLS } from "./tools-audience";
 import { CALENDAR_TOOLS } from "./tools-calendar";
+import { SEARCH_TOOLS } from "./tools-search";
 import { CONTENT_TOOLS } from "./tools-content";
 import { HELP_TOOLS } from "./tools-help";
 import { SETTINGS_TOOLS } from "./tools-settings";
@@ -2171,4 +2172,5 @@ export const TOOLS: Tool[] = [
 	...SURVEY_TOOLS,
 	...TODAY_TOOLS,
 	...CALENDAR_TOOLS,
+	...SEARCH_TOOLS,
 ];
