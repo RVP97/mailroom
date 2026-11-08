@@ -1523,12 +1523,30 @@ export const contactEvents = sqliteTable(
 		data: text("data", { mode: "json" }).$type<Record<string, unknown>>(),
 		/** "api" | "assistant" | "dashboard". */
 		source: text("source").notNull().default("api"),
+		/** A purchase's amount (src/server/revenue.ts), in `currency` (ISO code, uppercase). */
+		value: real("value"),
+		currency: text("currency"),
+		/**
+		 * What gets the credit for it: the last broadcast or automation email they opened or
+		 * clicked, or website chat they wrote in, within 7 days. "broadcast" | "automation" | "chat".
+		 */
+		credit_type: text("credit_type"),
+		/** The broadcast's, automation's or conversation's id. */
+		credit_id: text("credit_id"),
+		/** The email that got it (broadcasts and automations). */
+		credit_email_id: text("credit_email_id"),
 		created_at: text("created_at").notNull(),
 	},
 	(t) => [
 		index("contact_events_contact_idx").on(t.contact_id, t.created_at),
 		index("contact_events_name_idx").on(t.organization_id, t.name, t.created_at),
 		index("contact_events_created_idx").on(t.created_at),
+		index("contact_events_value_idx")
+			.on(t.organization_id, t.created_at)
+			.where(sql`value IS NOT NULL`),
+		index("contact_events_credit_idx")
+			.on(t.credit_type, t.credit_id)
+			.where(sql`credit_id IS NOT NULL`),
 	],
 );
 

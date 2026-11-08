@@ -49,6 +49,7 @@ import { ListSelect } from "@/components/list-dialogs";
 import { LiveFrame } from "@/components/live-frame";
 import { Page } from "@/components/page";
 import { Fact, Facts, IdChip, RecordHeader } from "@/components/record";
+import { RevenueCard } from "@/components/revenue-card";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -198,6 +199,7 @@ function BroadcastSketch() {
 					},
 					audience: 0,
 					held_out: 0,
+					revenue: [],
 					properties: [],
 					segments: [],
 					topics: [],
@@ -709,6 +711,10 @@ function BroadcastPage() {
 					canManage={canManage}
 				/>
 			)}
+			<RevenueCard
+				revenue={data.revenue}
+				what="this broadcast"
+			/>
 			{data.replies.count > 0 && <Replies replies={data.replies} />}
 			{data.report && (
 				<BroadcastReport

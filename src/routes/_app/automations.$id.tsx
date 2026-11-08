@@ -64,7 +64,7 @@ import {
 	updateStep,
 } from "@/lib/automation-form";
 import { errorMessage } from "@/lib/errors";
-import { formatAgo, formatDateTime } from "@/lib/format";
+import { formatAgo, formatDateTime, formatMoney } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { allows } from "@/lib/permissions";
 import { ago, listedRow, Ph, Sketch, usePage } from "@/lib/sketch";
@@ -103,6 +103,7 @@ function AutomationSketch() {
 					},
 					brand: null,
 					counts: { active: 0, done: 0, exited: 0, failed: 0, canceled: 0, converted: 0 },
+					revenue: [],
 					runs: [],
 					here: [],
 					segments: [],
@@ -612,6 +613,20 @@ function AutomationPage() {
 								) : null;
 							})()}
 						</span>
+					</Fact>
+				)}
+				{data.revenue[0] && (
+					<Fact label="Earned">
+						<Link
+							to="/insights/revenue"
+							className="tabular-nums hover:underline"
+						>
+							{formatMoney(data.revenue[0].total, data.revenue[0].currency)}
+							<span className="ml-1.5 text-muted-foreground">
+								{data.revenue[0].purchases}{" "}
+								{data.revenue[0].purchases === 1 ? "purchase" : "purchases"}
+							</span>
+						</Link>
 					</Fact>
 				)}
 				<Fact label="Id">

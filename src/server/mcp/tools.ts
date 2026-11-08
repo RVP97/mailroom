@@ -465,6 +465,24 @@ export const TOOLS: Tool[] = [
 		},
 	},
 	{
+		name: "get_revenue",
+		title: "Revenue and what earned it",
+		description:
+			"Purchases (events sent with a value) over the last days: totals per currency and how much was credited to email and chat (the last broadcast or automation email the person opened or clicked, or website chat they wrote in, within 7 days), then in the main currency: by kind of credit, the top broadcasts, automations and campaigns, day by day, and the latest 20 purchases.",
+		input: { organization, brand, days: z.number().int().min(1).max(365).optional() },
+		readOnly: true,
+		run: async (a, ctx) => {
+			const org = orgFor(ctx, a.organization);
+			const scope = await scopeOf(org.id, a.brand);
+			const ids = typeof scope === "string" ? [scope] : await brandIds(org.id);
+			const { revenueReport } = await import("../revenue");
+			const r = await revenueReport(ids, (a.days as number | undefined) ?? 30);
+			return org.masked
+				? { ...r, latest: r.latest.map((l) => ({ ...l, email: maskDigits(l.email) })) }
+				: r;
+		},
+	},
+	{
 		name: "account_overview",
 		title: "AWS account overview",
 		description:
@@ -1657,7 +1675,7 @@ export const TOOLS: Tool[] = [
 		name: "get_broadcast",
 		title: "Get a broadcast",
 		description:
-			"One broadcast with its content (html, text and its block design when made in the editor) and what happened to its emails (sent, delivered, opened, clicked, bounced, unsubscribed); before it goes, its audience size (and held_out: about how many quiet mode and the frequency cap leave out); once sent, its report (clicks per link, by provider), A/B variants, poll results, how many didn't open (a resend's audience), the replies it got (each a conversation tagged \"broadcast reply\") and its web version; and whether it needs and has approval.",
+			"One broadcast with its content (html, text and its block design when made in the editor) and what happened to its emails (sent, delivered, opened, clicked, bounced, unsubscribed); before it goes, its audience size (and held_out: about how many quiet mode and the frequency cap leave out); once sent, its report (clicks per link, by provider), A/B variants, poll results, how many didn't open (a resend's audience), the replies it got (each a conversation tagged \"broadcast reply\"), the revenue credited to it and its web version; and whether it needs and has approval.",
 		input: { organization, broadcast: z.string().describe("Its id") },
 		readOnly: true,
 		run: async (a, ctx) => {
@@ -1698,6 +1716,9 @@ export const TOOLS: Tool[] = [
 				did_not_open: nonOpeners,
 				replies: went
 					? await import("../conversations").then((m) => m.broadcastReplies(x.id))
+					: undefined,
+				revenue: went
+					? await import("../revenue").then((m) => m.revenueOf("broadcast", x.id))
 					: undefined,
 				web_url: went ? webUrl(x, newsletter) : null,
 				approval: {
@@ -1881,13 +1902,18 @@ export const TOOLS: Tool[] = [
 		name: "get_automation",
 		title: "Get an automation",
 		description:
-			"One automation with how many runs are active, done, exited or failed, and the latest runs.",
+			"One automation with how many runs are active, done, exited or failed, the latest runs, and the revenue credited to its emails (each currency apart).",
 		input: { organization, automation: z.string() },
 		readOnly: true,
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization);
 			const x = await getAutomation(await brandIds(org.id), a.automation as string);
-			return { ...automationView(x), ...(await automationRuns(x.id, 20)) };
+			const { revenueOf } = await import("../revenue");
+			return {
+				...automationView(x),
+				...(await automationRuns(x.id, 20)),
+				revenue: await revenueOf("automation", x.id),
+			};
 		},
 	},
 	{
@@ -1955,19 +1981,27 @@ export const TOOLS: Tool[] = [
 		name: "send_event",
 		title: "Send an event about a contact",
 		description:
-			"Records an event (like booking.created) for a contact by email (added if new): it's kept on their timeline, and active automations triggered by it start. data becomes {{{event.<key>}}} in their emails.",
+			"Records an event (like booking.created) for a contact by email (added if new): it's kept on their timeline, and active automations triggered by it start. data becomes {{{event.<key>}}} in their emails. With a value (and currency) it's a purchase: the last broadcast or automation email they opened or clicked, or website chat they wrote in, within 7 days gets the credit (get_revenue).",
 		input: {
 			organization,
 			brand: oneBrand,
 			event: z.string(),
 			email: z.string(),
 			data: z.record(z.string(), z.unknown()).optional(),
+			value: z.number().min(0).optional().describe("A purchase's amount"),
+			currency: z.string().length(3).optional().describe("ISO code, like USD or MXN"),
 		},
 		run: async (a, ctx) => {
 			const org = orgFor(ctx, a.organization, "manage");
 			return recordEvent(
 				await brandOf(org.id, a.brand),
-				{ event: a.event, email: a.email, data: a.data },
+				{
+					event: a.event,
+					email: a.email,
+					data: a.data,
+					value: a.value,
+					currency: a.currency,
+				},
 				Date.now(),
 				"assistant",
 			);

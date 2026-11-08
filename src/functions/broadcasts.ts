@@ -158,6 +158,10 @@ export const getBroadcastFn = createServerFn({ method: "GET" })
 							};
 						})
 					: { count: 0, latest: [] },
+				/** Purchases credited to it (src/server/revenue.ts), each currency apart. */
+				revenue: went
+					? await import("@/server/revenue").then((m) => m.revenueOf("broadcast", x.id))
+					: [],
 				/** Its web version (an issue's archive page once sent). */
 				web_url: went ? webUrl(x, newsletter) : null,
 				/** For a sent one: how many didn't open it (a resend's audience). */

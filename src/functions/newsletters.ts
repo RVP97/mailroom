@@ -262,13 +262,16 @@ export const campaignPageFn = createServerFn({ method: "GET" })
 		call(async () => {
 			const { brands, ids } = await scopeOf(context.organizationId);
 			const x = await getCampaign(ids, data.id);
-			const [list, report, segments] = await Promise.all([
+			const [list, report, segments, revenue] = await Promise.all([
 				campaignBroadcasts(x.id),
 				campaignReport(x.id),
 				listSegments(x.organization_id),
+				import("@/server/revenue").then((m) => m.revenueOf("campaign", x.id)),
 			]);
 			const segmentName = new Map(segments.map((s) => [s.id, s.name]));
 			return {
+				/** Purchases credited to its broadcasts, each currency apart. */
+				revenue,
 				campaign: campaignView(x),
 				brand: brands.find((b) => b.id === x.organization_id) ?? null,
 				broadcasts: list.map((b) => ({

@@ -1,4 +1,5 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { ChevronRight, Coins } from "lucide-react";
 import type { ReactNode } from "react";
 import { z } from "zod";
 import { BrandFilter } from "@/components/brand-filter";
@@ -16,7 +17,7 @@ import {
 } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { getInsights } from "@/functions/insights";
-import { formatNumber, formatPercent, formatSeconds } from "@/lib/format";
+import { formatMoney, formatNumber, formatPercent, formatSeconds } from "@/lib/format";
 import { usePendingSearch } from "@/lib/pending";
 import { PROVIDER_LABEL, type Provider } from "@/lib/providers";
 import {
@@ -97,6 +98,7 @@ function InsightsSketch() {
 				})),
 				brand: search.brand ?? null,
 				testAddress: "brand@in.example.com",
+				revenue: { currency: null, totals: [] },
 				gmail: rememberedRows("insights:gmail", 0)
 					? sample(rememberedRows("insights:gmail", 0), (i) => ({
 							id: `sketch-${i}`,
@@ -195,6 +197,10 @@ function Insights() {
 				}
 			/>
 			<SketchWhile loading={pending.loading}>
+				<RevenueCard
+					revenue={data.revenue}
+					search={search}
+				/>
 				<div className="grid gap-4 sm:grid-cols-2">
 					{data.byStream.map((s) => (
 						<StreamCard
@@ -259,6 +265,54 @@ function Insights() {
 				{data.testAddress && <TestAddress address={data.testAddress} />}
 			</SketchWhile>
 		</Page>
+	);
+}
+
+/** Revenue in the range and what email and chat earned, linking to the Revenue page. */
+function RevenueCard({
+	revenue,
+	search,
+}: {
+	revenue: Data["revenue"];
+	search: { days?: number; brand?: string };
+}) {
+	const main = revenue.totals[0];
+	const days = search.days === 7 || search.days === 90 ? search.days : undefined;
+	return (
+		<Card className="flex-row flex-wrap items-center justify-between gap-3 px-5 py-4">
+			<div className="flex min-w-0 items-center gap-3">
+				<Coins className="size-5 shrink-0 text-muted-foreground" />
+				<div className="min-w-0">
+					<p className="font-medium">Revenue</p>
+					<p className="text-sm text-muted-foreground">
+						{main ? (
+							<Ph>
+								{formatMoney(main.total, main.currency)} from{" "}
+								{formatNumber(main.purchases)}{" "}
+								{main.purchases === 1 ? "purchase" : "purchases"},{" "}
+								{formatMoney(main.credited, main.currency)} of it earned by email
+								and chat.
+							</Ph>
+						) : (
+							"Send purchases as events with a value to see what your emails and chats earn."
+						)}
+					</p>
+				</div>
+			</div>
+			<Button
+				variant="outline"
+				size="sm"
+				asChild
+			>
+				<Link
+					to="/insights/revenue"
+					search={{ days, brand: search.brand }}
+				>
+					See revenue
+					<ChevronRight />
+				</Link>
+			</Button>
+		</Card>
 	);
 }
 

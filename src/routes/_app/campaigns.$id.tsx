@@ -8,6 +8,7 @@ import { DatePicker } from "@/components/date-picker";
 import { CopyMenuItem, MoreMenu } from "@/components/more-menu";
 import { Page, Section, TableCard } from "@/components/page";
 import { RecordHeader } from "@/components/record";
+import { RevenueCard } from "@/components/revenue-card";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
@@ -62,6 +63,7 @@ function CampaignSketch() {
 					},
 					brand: null,
 					broadcasts: [],
+					revenue: [],
 					totals: {
 						emails: 0,
 						delivered: 0,
@@ -250,6 +252,10 @@ function CampaignPage() {
 					</div>
 				))}
 			</Card>
+			<RevenueCard
+				revenue={data.revenue}
+				what="one of its broadcasts"
+			/>
 
 			<Section
 				title="Emails"

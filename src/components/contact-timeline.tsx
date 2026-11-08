@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { errorMessage } from "@/lib/errors";
-import { formatAgo, formatDateTime } from "@/lib/format";
+import { formatAgo, formatDateTime, formatMoney } from "@/lib/format";
 import { Ph } from "@/lib/sketch";
 import type { TimelineItem } from "@/server/timeline";
 
@@ -126,6 +126,24 @@ function Item({ x, brand }: { x: TimelineItem; brand: string }) {
 							Did <code className="font-mono text-[13px]">{x.event}</code>
 							{x.source === "assistant" ? " (the assistant)" : ""}
 						</>
+					)}
+					{x.value !== null && x.value !== undefined && (
+						<span className="font-medium tabular-nums">
+							{" "}
+							· {formatMoney(x.value, x.currency)}
+						</span>
+					)}
+					{x.credit && (
+						<span className="text-muted-foreground">
+							{" "}
+							(credited to{" "}
+							{x.credit.type === "chat"
+								? "a website chat"
+								: x.credit.type === "automation"
+									? "an automation"
+									: "a broadcast"}
+							)
+						</span>
 					)}
 				</Row>
 			);

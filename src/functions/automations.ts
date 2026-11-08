@@ -17,6 +17,7 @@ import { brandIn, viewScope } from "@/server/brands";
 import { listBroadcasts } from "@/server/broadcasts";
 import { listProperties, listSegments, listTopics } from "@/server/contacts";
 import { can, orgMiddleware } from "@/server/middleware";
+import { revenueOf } from "@/server/revenue";
 import { listTemplates, templateView } from "@/server/templates";
 import { call } from "./call";
 
@@ -70,7 +71,7 @@ export const getAutomationFn = createServerFn({ method: "GET" })
 		call(async () => {
 			const { brands, ids } = await brandsOf(context.organizationId);
 			const x = await getAutomation(ids, data.id);
-			const [runs, segments, topics, templates, properties, broadcasts, more] =
+			const [runs, segments, topics, templates, properties, broadcasts, more, revenue] =
 				await Promise.all([
 					automationRuns(x.id, 50),
 					listSegments(x.organization_id),
@@ -79,9 +80,12 @@ export const getAutomationFn = createServerFn({ method: "GET" })
 					listProperties(x.organization_id),
 					listBroadcasts([x.organization_id], { limit: 100 }),
 					automationOptions(x.organization_id),
+					revenueOf("automation", x.id),
 				]);
 			return {
 				...more,
+				/** Purchases credited to its emails, each currency apart. */
+				revenue,
 				events: more.events.map((e) => e.name),
 				automation: automationView(x),
 				brand: brands.find((b) => b.id === x.organization_id) ?? null,

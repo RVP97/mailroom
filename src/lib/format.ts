@@ -11,6 +11,20 @@ export const formatDateTime = (iso: string | null | undefined) =>
 	iso ? dateTime.format(new Date(iso)) : "—";
 export const formatDay = (day: string) => dayFmt.format(new Date(`${day}T00:00:00Z`));
 export const formatNumber = (n: number) => numberFmt.format(n);
+/** An amount in its currency ($1,240.50); without one, just the number. */
+export function formatMoney(n: number, currency: string | null | undefined, compact = false) {
+	if (!currency) return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+	try {
+		return new Intl.NumberFormat(undefined, {
+			style: "currency",
+			currency,
+			notation: compact && n >= 10_000 ? "compact" : "standard",
+			maximumFractionDigits: compact || Number.isInteger(n) ? 0 : 2,
+		}).format(n);
+	} catch {
+		return `${n.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${currency}`;
+	}
+}
 export const formatPercent = (v: number, digits = 2) =>
 	`${(v * 100).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: digits })}%`;
 

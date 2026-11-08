@@ -24,6 +24,12 @@ export async function storeEvent(
 	data: Record<string, unknown> | null,
 	source: EventSource,
 	now = Date.now(),
+	/** A purchase (src/server/revenue.ts): its amount and what gets the credit. */
+	purchase?: {
+		value: number;
+		currency: string | null;
+		credit: { type: string; id: string; email_id: string | null } | null;
+	} | null,
 ) {
 	const row = {
 		id: crypto.randomUUID(),
@@ -32,6 +38,11 @@ export async function storeEvent(
 		name,
 		data,
 		source,
+		value: purchase?.value ?? null,
+		currency: purchase?.currency ?? null,
+		credit_type: purchase?.credit?.type ?? null,
+		credit_id: purchase?.credit?.id ?? null,
+		credit_email_id: purchase?.credit?.email_id ?? null,
 		created_at: iso(now),
 	};
 	await db.insert(e).values(row);
@@ -48,6 +59,12 @@ export const eventView = (x: ContactEvent) => ({
 	contact_id: x.contact_id,
 	data: (x.data ?? {}) as Record<string, Json>,
 	source: x.source,
+	/** A purchase's amount, and what got the credit for it (a broadcast, automation or chat). */
+	value: x.value ?? null,
+	currency: x.currency ?? null,
+	credit: x.credit_id
+		? { type: x.credit_type as string, id: x.credit_id, email_id: x.credit_email_id ?? null }
+		: null,
 	created_at: x.created_at,
 });
 

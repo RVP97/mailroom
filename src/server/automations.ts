@@ -956,6 +956,13 @@ export const eventInput = z.object({
 	email: z.string().max(320).optional(),
 	contact_id: z.string().optional(),
 	data: z.record(z.string(), z.unknown()).optional(),
+	/** A purchase's amount (also read from data.value, data.revenue or data.total). */
+	value: z.number().min(0).max(1e9).optional(),
+	/** Its ISO currency code (also data.currency). */
+	currency: z
+		.string()
+		.regex(/^[A-Za-z]{3}$/, "currency: a 3-letter code like USD")
+		.optional(),
 	/** Add the contact when the address isn't one yet (the default). */
 	create_contact: z.boolean().optional(),
 });
@@ -981,13 +988,38 @@ export async function recordEvent(
 		contact = (await upsertContact(brand, { email: v.email, source: "event" }, now)).contact;
 	}
 	const data = v.data ? boundedData(v.data) : null;
-	const stored = await storeEvent(brand, contact.id, v.event, data, source, now);
+	// A purchase: the last broadcast, automation email or chat that reached them gets the credit.
+	const { creditFor, purchaseOf } = await import("./revenue");
+	const purchase = purchaseOf({ value: v.value, currency: v.currency, data });
+	const credit = purchase ? await creditFor(brand, contact.email, now) : null;
+	const stored = await storeEvent(
+		brand,
+		contact.id,
+		v.event,
+		data,
+		source,
+		now,
+		purchase ? { ...purchase, credit } : null,
+	);
 	await eventArrived(brand, contact.id, v.event, now);
 	let started = 0;
 	for (const x of await active(brand))
 		if (x.trigger.type === "event" && x.trigger.event === v.event)
 			if (await start(x, contact.id, data, now)) started++;
-	return { object: "event", id: stored.id, event: v.event, contact_id: contact.id, started };
+	return {
+		object: "event",
+		id: stored.id,
+		event: v.event,
+		contact_id: contact.id,
+		started,
+		...(purchase
+			? {
+					value: purchase.value,
+					currency: purchase.currency,
+					credit: credit ? { type: credit.type, id: credit.id } : null,
+				}
+			: {}),
+	};
 }
 
 /** The event's data, cut to 16 KB: whole keys are dropped from the end, never cut mid-value. */

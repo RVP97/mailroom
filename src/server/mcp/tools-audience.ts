@@ -800,7 +800,7 @@ export const AUDIENCE_TOOLS: Tool[] = [
 		name: "get_campaign",
 		title: "Get a campaign",
 		description:
-			"One campaign with its broadcasts (each with its segment and stats) and the combined totals.",
+			"One campaign with its broadcasts (each with its segment and stats), the combined totals, and the revenue credited to its broadcasts (each currency apart).",
 		input: { organization, campaign: z.string() },
 		readOnly: true,
 		run: async (a, ctx) => {
@@ -828,6 +828,7 @@ export const AUDIENCE_TOOLS: Tool[] = [
 					};
 				}),
 				totals: report.totals,
+				revenue: await import("../revenue").then((m) => m.revenueOf("campaign", x.id)),
 			};
 		},
 	},

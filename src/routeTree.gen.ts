@@ -42,6 +42,7 @@ import { Route as AppDomainsIdRouteImport } from './routes/_app/domains.$id'
 import { Route as AppEmailsIndexRouteImport } from './routes/_app/emails.index'
 import { Route as AppEmailsIdRouteImport } from './routes/_app/emails.$id'
 import { Route as AppInsightsIndexRouteImport } from './routes/_app/insights.index'
+import { Route as AppInsightsRevenueRouteImport } from './routes/_app/insights.revenue'
 import { Route as AppLogsIndexRouteImport } from './routes/_app/logs.index'
 import { Route as AppLogsIdRouteImport } from './routes/_app/logs.$id'
 import { Route as AppNewslettersIndexRouteImport } from './routes/_app/newsletters.index'
@@ -232,6 +233,11 @@ const AppInsightsIndexRoute = AppInsightsIndexRouteImport.update({
   path: '/insights/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppInsightsRevenueRoute = AppInsightsRevenueRouteImport.update({
+  id: '/insights/revenue',
+  path: '/insights/revenue',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppLogsIndexRoute = AppLogsIndexRouteImport.update({
   id: '/logs/',
   path: '/logs/',
@@ -383,6 +389,7 @@ export interface FileRoutesByFullPath {
   '/contacts/growth': typeof AppContactsGrowthRoute
   '/domains/$id': typeof AppDomainsIdRoute
   '/emails/$id': typeof AppEmailsIdRoute
+  '/insights/revenue': typeof AppInsightsRevenueRoute
   '/logs/$id': typeof AppLogsIdRoute
   '/newsletters/$id': typeof AppNewslettersIdRoute
   '/received/$id': typeof AppReceivedIdRoute
@@ -442,6 +449,7 @@ export interface FileRoutesByTo {
   '/contacts/growth': typeof AppContactsGrowthRoute
   '/domains/$id': typeof AppDomainsIdRoute
   '/emails/$id': typeof AppEmailsIdRoute
+  '/insights/revenue': typeof AppInsightsRevenueRoute
   '/logs/$id': typeof AppLogsIdRoute
   '/newsletters/$id': typeof AppNewslettersIdRoute
   '/received/$id': typeof AppReceivedIdRoute
@@ -503,6 +511,7 @@ export interface FileRoutesById {
   '/_app/contacts/growth': typeof AppContactsGrowthRoute
   '/_app/domains/$id': typeof AppDomainsIdRoute
   '/_app/emails/$id': typeof AppEmailsIdRoute
+  '/_app/insights/revenue': typeof AppInsightsRevenueRoute
   '/_app/logs/$id': typeof AppLogsIdRoute
   '/_app/newsletters/$id': typeof AppNewslettersIdRoute
   '/_app/received/$id': typeof AppReceivedIdRoute
@@ -564,6 +573,7 @@ export interface FileRouteTypes {
     | '/contacts/growth'
     | '/domains/$id'
     | '/emails/$id'
+    | '/insights/revenue'
     | '/logs/$id'
     | '/newsletters/$id'
     | '/received/$id'
@@ -623,6 +633,7 @@ export interface FileRouteTypes {
     | '/contacts/growth'
     | '/domains/$id'
     | '/emails/$id'
+    | '/insights/revenue'
     | '/logs/$id'
     | '/newsletters/$id'
     | '/received/$id'
@@ -683,6 +694,7 @@ export interface FileRouteTypes {
     | '/_app/contacts/growth'
     | '/_app/domains/$id'
     | '/_app/emails/$id'
+    | '/_app/insights/revenue'
     | '/_app/logs/$id'
     | '/_app/newsletters/$id'
     | '/_app/received/$id'
@@ -963,6 +975,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInsightsIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/insights/revenue': {
+      id: '/_app/insights/revenue'
+      path: '/insights/revenue'
+      fullPath: '/insights/revenue'
+      preLoaderRoute: typeof AppInsightsRevenueRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/logs/': {
       id: '/_app/logs/'
       path: '/logs'
@@ -1159,6 +1178,7 @@ interface AppRouteChildren {
   AppContactsGrowthRoute: typeof AppContactsGrowthRoute
   AppDomainsIdRoute: typeof AppDomainsIdRoute
   AppEmailsIdRoute: typeof AppEmailsIdRoute
+  AppInsightsRevenueRoute: typeof AppInsightsRevenueRoute
   AppLogsIdRoute: typeof AppLogsIdRoute
   AppNewslettersIdRoute: typeof AppNewslettersIdRoute
   AppReceivedIdRoute: typeof AppReceivedIdRoute
@@ -1211,6 +1231,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppContactsGrowthRoute: AppContactsGrowthRoute,
   AppDomainsIdRoute: AppDomainsIdRoute,
   AppEmailsIdRoute: AppEmailsIdRoute,
+  AppInsightsRevenueRoute: AppInsightsRevenueRoute,
   AppLogsIdRoute: AppLogsIdRoute,
   AppNewslettersIdRoute: AppNewslettersIdRoute,
   AppReceivedIdRoute: AppReceivedIdRoute,
