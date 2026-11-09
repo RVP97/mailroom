@@ -276,7 +276,7 @@ function Newsletters() {
 							<TableRow>
 								<TableHead>Newsletter</TableHead>
 								<TableHead className="hidden w-40 md:table-cell">Extras</TableHead>
-								<TableHead className="w-24 text-right">Issues</TableHead>
+								<TableHead className="w-20 text-right sm:w-24">Issues</TableHead>
 								<TableHead className="hidden w-32 text-right sm:table-cell">
 									Page
 								</TableHead>

@@ -114,10 +114,19 @@ export function Section({
 	);
 }
 
-/** The surface a table sits on. */
+/**
+ * The surface a table sits on. On phones in portrait it runs edge to edge, with a hairline above
+ * and below, like a phone's own lists: the card's inset and rounded corners would take 32px of a
+ * 390px screen away from what the rows say.
+ */
 export function TableCard({ children, className }: { children: ReactNode; className?: string }) {
 	return (
-		<div className={cn("overflow-hidden rounded-xl bg-card shadow-card", className)}>
+		<div
+			className={cn(
+				"overflow-hidden rounded-xl bg-card shadow-card max-sm:-mx-4 max-sm:rounded-none max-sm:shadow-[0_-1px_0_var(--border),0_1px_0_var(--border)]",
+				className,
+			)}
+		>
 			{children}
 		</div>
 	);
@@ -165,7 +174,7 @@ export function TablePager({
 	nextLabel?: string;
 }) {
 	return (
-		<div className="flex items-center justify-between gap-2 border-t border-border/70 px-5 py-2.5">
+		<div className="flex items-center justify-between gap-2 border-t border-border/70 px-4 py-2.5 sm:px-5">
 			<span className="text-xs text-muted-foreground tabular-nums">
 				<Ph>{label}</Ph>
 			</span>

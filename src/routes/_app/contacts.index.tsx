@@ -314,7 +314,9 @@ function Contacts() {
 											<TableHead className="hidden w-40 sm:table-cell">
 												Status
 											</TableHead>
-											<TableHead className="w-24 text-right">Added</TableHead>
+											<TableHead className="w-20 text-right sm:w-24">
+												Added
+											</TableHead>
 										</TableRow>
 									</TableHeader>
 									<TableBody>

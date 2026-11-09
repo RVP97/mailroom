@@ -592,7 +592,7 @@ function Received() {
 											key={r.id}
 											className="relative"
 										>
-											<TableCell className="w-36 py-3 align-top sm:w-56">
+											<TableCell className="hidden w-56 py-3 align-top sm:table-cell">
 												<span className="flex items-center gap-2">
 													<span
 														className={cn(
@@ -627,7 +627,55 @@ function Received() {
 												</span>
 											</TableCell>
 											<TableCell className="py-3">
-												{/* On phones the badges wrap under the subject instead of squeezing it. */}
+												{/*
+												 * On phones the row is a mail app's: who and when on top, then the
+												 * subject and the snippet across the whole width.
+												 */}
+												<span className="mb-0.5 flex min-w-0 items-center gap-2 sm:hidden">
+													<Link
+														to="/received/$id"
+														params={{ id: r.id }}
+														title={r.contact}
+														className={cn(
+															"block min-w-0 truncate outline-none after:absolute after:inset-0 focus-visible:after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset",
+															r.unread
+																? "font-semibold"
+																: "font-medium",
+														)}
+													>
+														<Ph>{senderName(r.contact)}</Ph>
+													</Link>
+													{r.messages > 1 && (
+														<span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+															<Ph>{r.messages}</Ph>
+														</span>
+													)}
+													<span className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground tabular-nums">
+														<SlaText
+															sla={r.sla}
+															status={r.status}
+														/>
+														{r.assignee && (
+															<Avatar
+																name={r.assignee.name}
+																agent={r.assignee.type === "agent"}
+																className={cn(
+																	r.assignee.reader === page.me &&
+																		"ring-2 ring-brand/40",
+																)}
+															/>
+														)}
+														<Ph>{formatAgo(r.last_message_at, now)}</Ph>
+														{r.unread && (
+															<span className="size-2 shrink-0 rounded-full bg-brand">
+																<span className="sr-only">
+																	Unread
+																</span>
+															</span>
+														)}
+													</span>
+												</span>
+												{/* The badges wrap under the subject instead of squeezing it. */}
 												<span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
 													<PriorityFlag
 														priority={r.priority}
@@ -696,7 +744,7 @@ function Received() {
 												</span>
 											</TableCell>
 											<TableCell
-												className="w-32 py-3 text-right align-top text-muted-foreground tabular-nums"
+												className="hidden w-32 py-3 text-right align-top text-muted-foreground tabular-nums sm:table-cell"
 												title={formatDateTime(r.last_message_at)}
 											>
 												<span className="flex items-center justify-end gap-2">

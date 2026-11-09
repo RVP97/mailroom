@@ -562,7 +562,8 @@ function Emails() {
 						</Empty>
 					) : (
 						<Table className="table-fixed">
-							<TableHeader>
+							{/* On phones each row is the whole email, like a mail app's list: no columns to name. */}
+							<TableHeader className="max-sm:hidden">
 								<TableRow>
 									<TableHead className="md:w-[36%]">To</TableHead>
 									{showOrg && (
@@ -577,7 +578,9 @@ function Emails() {
 										Sent by
 									</TableHead>
 									<TableHead className="hidden md:table-cell">Subject</TableHead>
-									<TableHead className="w-14 text-right md:w-20">Sent</TableHead>
+									<TableHead className="hidden w-14 text-right sm:table-cell md:w-20">
+										Sent
+									</TableHead>
 								</TableRow>
 							</TableHeader>
 							<TableBody>
@@ -586,14 +589,27 @@ function Emails() {
 										key={e.id}
 										className="relative cursor-pointer"
 									>
-										<TableCell className="py-2.5 sm:py-0">
-											<Link
-												to="/emails/$id"
-												params={{ id: e.id }}
-												className="block truncate font-medium outline-none after:absolute after:inset-0 focus-visible:after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
-											>
-												<Ph>{e.to.join(", ")}</Ph>
-											</Link>
+										<TableCell className="py-3 sm:py-0">
+											<div className="flex min-w-0 items-baseline gap-3">
+												<Link
+													to="/emails/$id"
+													params={{ id: e.id }}
+													className="block min-w-0 flex-1 truncate font-medium outline-none after:absolute after:inset-0 focus-visible:after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
+												>
+													<Ph>{e.to.join(", ")}</Ph>
+												</Link>
+												{/* On phones the time sits beside the address, so the subject gets the row's width. */}
+												<span className="shrink-0 text-xs text-muted-foreground tabular-nums sm:hidden">
+													<Ph>
+														{formatAgo(
+															e.status === "scheduled"
+																? e.send_at
+																: e.created_at,
+															now,
+														)}
+													</Ph>
+												</span>
+											</div>
 											<div className="mt-1 flex min-w-0 items-center gap-2 md:hidden">
 												<StatusBadge
 													status={shownStatus(e)}
@@ -637,7 +653,7 @@ function Emails() {
 											<Ph>{e.subject}</Ph>
 										</TableCell>
 										<TableCell
-											className="text-right text-muted-foreground tabular-nums"
+											className="hidden text-right text-muted-foreground tabular-nums sm:table-cell"
 											title={formatDateTime(
 												e.status === "scheduled" ? e.send_at : e.created_at,
 											)}

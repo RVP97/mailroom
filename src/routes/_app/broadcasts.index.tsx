@@ -211,7 +211,7 @@ function Broadcasts() {
 								<TableHead className="hidden w-28 text-right md:table-cell">
 									Recipients
 								</TableHead>
-								<TableHead className="w-28 text-right">When</TableHead>
+								<TableHead className="w-20 text-right sm:w-28">When</TableHead>
 								<TableHead className="w-12">
 									<span className="sr-only">Actions</span>
 								</TableHead>

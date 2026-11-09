@@ -285,7 +285,7 @@ function Automations() {
 								<TableHead className="hidden w-28 text-right md:table-cell">
 									Finished
 								</TableHead>
-								<TableHead className="w-24 text-right">Edited</TableHead>
+								<TableHead className="w-20 text-right sm:w-24">Edited</TableHead>
 								<TableHead className="w-12">
 									<span className="sr-only">Actions</span>
 								</TableHead>
