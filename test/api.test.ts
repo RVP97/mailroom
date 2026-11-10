@@ -13,6 +13,15 @@ vi.mock("cloudflare:workers", async (original) => ({
 	waitUntil: () => {},
 }));
 
+/**
+ * The local rate limiter counts in 10-second windows on the wall clock, and a window that rolls
+ * over mid-test starts the count again (the test then sees no 429). Start well inside a window.
+ */
+const freshLimitWindow = async () => {
+	const left = 10_000 - (Date.now() % 10_000);
+	if (left < 6_000) await new Promise((r) => setTimeout(r, left + 50));
+};
+
 const call = (
 	key: string | null,
 	method: string,
@@ -64,6 +73,7 @@ describe("API", () => {
 
 	it("limits requests without a valid key per IP, and leaves other IPs alone", async () => {
 		const ip = { "cf-connecting-ip": "203.0.113.7" };
+		await freshLimitWindow();
 		const statuses: number[] = [];
 		for (let i = 0; i < 21; i++)
 			statuses.push(
@@ -90,6 +100,7 @@ describe("API", () => {
 	it("limits each API key to 100 requests per 10 seconds", async () => {
 		const a = await orgWithKey();
 		const b = await orgWithKey();
+		await freshLimitWindow();
 		const statuses = await Promise.all(
 			Array.from({ length: 101 }, () =>
 				call(a.token, "GET", "/emails").then((r) => r.status),
