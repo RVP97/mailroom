@@ -754,13 +754,11 @@ html[data-org-depth] [data-app-frame] {
 		box-shadow 200ms,
 		scale var(--toast-spring-ms) var(--toast-spring);
 }
-/* Arrives a little small and springs to size; leaves quickly, blurring away. */
-[data-sonner-toaster] [data-sonner-toast][data-mounted="false"] {
-	scale: 0.9;
-}
-[data-sonner-toaster] [data-sonner-toast][data-mounted="true"] {
-	scale: 1;
-}
+/*
+ * No scale on the way in: Sonner measures each toast with getBoundingClientRect, which counts
+ * transforms, so a toast measured mid-scale was saved a few pixels short and jumped to its real
+ * height when hovered. The opening below carries the arrival instead. It leaves quickly, blurring.
+ */
 /* Ding's opening: the toast arrives as the glyph's circle and opens into the pill. */
 [data-sonner-toaster] [data-sonner-toast][data-styled="true"][data-mounted="true"] {
 	animation:
