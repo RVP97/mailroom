@@ -1,13 +1,37 @@
 # Mailroom
 
+**Open-source email on your own Amazon SES and Cloudflare.**
+
+[![CI](https://github.com/RVP97/mailroom/actions/workflows/ci.yml/badge.svg)](https://github.com/RVP97/mailroom/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/RVP97/mailroom?style=flat)](https://github.com/RVP97/mailroom/stargazers)
+
 A self-hosted, Resend-style email platform on **Amazon SES** that runs on **Cloudflare Workers**:
 transactional email with a Resend-compatible API, newsletters and broadcasts with a visual editor,
-automations, receiving, and deliverability monitoring, for as many businesses as you like, on your
-own AWS and Cloudflare accounts.
+automations, shared inboxes, and deliverability monitoring, for as many businesses as you like, on
+your own AWS and Cloudflare accounts. No servers to run.
 
+**[Try the live demo](https://rvp97.github.io/mailroom/demo/)**: the whole dashboard with five
+months of made-up data, no sign-up (the app's real server code runs in your browser).
 **Website:** [rvp97.github.io/mailroom](https://rvp97.github.io/mailroom/) (its source is in [`site/`](site/))
 
+Built by [Rodrigo Valle](https://github.com/RVP97), for the love of it.
+
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/RVP97/mailroom)
+
+## Highlights
+
+- **A sending API compatible with Resend's**: Resend's SDKs work by changing their base URL.
+- **Newsletters and broadcasts**: a visual editor, A/B subject tests, local-time sends, a public
+  archive with RSS, RSS-to-email, referrals and polls.
+- **Automations** on a canvas: triggers, waits, if/else paths, sends.
+- **Shared inboxes** for received email, a website chat widget, a help center and surveys, with
+  agent inboxes that AI agents can work in.
+- **Deliverability watch**: DNS and blocklist checks, bounce and complaint limits under SES's
+  review levels, Gmail Postmaster data and time to inbox per provider.
+- **Many businesses, one install**: each organization is its own SES tenant, so one brand's
+  complaints never pause another's sending.
+- **An MCP server**: Claude and other assistants can do anything the dashboard does.
 
 ![The overview: emails sent, delivered, opened and clicked over 30 days, with bounce and complaint rates against SES's review lines](docs/screenshots/overview.png)
 
@@ -35,6 +59,15 @@ One AWS account, many businesses: each organization in Mailroom is its own **SES
 own configuration set, so one business's bounces or complaints never pause another's sending.
 An organization that should be fully apart can optionally use its own SES account instead.
 
+### How it compares
+
+| | Mailroom | Hosted services (Resend, Beehiiv, Mailchimp) | Other self-hosted tools |
+| --- | --- | --- | --- |
+| Where your lists and logs live | Your Cloudflare and AWS accounts | Their servers | Your server |
+| What you pay for | Workers Paid + $0.10 per 1,000 emails | Plans that grow with contacts, emails or seats | Your server + your sending provider |
+| What you maintain | Nothing to patch: Workers, D1 and R2 | Nothing | The server, its database and updates |
+| In one app | Transactional API, newsletters, automations, inboxes, chat, help center | Usually one of these per product | Usually newsletters or transactional |
+
 **Contents:** [Features](#features) · [Deploy](#deploy) ([1. Amazon SES](#1-amazon-ses) ·
 [2. Cloudflare](#2-cloudflare) · [3. First sign-in](#3-first-sign-in) ·
 [4. Smoke test](#4-smoke-test) · [When something goes wrong](#when-something-goes-wrong)) ·
@@ -42,6 +75,9 @@ An organization that should be fully apart can optionally use its own SES accoun
 [Development](#development) · [License](#license)
 
 ## Features
+
+<details>
+<summary><b>Everything Mailroom does</b> (click to open the full list)</summary>
 
 - **Sending API compatible with Resend's**: `POST /api/emails`, `/api/emails/batch`, scheduling,
   `Idempotency-Key`, tags, attachments. Resend's SDKs work by changing their base URL.
@@ -257,7 +293,9 @@ An organization that should be fully apart can optionally use its own SES accoun
   `<BETTER_AUTH_URL>/api/auth/callback/google`). **Two-factor authentication** with an
   authenticator app and backup codes, asked after a password or an emailed code. Only admins and
   invited addresses get in.
-- TanStack Start, React 19, shadcn/ui, Drizzle, D1, one SQLite Durable Object, Cron. No Queues.
+- TanStack Start, React 19, shadcn/ui, Drizzle, D1, two SQLite Durable Objects (sending pace, live chat), Cron. No Queues.
+
+</details>
 
 ## Deploy
 
@@ -275,7 +313,7 @@ Cloudflare, then sign in and finish in Mailroom's own pages.
 | --- | --- |
 | Copy the repo to your GitHub/GitLab, build it, deploy it, redeploy on every push (Workers Builds) | The button |
 | Create the D1 database (and apply its migrations), the KV namespace `OAUTH_KV` and the R2 bucket `mailroom-inbound` | The button |
-| The Durable Object, the cron trigger and the rate limits | The button (they come with the Worker) |
+| The Durable Objects, the cron trigger and the rate limits | The button (they come with the Worker) |
 | Create the IAM user and its access key, and request SES production access | You, in AWS ([step 1](#1-amazon-ses)) |
 | The SNS topic for events, each organization's SES tenant and configuration set, domain identities, receipt rules | Mailroom, when you click **Set up events**, **Set up sending**, **Add domain** ([step 3](#3-first-sign-in)) |
 | The DNS records for each domain (DKIM, MAIL FROM, DMARC, MX for receiving) | You, at your DNS host. Mailroom lists them, checks them, and adds them in one click only where the host supports Domain Connect |
@@ -1113,4 +1151,5 @@ problems privately through GitHub's **Report a vulnerability** (Security tab), n
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Made by [Rodrigo Valle](https://github.com/RVP97). If Mailroom is useful to you,
+a star on GitHub helps other people find it.

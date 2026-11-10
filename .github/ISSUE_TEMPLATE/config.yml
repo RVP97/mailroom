@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/RVP97/mailroom/discussions
+    about: Ask how something works or share what you built with Mailroom.
+  - name: Security problem
+    url: https://github.com/RVP97/mailroom/security/advisories/new
+    about: Please report security problems privately, not in an issue.

@@ -1,0 +1,28 @@
+name: Bug report
+description: Something in Mailroom doesn't work as it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to …
+        2. Click …
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The release, or the commit your copy is on.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Leave out API keys, secrets and anyone's email addresses.
