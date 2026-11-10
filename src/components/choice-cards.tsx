@@ -50,8 +50,8 @@ export function ChoiceCards<T extends string>({
 						>
 							<span
 								className={cn(
-									"size-1.5 rounded-full bg-white transition-transform duration-150 ease-out",
-									checked ? "scale-100" : "scale-0",
+									"size-1.5 rounded-full bg-white transition-[transform,opacity] duration-150 ease-out",
+									checked ? "scale-100 opacity-100" : "scale-50 opacity-0",
 								)}
 							/>
 						</span>

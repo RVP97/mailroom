@@ -170,10 +170,11 @@ export function CommandMenu({
 				}}
 			>
 				<DialogPrimitive.Portal>
-					<DialogPrimitive.Overlay className="animate-overlay fixed inset-0 z-50 bg-[oklch(0.2_0.01_265/0.2)] dark:bg-black/50" />
+					{/* No motion: people open this many times a day, mostly from the keyboard (⌘K). */}
+					<DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-[oklch(0.2_0.01_265/0.2)] dark:bg-black/50" />
 					<DialogPrimitive.Content
 						aria-describedby={undefined}
-						className="animate-dialog fixed top-[14vh] left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-xl -translate-x-1/2 overflow-hidden rounded-xl bg-popover text-popover-foreground shadow-popover outline-none"
+						className="fixed top-[14vh] left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-xl -translate-x-1/2 overflow-hidden rounded-xl bg-popover text-popover-foreground shadow-popover outline-none"
 					>
 						<DialogPrimitive.Title className="sr-only">
 							Command menu

@@ -236,7 +236,7 @@ export function TemplateGallery({
 								type="button"
 								onClick={() => pick(s)}
 								aria-label={`Start from ${s.name}`}
-								className="relative block aspect-[3/4] w-full overflow-hidden rounded-xl bg-muted shadow-[0_0_0_1px_var(--border)] transition-all group-hover:-translate-y-0.5 group-hover:shadow-[0_0_0_1px_var(--border),0_12px_24px_-12px_var(--shadow-color-strong)]"
+								className="relative block aspect-[3/4] w-full overflow-hidden rounded-xl bg-muted shadow-[0_0_0_1px_var(--border)] transition-[transform,box-shadow] group-hover:-translate-y-0.5 group-hover:shadow-[0_0_0_1px_var(--border),0_12px_24px_-12px_var(--shadow-color-strong)]"
 							>
 								<Thumb
 									doc={doc}

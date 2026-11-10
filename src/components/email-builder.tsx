@@ -580,7 +580,7 @@ export function EmailBuilder({
 													e.dataTransfer.effectAllowed = "copy";
 												}}
 												onClick={() => add(b.type)}
-												className="group flex aspect-[5/4] cursor-grab flex-col items-center justify-center gap-2 rounded-lg border border-border/80 bg-card text-[12.5px] font-medium text-muted-foreground shadow-[0_1px_2px_var(--shadow-color)] transition-all hover:-translate-y-px hover:border-foreground/25 hover:text-foreground hover:shadow-[0_4px_12px_-4px_var(--shadow-color-strong)] active:cursor-grabbing"
+												className="group flex aspect-[5/4] cursor-grab flex-col items-center justify-center gap-2 rounded-lg border border-border/80 bg-card text-[12.5px] font-medium text-muted-foreground shadow-[0_1px_2px_var(--shadow-color)] transition-[transform,border-color,color,box-shadow] hover:-translate-y-px hover:border-foreground/25 hover:text-foreground hover:shadow-[0_4px_12px_-4px_var(--shadow-color-strong)] active:cursor-grabbing"
 											>
 												<b.icon className="size-[18px] text-foreground/70 transition-colors group-hover:text-foreground" />
 												{b.label}
@@ -2773,7 +2773,7 @@ function SavedSections({
 						onClick={() => onInsert(s.blocks)}
 						className="flex w-full flex-col gap-1.5 text-left"
 					>
-						<span className="relative block aspect-[4/3] w-full overflow-hidden rounded-lg bg-muted shadow-[0_0_0_1px_var(--border)] transition-all group-hover:-translate-y-px group-hover:shadow-[0_0_0_1px_var(--border),0_8px_16px_-8px_var(--shadow-color-strong)]">
+						<span className="relative block aspect-[4/3] w-full overflow-hidden rounded-lg bg-muted shadow-[0_0_0_1px_var(--border)] transition-[transform,box-shadow] group-hover:-translate-y-px group-hover:shadow-[0_0_0_1px_var(--border),0_8px_16px_-8px_var(--shadow-color-strong)]">
 							<Thumb
 								doc={{ version: 1, theme: doc.theme, blocks: s.blocks }}
 								height={520}

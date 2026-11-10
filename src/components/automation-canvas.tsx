@@ -426,7 +426,7 @@ function Line({
 						<button
 							type="button"
 							aria-label="Add a step here"
-							className="absolute flex size-6 items-center justify-center rounded-full bg-card text-muted-foreground shadow-[0_0_0_1px_var(--border-strong),0_1px_2px_var(--shadow-color)] transition-all outline-none hover:scale-110 hover:bg-brand hover:text-brand-foreground hover:shadow-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:scale-110 data-[state=open]:bg-brand data-[state=open]:text-brand-foreground"
+							className="absolute flex size-6 items-center justify-center rounded-full bg-card text-muted-foreground shadow-[0_0_0_1px_var(--border-strong),0_1px_2px_var(--shadow-color)] transition-[transform,background-color,color,box-shadow] outline-none hover:scale-110 hover:bg-brand hover:text-brand-foreground hover:shadow-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:scale-110 data-[state=open]:bg-brand data-[state=open]:text-brand-foreground"
 						>
 							<Plus className="size-3.5" />
 						</button>
