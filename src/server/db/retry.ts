@@ -23,7 +23,11 @@ export function isRead(query: string): boolean {
 
 const DELAYS = [50, 250];
 
-async function retrying<T>(run: () => Promise<T>): Promise<T> {
+/**
+ * Runs `run` again after a transient D1 error. Reads get this on their own; use it for a write only
+ * when doing it twice is harmless (it sets fixed values, and nothing reads how many rows changed).
+ */
+export async function retrying<T>(run: () => Promise<T>): Promise<T> {
 	for (let attempt = 0; ; attempt++) {
 		try {
 			return await run();

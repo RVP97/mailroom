@@ -1,8 +1,9 @@
 import { env } from "cloudflare:workers";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { describe, expect, it } from "vitest";
 import { batch, db, raw, schema } from "@/server/db";
-import { isRead, isTransient, withRetry } from "@/server/db/retry";
+import { isRead, isTransient, retrying, withRetry } from "@/server/db/retry";
 
 const lost = () => new Error("D1_ERROR: Network connection lost.");
 
@@ -84,6 +85,21 @@ describe("D1 retries", () => {
 			d1.prepare("DELETE FROM managed_organizations WHERE organization_id = 'none'").run(),
 		).rejects.toThrow(/Network connection lost/);
 		expect(calls.count).toBe(1);
+	});
+
+	it("retries a write the caller says is safe to repeat", async () => {
+		const { d1, calls } = flaky(1);
+		const flakyDb = drizzle(d1, { schema });
+		await retrying(() =>
+			flakyDb
+				.update(schema.orgSending)
+				.set({ tenant_status: "ENABLED" })
+				.where(eq(schema.orgSending.organization_id, "none")),
+		);
+		expect(calls.count).toBe(2);
+		expect(
+			isTransient(new Error("Internal error in D1 DB storage caused object to be reset")),
+		).toBe(true);
 	});
 
 	it("still batches through the wrapper", async () => {

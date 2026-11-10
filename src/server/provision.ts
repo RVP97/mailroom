@@ -20,6 +20,7 @@ import {
 } from "./aws/ses";
 import { callerAccount, createTopic, subscribeHttps } from "./aws/sns";
 import { db, schema } from "./db";
+import { retrying } from "./db/retry";
 import { withReportsAddress } from "./dmarc-address";
 import { aws, awsConfigured, baseUrl, inboundDomain, region } from "./env";
 import { ApiError, validation } from "./errors";
@@ -449,14 +450,17 @@ export async function refreshTenantStatus(organizationId: string) {
 		const status = r.ReputationEntity?.SendingStatusAggregate ?? null;
 		const marketing =
 			m?.ReputationEntity?.SendingStatusAggregate ?? row.marketing_tenant_status;
-		await db
-			.update(schema.orgSending)
-			.set({
-				tenant_status: status,
-				marketing_tenant_status: marketing ?? null,
-				tenant_checked_at: iso(),
-			})
-			.where(eq(schema.orgSending.organization_id, organizationId));
+		// Setting fixed values is safe to repeat, so a transient D1 error is retried.
+		await retrying(() =>
+			db
+				.update(schema.orgSending)
+				.set({
+					tenant_status: status,
+					marketing_tenant_status: marketing ?? null,
+					tenant_checked_at: iso(),
+				})
+				.where(eq(schema.orgSending.organization_id, organizationId)),
+		);
 		return {
 			...row,
 			tenant_status: status,
