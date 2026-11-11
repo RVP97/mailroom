@@ -59,6 +59,14 @@ describe("D1 retries", () => {
 		expect(isTransient(lost())).toBe(true);
 		expect(isTransient(new Error("Failed query: select 1", { cause: lost() }))).toBe(true);
 		expect(isTransient(new Error("UNIQUE constraint failed"))).toBe(false);
+		// D1's bare internal error (Sentry MAILROOM-H and -J).
+		const internal = new Error(
+			"D1_ERROR: internal error; reference = 5c4nltiggn00mq1615iscb6d",
+			{
+				cause: new Error("internal error; reference = 5c4nltiggn00mq1615iscb6d"),
+			},
+		);
+		expect(isTransient(new Error("Failed query: select 1", { cause: internal }))).toBe(true);
 	});
 
 	it("retries a read that lost its connection", async () => {

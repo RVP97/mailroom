@@ -13,6 +13,7 @@ import {
 	upsertContact,
 } from "./contacts";
 import { db, raw, schema } from "./db";
+import { retrying } from "./db/retry";
 import type { AutomationStatus, AutomationStep, AutomationTrigger } from "./db/schema";
 import { ApiError, notFound, validation } from "./errors";
 import { createEmails, parseSend } from "./send";
@@ -1051,11 +1052,17 @@ async function claim(now: number) {
 		)
 		.orderBy(asc(r.next_at))
 		.limit(RUNS_PER_MINUTE);
-	return db
-		.update(r)
-		.set({ locked_until: iso(now + CLAIM_MS) })
-		.where(and(inArray(r.id, due), or(isNull(r.locked_until), lt(r.locked_until, iso(now)))))
-		.returning();
+	// Safe to repeat after a transient D1 error: runs the first try did lock aren't taken again
+	// (they're locked now), so they just wait for the lock to pass, as after a Worker that died.
+	return retrying(() =>
+		db
+			.update(r)
+			.set({ locked_until: iso(now + CLAIM_MS) })
+			.where(
+				and(inArray(r.id, due), or(isNull(r.locked_until), lt(r.locked_until, iso(now)))),
+			)
+			.returning(),
+	);
 }
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);

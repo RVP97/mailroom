@@ -4,9 +4,13 @@
  * a write that lost its connection may still have been applied.
  */
 
-/** The messages Cloudflare lists as transient (https://developers.cloudflare.com/d1/observability/debug-d1/). */
+/**
+ * The messages Cloudflare lists as transient (https://developers.cloudflare.com/d1/observability/debug-d1/),
+ * and D1's bare "internal error; reference = …", which it also gives now and then for a query that
+ * works a moment later.
+ */
 const TRANSIENT =
-	/Network connection lost|storage caused object to be reset|reset because its code was updated|transient issue|storage operation exceeded timeout|Internal error in D1/i;
+	/Network connection lost|storage caused object to be reset|reset because its code was updated|transient issue|storage operation exceeded timeout|Internal error in D1|^(D1_ERROR: )?internal error; reference =/i;
 
 export function isTransient(error: unknown): boolean {
 	for (let e = error, depth = 0; e && depth < 5; e = (e as { cause?: unknown }).cause, depth++)

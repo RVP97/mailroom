@@ -3,6 +3,7 @@ import { createIsomorphicFn } from "@tanstack/react-start";
 import { getCookie } from "@tanstack/react-start/server";
 import { createContext, useContext } from "react";
 import { getMe } from "@/functions/session";
+import { isNetworkError } from "@/lib/network-error";
 import { identify } from "@/lib/sentry";
 import { forgetRows } from "@/lib/sketch";
 
@@ -26,16 +27,7 @@ export async function loadMe(): Promise<Me> {
 	return cached;
 }
 
-/**
- * The browser's own "couldn't reach the server" (Safari's "Load failed", Chrome's "Failed to
- * fetch", Firefox's "NetworkError…"): the request never got an answer, often a phone waking up or
- * switching networks for a moment.
- */
-export const isNetworkError = (error: unknown) =>
-	error instanceof TypeError &&
-	/^(Load failed|Failed to fetch|NetworkError when attempting to fetch resource\.?|Network request failed)$/i.test(
-		error.message,
-	);
+export { isNetworkError };
 
 /**
  * Every dashboard page waits on this, so a moment without network (opening it from a phone's home

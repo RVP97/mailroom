@@ -188,11 +188,21 @@ export function chatRoom(conversationId: string) {
 	return ns ? ns.get(ns.idFromName(conversationId)) : null;
 }
 
-/** Tells whoever is connected; never fails the caller (D1 already has it). */
+/**
+ * Tells whoever is connected; never fails the caller (D1 already has it). A room that was reset
+ * (a deploy, or Cloudflare moving it) says its error is retryable: one more try, on a new stub,
+ * reaches the new instance.
+ */
 export async function pushToRoom(conversationId: string, event: RoomEvent, teamEvent?: RoomEvent) {
-	try {
-		await chatRoom(conversationId)?.broadcast(event, teamEvent);
-	} catch (error) {
-		console.error("chat: room not told", error);
+	for (let attempt = 0; ; attempt++) {
+		try {
+			await chatRoom(conversationId)?.broadcast(event, teamEvent);
+			return;
+		} catch (error) {
+			const retryable = (error as { retryable?: boolean } | null)?.retryable === true;
+			if (attempt === 0 && retryable) continue;
+			console.error("chat: room not told", error);
+			return;
+		}
 	}
 }

@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/react";
+import { isNetworkError } from "@/lib/network-error";
 import { isStaleCode } from "@/lib/stale-code";
 
 /**
@@ -24,6 +25,10 @@ export function initSentry() {
 			// A tab from before a deploy asking for replaced code: the page loads again by itself
 			// (PageError).
 			if (error instanceof Error && isStaleCode(error)) return null;
+			// The browser lost the network ("Load failed" on a phone waking up): the page says
+			// Mailroom couldn't be reached and offers to try again; a real outage shows on the
+			// Worker's side.
+			if (isNetworkError(error)) return null;
 			// A route's notFound(), drawn by its not-found page.
 			if (typeof error === "object" && error && "isNotFound" in error) return null;
 			return event;
