@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { logActivity } from "@/server/activity";
 import { kickDispatcher, rateGate } from "@/server/dispatcher";
 import { can, orgMiddleware } from "@/server/middleware";
 import { brandForSend, createEmails, parseSend } from "@/server/send";
@@ -14,7 +15,6 @@ import {
 	templateView,
 	updateTemplate,
 } from "@/server/templates";
-import { logActivity } from "@/server/activity";
 import { recordVersion, snapshotOf } from "@/server/versions";
 import { call } from "./call";
 

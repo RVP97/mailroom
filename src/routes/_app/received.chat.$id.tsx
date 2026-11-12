@@ -999,8 +999,8 @@ function DesignPanel({
 						]}
 					/>
 					<FieldDescription>
-						The chat's own words: buttons, notices and errors. Your greeting and texts
-						stay as you write them.
+						The chat's own words: buttons, notices, errors and the emails visitors get
+						with your replies. Your greeting and texts stay as you write them.
 					</FieldDescription>
 				</Field>
 			</Group>

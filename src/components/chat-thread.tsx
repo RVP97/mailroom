@@ -225,10 +225,7 @@ export function ChatThread({
 		() => c.timeline.filter((t): t is Inbound => t.type === "inbound"),
 		[c.timeline],
 	);
-	const drafts = useMemo(
-		() => c.timeline.filter((t): t is Draft => t.type === "draft"),
-		[c.timeline],
-	);
+
 	const [lines, setLines] = useState<ChatLine[]>(fromProps);
 	// The page's data came again (after a save, or coming back to it): merged in.
 	useEffect(() => {
@@ -324,6 +321,18 @@ export function ChatThread({
 						}, 6000);
 					})
 					.catch(async (error) => {
+						// Another Send of the same draft is still going: it lands on its own.
+						if (
+							error instanceof Response &&
+							error.status === 409 &&
+							p.client_id.startsWith("draft:")
+						) {
+							setTimeout(() => void router.invalidate(), 2500);
+							setTimeout(() => {
+								setPending((now) => now.filter((x) => x.client_id !== p.client_id));
+							}, 6000);
+							return;
+						}
 						toast.error(await errorMessage(error));
 						setPending((now) =>
 							now.map((x) =>
@@ -337,8 +346,15 @@ export function ChatThread({
 		[live.connected, router],
 	);
 
+	// Drafts being sent from here: their card goes at once and can't be sent twice.
+	const [sendingDrafts, setSendingDrafts] = useState<ReadonlySet<string>>(new Set());
 	const sendText = (text: string, draft?: string) => {
-		const client_id = uuid();
+		// A draft's send has one id, so a retry (or a lost answer) finds the line it already made.
+		const client_id = draft ? `draft:${draft}` : uuid();
+		if (draft) {
+			if (sendingDrafts.has(draft)) return;
+			setSendingDrafts((now) => new Set(now).add(draft));
+		}
 		deliver({ client_id, text }, async () => {
 			const r = await sendConversationReplyFn({
 				data: { conversation: c.id, text, client_id, ...(draft ? { draft } : {}) },
@@ -347,6 +363,10 @@ export function ChatThread({
 			return { id: r.id };
 		});
 	};
+
+	const drafts = c.timeline.filter(
+		(t): t is Draft => t.type === "draft" && !sendingDrafts.has(t.id),
+	);
 
 	const sendFile = (file: File) => {
 		if (file.size > MAX_FILE) {

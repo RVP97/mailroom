@@ -36,11 +36,7 @@ export async function recordVersion(o: {
 			.limit(1)
 			.get();
 		if (last && same(last.snapshot, o.snapshot)) return;
-		if (
-			last &&
-			last.user_id === o.userId &&
-			now - Date.parse(last.created_at) < MERGE_MS
-		) {
+		if (last && last.user_id === o.userId && now - Date.parse(last.created_at) < MERGE_MS) {
 			await db
 				.update(v)
 				.set({ snapshot: o.snapshot, updated_at: iso(now) })
@@ -89,7 +85,13 @@ export async function listVersions(organizationId: string, type: VersionSubject,
 		})
 		.from(v)
 		.leftJoin(schema.user, eq(schema.user.id, v.user_id))
-		.where(and(eq(v.organization_id, organizationId), eq(v.subject_type, type), eq(v.subject_id, id)))
+		.where(
+			and(
+				eq(v.organization_id, organizationId),
+				eq(v.subject_type, type),
+				eq(v.subject_id, id),
+			),
+		)
 		.orderBy(desc(v.created_at))
 		.limit(KEEP);
 	return rows.map(({ name, email, ...r }) => ({ ...r, who: name || email || "Mailroom" }));

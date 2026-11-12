@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import { type ActivityRow, ActivityFeed } from "@/components/activity-feed";
+import { ActivityFeed, type ActivityRow } from "@/components/activity-feed";
 import { Page, PageHeader } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";

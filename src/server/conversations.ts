@@ -1664,6 +1664,24 @@ export async function sendReply(
 	const v = replyInput.parse(raw ?? {});
 	const { c: x } = await conversationFor(actor, conversationId);
 	if (!o.automatic) assertFree(actor, x, now);
+	// A chat line from a draft carries the draft's id as its client id: a second Send of the
+	// same draft (a retry after a lost answer, a double click) finds the line instead of failing.
+	const clientId =
+		x.channel === "chat" && o.draftId ? `draft:${o.draftId}` : (o.clientId ?? null);
+	if (x.channel === "chat" && clientId) {
+		const { lineAsReply, lineByClientId } = await import("./chat");
+		const again = await lineByClientId(x.id, clientId);
+		if (again) return lineAsReply(again, x);
+	}
+	// An email draft that already went: the same reply again, not "Draft not found".
+	if (o.draftId && x.channel !== "chat") {
+		const sent = await db
+			.select()
+			.from(rp)
+			.where(and(eq(rp.id, o.draftId), eq(rp.conversation_id, x.id), eq(rp.status, "sent")))
+			.get();
+		if (sent) return { ...replyView(sent), scheduled_for: null };
+	}
 	const draft = o.draftId ? await draftFor(actor, o.draftId) : null;
 	if (draft && draft.conversation_id !== x.id) throw notFound("Draft");
 	let saved: SavedReply | null = null;
@@ -1694,7 +1712,7 @@ export async function sendReply(
 					text: v.text ?? draft?.text ?? "",
 					via: actor.type === "person" && sender.dashboard ? "dashboard" : "api",
 					draft,
-					client_id: o.clientId ?? null,
+					client_id: clientId,
 				},
 				now,
 			);

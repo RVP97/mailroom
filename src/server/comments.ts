@@ -29,7 +29,13 @@ export async function listComments(organizationId: string, type: CommentSubject,
 		})
 		.from(c)
 		.leftJoin(schema.user, eq(schema.user.id, c.user_id))
-		.where(and(eq(c.organization_id, organizationId), eq(c.subject_type, type), eq(c.subject_id, id)))
+		.where(
+			and(
+				eq(c.organization_id, organizationId),
+				eq(c.subject_type, type),
+				eq(c.subject_id, id),
+			),
+		)
 		.orderBy(asc(c.created_at))
 		.limit(500);
 	return rows.map((r) => ({
@@ -101,8 +107,10 @@ export async function resolveComment(o: {
 /** Only who wrote it deletes a comment (review steps stay). */
 export async function deleteComment(o: { organizationId: string; id: string; userId: string }) {
 	const row = await own(o.organizationId, o.id);
-	if (row.user_id !== o.userId) throw new ApiError(403, "forbidden", "Only who wrote it can delete it");
-	if (row.kind !== "comment") throw new ApiError(409, "conflict", "Review steps stay in the thread");
+	if (row.user_id !== o.userId)
+		throw new ApiError(403, "forbidden", "Only who wrote it can delete it");
+	if (row.kind !== "comment")
+		throw new ApiError(409, "conflict", "Review steps stay in the thread");
 	await db.delete(c).where(eq(c.id, o.id));
 }
 

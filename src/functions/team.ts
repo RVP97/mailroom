@@ -50,7 +50,10 @@ export const teamFn = createServerFn({ method: "GET" })
 				})
 				.from(schema.invitation)
 				.where(
-					and(eq(schema.invitation.organizationId, id), eq(schema.invitation.status, "pending")),
+					and(
+						eq(schema.invitation.organizationId, id),
+						eq(schema.invitation.status, "pending"),
+					),
 				)
 				.orderBy(asc(schema.invitation.createdAt)),
 			listRoles(id),

@@ -3,8 +3,8 @@ import {
 	Access,
 	NO_ACCESS,
 	OWNER_ROLE,
-	type Permission,
 	PERMISSION_LABEL,
+	type Permission,
 	parsePermissions,
 	roleDefinition,
 } from "../lib/permissions";

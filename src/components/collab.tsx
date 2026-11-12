@@ -77,12 +77,20 @@ export function useComments(s: Subject) {
 	useEffect(() => {
 		void load();
 	}, [load]);
-	return { rows, load, open: rows?.filter((c) => c.kind === "comment" && !c.resolved_at).length ?? 0 };
+	return {
+		rows,
+		load,
+		open: rows?.filter((c) => c.kind === "comment" && !c.resolved_at).length ?? 0,
+	};
 }
 
 const KIND = {
 	requested: { icon: Send, label: "asked for a review", tone: "text-sky-600 dark:text-sky-400" },
-	approved: { icon: BadgeCheck, label: "approved it", tone: "text-emerald-600 dark:text-emerald-400" },
+	approved: {
+		icon: BadgeCheck,
+		label: "approved it",
+		tone: "text-emerald-600 dark:text-emerald-400",
+	},
 	changes: {
 		icon: MessageSquareWarning,
 		label: "asked for changes",
@@ -167,7 +175,12 @@ export function CommentsSheet({
 											<p className="flex flex-wrap items-baseline gap-x-2 text-sm">
 												<span className="font-medium">{c.who}</span>
 												{k && (
-													<span className={cn("inline-flex items-center gap-1 text-xs", k.tone)}>
+													<span
+														className={cn(
+															"inline-flex items-center gap-1 text-xs",
+															k.tone,
+														)}
+													>
 														<k.icon className="size-3.5" />
 														{k.label}
 													</span>
@@ -200,8 +213,13 @@ export function CommentsSheet({
 														size="xs"
 														onClick={async () => {
 															await resolveCommentFn({
-																data: { id: c.id, resolved: !c.resolved_at },
-															}).catch(async (e) => toast.error(await errorMessage(e)));
+																data: {
+																	id: c.id,
+																	resolved: !c.resolved_at,
+																},
+															}).catch(async (e) =>
+																toast.error(await errorMessage(e)),
+															);
 															await comments.load();
 														}}
 													>
@@ -214,8 +232,12 @@ export function CommentsSheet({
 															size="xs"
 															aria-label="Delete comment"
 															onClick={async () => {
-																await deleteCommentFn({ data: { id: c.id } }).catch(async (e) =>
-																	toast.error(await errorMessage(e)),
+																await deleteCommentFn({
+																	data: { id: c.id },
+																}).catch(async (e) =>
+																	toast.error(
+																		await errorMessage(e),
+																	),
 																);
 																await comments.load();
 															}}
@@ -331,16 +353,12 @@ export function ReviewBanner({
 		tone = "bg-amber-500/10 text-amber-900 dark:text-amber-200";
 		text = `${who(broadcast.reviewed_by)} asked for changes. See the comments.`;
 	} else if (needsApproval) {
-		text = "This organization sends only approved broadcasts. Ask for a review when it's ready.";
+		text =
+			"This organization sends only approved broadcasts. Ask for a review when it's ready.";
 	}
 	if (!text) return null;
 	return (
-		<div
-			className={cn(
-				"flex flex-wrap items-center gap-3 rounded-xl px-4 py-3 text-sm",
-				tone,
-			)}
-		>
+		<div className={cn("flex flex-wrap items-center gap-3 rounded-xl px-4 py-3 text-sm", tone)}>
 			<span className="min-w-0 flex-1">{text}</span>
 			{mineToApprove && (
 				<Button
@@ -419,7 +437,9 @@ export function RequestReviewDialog({
 						onClick={async () => {
 							setBusy(true);
 							try {
-								await requestReviewFn({ data: { id, note: note.trim() || undefined } });
+								await requestReviewFn({
+									data: { id, note: note.trim() || undefined },
+								});
 								toast.success("Review requested");
 								setNote("");
 								onOpenChange(false);
@@ -567,8 +587,8 @@ export function HistorySheet({
 					<SheetHeader>
 						<SheetTitle>History</SheetTitle>
 						<SheetDescription>
-							A version is kept each time it's saved (one per person every 10 minutes),
-							the last 50.
+							A version is kept each time it's saved (one per person every 10
+							minutes), the last 50.
 						</SheetDescription>
 					</SheetHeader>
 					<Tabs
@@ -653,7 +673,9 @@ export function HistorySheet({
 					<DialogHeader>
 						<DialogTitle>{viewing?.snapshot.subject || "No subject"}</DialogTitle>
 						<DialogDescription>
-							{viewing ? `Saved by ${viewing.who}, ${formatDateTime(viewing.updated_at)}` : ""}
+							{viewing
+								? `Saved by ${viewing.who}, ${formatDateTime(viewing.updated_at)}`
+								: ""}
 						</DialogDescription>
 					</DialogHeader>
 					<DialogBody className="p-0">
@@ -663,7 +685,9 @@ export function HistorySheet({
 								sandbox=""
 								className="h-[60vh] w-full bg-white"
 								srcDoc={sampleFill(
-									viewing.snapshot.design ? renderEmail(viewing.snapshot.design) : viewing.snapshot.html,
+									viewing.snapshot.design
+										? renderEmail(viewing.snapshot.design)
+										: viewing.snapshot.html,
 								)}
 							/>
 						)}

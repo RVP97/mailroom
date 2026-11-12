@@ -12,7 +12,7 @@ import {
 	saveChatWidget,
 } from "@/server/chat";
 import { handleChat } from "@/server/chat-public";
-import { getConversation, purgeConversations, sendReply } from "@/server/conversations";
+import { getConversation, purgeConversations, saveDraft, sendReply } from "@/server/conversations";
 import { db, schema } from "@/server/db";
 import { purgeReceived, receiveSes } from "@/server/inbound";
 import { createInbox, type Inbox, type InboxActor } from "@/server/inboxes";
@@ -487,6 +487,60 @@ describe("website chat: the team", () => {
 		await call(widget.public_key, "seen", { body: {}, token: chat.token });
 		vi.useRealTimers();
 		expect(await emailVisitors(t0 + 20 * 60_000, s)).toBe(0);
+	});
+});
+
+describe("website chat: sending a draft twice", () => {
+	it("a second Send of a chat draft (a retry, a double click) answers with the line it made", async () => {
+		const { org, widget } = await setUp();
+		const chat = await start(widget.public_key, "Do you have rooms?");
+		const pat = person(org.id);
+		const draft = await saveDraft(pat, chat.conversation.id, { text: "Yes, we do." });
+		const first = await sendReply(pat, chat.conversation.id, {}, noEmail, {
+			draftId: draft.id,
+			clientId: "click-1",
+		});
+		// The dashboard's retry, and another click with its own id: both are that same line.
+		for (const clientId of ["click-1", "click-2", undefined]) {
+			const again = await sendReply(pat, chat.conversation.id, {}, noEmail, {
+				draftId: draft.id,
+				clientId,
+			});
+			expect(again.id).toBe(first.id);
+		}
+		const lines = await db
+			.select()
+			.from(schema.chatMessages)
+			.where(eq(schema.chatMessages.conversation_id, chat.conversation.id));
+		expect(lines.filter((l) => l.author === "person")).toHaveLength(1);
+	});
+
+	it("emails the visitor in the chat's language, with the brand's color", async () => {
+		const { org, widget, inbox } = await setUp();
+		await saveChatWidget(
+			inbox,
+			{ design: { language: "es", color: "#0f766e" } },
+			{ userId: null },
+		);
+		const t0 = Date.parse("2025-03-05T11:00:00Z");
+		vi.setSystemTime(t0);
+		const chat = await start(widget.public_key, "Hola", { email: "ana@guest.test" });
+		vi.setSystemTime(t0 + 60_000);
+		await sendReply(person(org.id), chat.conversation.id, { text: "Con gusto." }, noEmail);
+		vi.useRealTimers();
+		const { s, sent } = sender();
+		expect(await emailVisitors(t0 + 10 * 60_000, s)).toBe(1);
+		expect(sent[0]?.subject).toBe("Su chat con Acme Hotel");
+		expect(sent[0]?.text).toContain("Escriba su respuesta arriba de esta línea");
+		expect(sent[0]?.text).toContain("Nueva respuesta de Acme Hotel");
+		expect(sent[0]?.text).toContain("Seguir en el chat");
+		expect(sent[0]?.text).not.toContain("Write your reply");
+		expect(sent[0]?.html).toContain("background:#0f766e");
+		expect(sent[0]?.html).toContain('lang="es"');
+		// Their answer by email is cut at the Spanish marker too.
+		expect(
+			replyText("Gracias\n\n##- Escriba su respuesta arriba de esta línea -##\nviejo"),
+		).toBe("Gracias");
 	});
 });
 

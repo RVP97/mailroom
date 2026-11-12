@@ -170,7 +170,7 @@ export const chatDesign = z.object({
 	z_index: z.number().int().min(1).max(2147483647).nullish(),
 	/** The brand's own CSS, inside the widget only (the page can't be reached from it). */
 	custom_css: z.string().max(10_000).nullish(),
-	/** The widget's own words (buttons, notices, errors): English or Spanish. */
+	/** The widget's own words (buttons, notices, errors) and its emails to visitors: English or Spanish. */
 	language: z.enum(["en", "es"]).optional(),
 	/** When a chat is closed, the visitor is asked how it went (five faces, a comment). */
 	ask_rating: z.boolean().optional(),
@@ -923,11 +923,7 @@ async function postVisitorLine(
 	const now = o.now ?? Date.now();
 	const x = chat.conversation;
 	if (m.client_id) {
-		const again = await db
-			.select()
-			.from(cm)
-			.where(and(eq(cm.conversation_id, x.id), eq(cm.client_id, m.client_id)))
-			.get();
+		const again = await lineByClientId(x.id, m.client_id);
 		if (again) return again;
 	}
 	const at = iso(now);
@@ -1691,11 +1687,7 @@ export async function teamSays(
 	const text = m.text.trim().slice(0, CHAT_LIMITS.text);
 	if (!text && !m.attachments?.length) throw validation("text: write the reply");
 	if (m.client_id) {
-		const again = await db
-			.select()
-			.from(cm)
-			.where(and(eq(cm.conversation_id, x.id), eq(cm.client_id, m.client_id)))
-			.get();
+		const again = await lineByClientId(x.id, m.client_id);
 		if (again) return again;
 	}
 	const at = iso(now);
@@ -1743,6 +1735,38 @@ export async function teamSays(
 				]
 			: []),
 	] as never);
+	// The line is saved and the draft gone: what follows must not make the send look failed
+	// (a retry would then find no draft). Failures are reported instead.
+	try {
+		await afterTeamLine(actor, x, line, m, draft, now);
+	} catch (error) {
+		console.error("chat: after a team line", error);
+		const { reportError } = await import("./sentry");
+		await reportError(error);
+	}
+	return line;
+}
+
+/** A chat line the website's app or the dashboard sent before with this client id. */
+export async function lineByClientId(conversationId: string, clientId: string) {
+	return (
+		(await db
+			.select()
+			.from(cm)
+			.where(and(eq(cm.conversation_id, conversationId), eq(cm.client_id, clientId)))
+			.get()) ?? null
+	);
+}
+
+async function afterTeamLine(
+	actor: Pick<InboxActor, "type" | "id" | "name" | "organizationId" | "permissions" | "reader">,
+	x: Conversation,
+	line: ChatLine,
+	m: { via: "dashboard" | "api" | "email" },
+	draft: typeof schema.conversationReplies.$inferSelect | null,
+	now: number,
+) {
+	const at = line.created_at;
 	if (actor.reader) {
 		const r = schema.conversationReads;
 		await db
@@ -1785,7 +1809,6 @@ export async function teamSays(
 		},
 		now,
 	);
-	return line;
 }
 
 /** The reply in the shape conversations' sendReply answers with. */
@@ -1927,8 +1950,6 @@ export function chatTagOf(recipients: string[]) {
 	return null;
 }
 
-const MARKER = "Write your reply above this line";
-
 /**
  * What a reply by email says, without what it quotes: cut at our marker, at "On … wrote:" (and
  * its Spanish, Portuguese, French and German forms, as Gmail wraps them), at Outlook's headers,
@@ -1943,7 +1964,7 @@ export function replyText(raw: string | null | undefined) {
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i] ?? "";
 		const t = line.trim();
-		if (t.includes(MARKER)) break;
+		if (MARKERS.some((m) => t.includes(m))) break;
 		if (quoteHead.test(t)) break;
 		// Gmail breaks a long "On …, Name <a@b.c> wrote:" over two lines.
 		const next = (lines[i + 1] ?? "").trim();
@@ -2132,46 +2153,131 @@ const hostOfUrl = (u: string | null) => {
 	}
 };
 
-const timeOf = (at: string) =>
-	new Date(at).toLocaleTimeString("en-US", {
+type EmailLang = "en" | "es";
+
+/** The words of the chat's emails, in the chat's language (design.language). */
+const EMAIL_WORDS = {
+	en: {
+		marker: "Write your reply above this line",
+		heading: (t: string) => `New reply from ${t}`,
+		intro: "You can reply to this email, or continue in the chat.",
+		button: "Continue the chat",
+		footer: (t: string, host: string | null) =>
+			`You wrote to ${t} in the chat on ${host ?? "their website"}.`,
+		subject: (t: string) => `Your chat with ${t}`,
+		files: (n: number) => (n === 1 ? "a file" : `${n} files`),
+		sentFiles: (n: number) => `Sent ${n === 1 ? "a file" : `${n} files`}`,
+		locale: "en-US",
+	},
+	es: {
+		marker: "Escriba su respuesta arriba de esta línea",
+		heading: (t: string) => `Nueva respuesta de ${t}`,
+		intro: "Puede responder a este correo o seguir en el chat.",
+		button: "Seguir en el chat",
+		footer: (t: string, host: string | null) =>
+			`Usted escribió a ${t} en el chat de ${host ?? "su sitio web"}.`,
+		subject: (t: string) => `Su chat con ${t}`,
+		files: (n: number) => (n === 1 ? "un archivo" : `${n} archivos`),
+		sentFiles: (n: number) => `Envió ${n === 1 ? "un archivo" : `${n} archivos`}`,
+		locale: "es-MX",
+	},
+} as const;
+const MARKERS = Object.values(EMAIL_WORDS).map((w) => w.marker);
+
+const timeOf = (at: string, lang: EmailLang = "en") =>
+	new Date(at).toLocaleTimeString(EMAIL_WORDS[lang].locale, {
 		hour: "numeric",
 		minute: "2-digit",
 		timeZone: cfg().TIMEZONE || "UTC",
 	});
 
+/** Black or white, whichever reads on this color. */
+function onColor(hex: string) {
+	const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+	if (!m?.[1]) return "#ffffff";
+	const n = Number.parseInt(m[1], 16);
+	const lin = (v: number) => {
+		const c = v / 255;
+		return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+	};
+	const l = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+	return l > 0.45 ? "#111827" : "#ffffff";
+}
+
+const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+
 function emailLayout(o: {
 	heading: string;
 	intro: string;
-	lines: { who: string; text: string; at: string; files: number }[];
+	lines: { who: string; text: string; at: string; files: number; team?: boolean }[];
 	button?: { label: string; url: string } | null;
 	footer: string;
 	marker: boolean;
+	lang?: EmailLang;
+	/** The brand the email is from: its name, color and logo (an absolute PNG/JPEG/WebP URL). */
+	brand?: { name: string; color: string; logo: string | null } | null;
 }) {
+	const lang = o.lang ?? "en";
+	const w = EMAIL_WORDS[lang];
+	const marker = w.marker;
+	const b = o.brand ?? null;
+	const accent = b && /^#[0-9a-f]{6}$/i.test(b.color) ? b.color : "#111827";
+	const on = onColor(accent);
 	const rows = o.lines
-		.map(
-			(l) => `<tr><td style="padding:10px 0;border-top:1px solid #eceef1">
-<div style="font-size:12px;color:#6b7280;margin-bottom:4px"><strong style="color:#111827">${escapeHtml(l.who)}</strong> · ${escapeHtml(timeOf(l.at))}</div>
-<div style="font-size:15px;line-height:1.5;color:#111827;white-space:pre-wrap">${escapeHtml(l.text || (l.files ? `Sent ${l.files === 1 ? "a file" : `${l.files} files`}` : ""))}${l.text && l.files ? `<div style="font-size:12px;color:#6b7280;margin-top:4px">+ ${l.files === 1 ? "1 file" : `${l.files} files`}</div>` : ""}</div>
-</td></tr>`,
-		)
+		.map((l) => {
+			const body = l.text || (l.files ? w.sentFiles(l.files) : "");
+			const more =
+				l.text && l.files
+					? `<div style="font-size:12px;color:#6b7280;margin-top:6px">+ ${escapeHtml(w.files(l.files))}</div>`
+					: "";
+			const bubble = b
+				? `background:${l.team === false ? "#ffffff;border:1px solid #e5e7eb" : "#f3f4f6"};border-radius:14px;padding:12px 14px`
+				: "";
+			return `<tr><td style="padding:${b ? "6px 0" : "10px 0;border-top:1px solid #eceef1"}">
+<div style="font-size:12px;color:#6b7280;margin-bottom:4px"><strong style="color:#111827">${escapeHtml(l.who)}</strong> · ${escapeHtml(timeOf(l.at, lang))}</div>
+<div style="font-size:15px;line-height:1.55;color:#111827;white-space:pre-wrap;${bubble}">${escapeHtml(body)}${more}</div>
+</td></tr>`;
+		})
 		.join("");
-	const html = `<!doctype html><html><body style="margin:0;padding:0;background:#f6f7f9">
-${o.marker ? `<div style="color:#9ca3af;font-size:12px;padding:12px 24px 0;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif">##- ${MARKER} -##</div>` : ""}
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f6f7f9;padding:16px 12px"><tr><td align="center">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:12px;padding:24px;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif">
-<tr><td style="font-size:18px;font-weight:600;color:#111827;padding-bottom:4px">${escapeHtml(o.heading)}</td></tr>
-<tr><td style="font-size:14px;color:#6b7280;padding-bottom:12px">${escapeHtml(o.intro)}</td></tr>
+	const initial = escapeHtml((b?.name.trim()[0] ?? "").toUpperCase());
+	const head = b
+		? `<tr><td style="padding-bottom:20px"><table role="presentation" cellpadding="0" cellspacing="0"><tr>
+<td style="vertical-align:middle;padding-right:12px">${
+				b.logo
+					? `<img src="${escapeHtml(b.logo)}" width="40" height="40" alt="" style="display:block;width:40px;height:40px;border-radius:10px;object-fit:cover;border:0">`
+					: `<div style="width:40px;height:40px;border-radius:10px;background:${accent};color:${on};font-size:18px;font-weight:700;line-height:40px;text-align:center">${initial}</div>`
+			}</td>
+<td style="vertical-align:middle;font-size:16px;font-weight:600;color:#111827">${escapeHtml(b.name)}</td>
+</tr></table></td></tr>`
+		: "";
+	const html = `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"></head><body style="margin:0;padding:0;background:#f4f5f7">
+${o.marker ? `<div style="color:#9ca3af;font-size:12px;padding:12px 24px 0;font-family:${FONT}">##- ${escapeHtml(marker)} -##</div>` : ""}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:16px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:16px;padding:28px 24px;font-family:${FONT}">
+${head}<tr><td style="font-size:20px;font-weight:600;color:#111827;padding-bottom:4px;letter-spacing:-.01em">${escapeHtml(o.heading)}</td></tr>
+<tr><td style="font-size:14px;color:#6b7280;padding-bottom:14px">${escapeHtml(o.intro)}</td></tr>
 ${rows}
-${o.button ? `<tr><td style="padding-top:18px"><a href="${escapeHtml(o.button.url)}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:10px 16px;border-radius:8px">${escapeHtml(o.button.label)}</a></td></tr>` : ""}
-<tr><td style="font-size:12px;color:#9ca3af;padding-top:18px">${escapeHtml(o.footer)}</td></tr>
+${o.button ? `<tr><td style="padding-top:20px;padding-bottom:${b ? 22 : 0}px"><a href="${escapeHtml(o.button.url)}" style="display:inline-block;background:${accent};color:${on};text-decoration:none;font-size:14px;font-weight:600;padding:11px 18px;border-radius:10px">${escapeHtml(o.button.label)}</a></td></tr>` : ""}
+<tr><td style="font-size:12px;color:#9ca3af;padding-top:22px;${b ? "border-top:1px solid #eceef1;" : ""}">${escapeHtml(o.footer)}</td></tr>
 </table></td></tr></table></body></html>`;
-	const text = `${o.marker ? `##- ${MARKER} -##\n\n` : ""}${o.heading}\n${o.intro}\n\n${o.lines
-		.map(
-			(l) =>
-				`${l.who} (${timeOf(l.at)}):\n${l.text || `[${l.files} file${l.files === 1 ? "" : "s"}]`}`,
-		)
+	const text = `${o.marker ? `##- ${marker} -##\n\n` : ""}${o.heading}\n${o.intro}\n\n${o.lines
+		.map((l) => `${l.who} (${timeOf(l.at, lang)}):\n${l.text || `[${w.files(l.files)}]`}`)
 		.join("\n\n")}\n\n${o.button ? `${o.button.label}: ${o.button.url}\n\n` : ""}${o.footer}\n`;
 	return { html, text };
+}
+
+/** The brand's logo for an email: its own uploaded one, when mail apps can show it (not SVG). */
+async function emailLogo(organizationId: string) {
+	const row = await db
+		.select({ type: schema.orgLogos.content_type, at: schema.orgLogos.updated_at })
+		.from(schema.orgLogos)
+		.where(eq(schema.orgLogos.organization_id, organizationId))
+		.get();
+	if (!row?.type || !/^image\/(png|jpeg|webp|gif)$/.test(row.type)) return null;
+	const { orgLogos } = await import("./org-logos");
+	const l = (await orgLogos([organizationId])).get(organizationId);
+	if (!l || l.source !== "own") return null;
+	return l.url.startsWith("http") ? l.url : `${baseUrl()}${l.url}`;
 }
 
 export interface ChatSender {
@@ -2407,11 +2513,14 @@ export async function emailVisitors(now = Date.now(), sender?: ChatSender) {
 			.where(eq(schema.organization.id, x.organization_id))
 			.get();
 		const widget = await getChatWidget(inbox.id);
-		const title = (widget ? designOf(widget).title : null) || brand?.name || inbox.name;
+		const design = widget ? designOf(widget) : null;
+		const title = design?.title || brand?.name || inbox.name;
+		const lang: EmailLang = design?.language === "es" ? "es" : "en";
+		const w = EMAIL_WORDS[lang];
 		const page = x.page_url ? `${x.page_url.split("#")[0]}#mailroom-chat` : null;
 		const { html, text } = emailLayout({
-			heading: `New reply from ${title}`,
-			intro: "You can reply to this email, or continue in the chat.",
+			heading: w.heading(title),
+			intro: w.intro,
 			lines: lines.map((l) => ({
 				who:
 					l.author === "agent"
@@ -2421,16 +2530,22 @@ export async function emailVisitors(now = Date.now(), sender?: ChatSender) {
 				at: l.created_at,
 				files: l.attachments?.length ?? 0,
 			})),
-			button: page ? { label: "Continue the chat", url: page } : null,
-			footer: `You wrote to ${title} in the chat on ${hostOfUrl(x.page_url) ?? "their website"}.`,
+			button: page ? { label: w.button, url: page } : null,
+			footer: w.footer(title, hostOfUrl(x.page_url)),
 			marker: true,
+			lang,
+			brand: {
+				name: title,
+				color: design?.color ?? DESIGN_DEFAULTS.color ?? "#2563eb",
+				logo: design?.show_logo === false ? null : await emailLogo(x.organization_id),
+			},
 		});
 		try {
 			await send.send(x.organization_id, {
 				from: `${title} <${bareAddress(from)}>`,
 				to: [x.visitor_email],
 				reply_to: [taggedAddress(inbox.address, `chatv-${x.chat_key}`)],
-				subject: `Your chat with ${title}`,
+				subject: w.subject(title),
 				text,
 				html,
 				headers: {
