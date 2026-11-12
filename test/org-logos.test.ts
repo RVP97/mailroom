@@ -2,6 +2,8 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { db, schema } from "@/server/db";
 import {
+	emailLogoUrl,
+	logoPng,
 	orgLogoImage,
 	orgLogos,
 	setOrgLogo,
@@ -135,5 +137,32 @@ describe("organization logos", () => {
 		const big = `<svg viewBox="0 0 1 1"><title>Harbor ñ</title>${'<path d="M0 0"/>'.repeat(6000)}</svg>`;
 		await setOrgLogo(org.id, svgDataUrl(big));
 		expect(new TextDecoder().decode((await orgLogoImage(org.id))?.bytes)).toBe(big);
+	});
+
+	it("gives emails a PNG: an uploaded image as it is, a BIMI SVG drawn as PNG", async () => {
+		const org = await seedOrg();
+		const svg =
+			'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#0b7c77"/></svg>';
+		await db
+			.update(schema.domains)
+			.set({ bimi_logo: svg, bimi_updated_at: iso() })
+			.where(eq(schema.domains.id, org.domainId));
+		const url = await emailLogoUrl(org.id, "https://m.test");
+		expect(url).toMatch(
+			new RegExp(`^https://m\\.test/bimi/${org.domain.replace(/\./g, "\\.")}\\.png\\?v=`),
+		);
+		const png = await logoPng("bimi", org.domain);
+		// PNG signature, 256 px wide.
+		expect([...(png ?? []).slice(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+		expect(new DataView((png as Uint8Array).buffer).getUint32(16)).toBe(256);
+		// Its own uploaded PNG wins, served as it is.
+		await setOrgLogo(org.id, PNG);
+		expect(await emailLogoUrl(org.id, "https://m.test")).toMatch(
+			new RegExp(`^https://m\\.test/logos/${org.id}\\.png\\?v=`),
+		);
+		expect((await logoPng("logos", org.id))?.byteLength).toBe(
+			(await orgLogoImage(org.id))?.bytes.byteLength,
+		);
+		expect(await logoPng("bimi", "nobody.test")).toBeNull();
 	});
 });

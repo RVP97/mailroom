@@ -2266,18 +2266,10 @@ ${o.button ? `<tr><td style="padding-top:20px;padding-bottom:${b ? 22 : 0}px"><a
 	return { html, text };
 }
 
-/** The brand's logo for an email: its own uploaded one, when mail apps can show it (not SVG). */
+/** The brand's logo for an email, as PNG (mail apps don't show SVG). */
 async function emailLogo(organizationId: string) {
-	const row = await db
-		.select({ type: schema.orgLogos.content_type, at: schema.orgLogos.updated_at })
-		.from(schema.orgLogos)
-		.where(eq(schema.orgLogos.organization_id, organizationId))
-		.get();
-	if (!row?.type || !/^image\/(png|jpeg|webp|gif)$/.test(row.type)) return null;
-	const { orgLogos } = await import("./org-logos");
-	const l = (await orgLogos([organizationId])).get(organizationId);
-	if (!l || l.source !== "own") return null;
-	return l.url.startsWith("http") ? l.url : `${baseUrl()}${l.url}`;
+	const { emailLogoUrl } = await import("./org-logos");
+	return emailLogoUrl(organizationId, baseUrl());
 }
 
 export interface ChatSender {

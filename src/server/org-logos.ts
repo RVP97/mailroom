@@ -194,3 +194,39 @@ export async function orgLogos(organizationIds: string[]): Promise<Map<string, O
 	}
 	return out;
 }
+
+/**
+ * A logo as PNG, for /bimi/<domain>.png and /logos/<organization id>.png: SVGs drawn with resvg,
+ * an uploaded PNG, JPEG or WebP as it is (mail apps show those). Null when there's none.
+ */
+export async function logoPng(
+	kind: "bimi" | "logos",
+	name: string,
+): Promise<Uint8Array<ArrayBuffer> | null> {
+	let svg: string | null = null;
+	if (kind === "bimi") {
+		const { bimiLogo } = await import("./provision");
+		svg = await bimiLogo(name);
+	} else {
+		const image = await orgLogoImage(name);
+		if (!image) return null;
+		if (image.type !== "image/svg+xml") return image.bytes;
+		svg = new TextDecoder().decode(image.bytes);
+	}
+	if (!svg) return null;
+	const { svgToPng } = await import("./svg-png");
+	return svgToPng(svg, 256);
+}
+
+/**
+ * The organization's logo for an email, as an absolute PNG (or JPEG/WebP) URL: its own, or
+ * else its domain's BIMI logo drawn as PNG. Null: none.
+ */
+export async function emailLogoUrl(organizationId: string, base: string): Promise<string | null> {
+	const l = (await orgLogos([organizationId])).get(organizationId);
+	if (!l) return null;
+	const [path, query] = l.url.split("?");
+	const v = query ? `?${query}` : "";
+	if (l.source === "bimi") return `${base}${path?.replace(/\.svg$/, ".png")}${v}`;
+	return `${base}${path}.png${v}`;
+}

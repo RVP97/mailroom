@@ -51,6 +51,31 @@ async function publicPage(request: Request, url: URL): Promise<Response | null> 
 			}),
 		);
 	}
+	// The same logos as PNG, for emails (mail apps don't show SVG): drawn once, then cached.
+	const png = /^\/(bimi|logos)\/([A-Za-z0-9_.-]{1,100})\.png$/.exec(url.pathname);
+	if (png?.[1] && png[2] && (request.method === "GET" || request.method === "HEAD")) {
+		const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+		const key = new Request(url.toString());
+		const hit = await cache?.match(key).catch(() => undefined);
+		if (hit) return request.method === "HEAD" ? new Response(null, hit) : hit;
+		const { logoPng } = await import("./server/org-logos");
+		const image = await logoPng(png[1] as "bimi" | "logos", png[2]);
+		if (!image) return secured(new Response("Not found", { status: 404 }));
+		const res = secured(
+			new Response(image, {
+				headers: {
+					"content-type": "image/png",
+					"cache-control": url.searchParams.has("v")
+						? "public, max-age=31536000, immutable"
+						: "public, max-age=3600",
+					"access-control-allow-origin": "*",
+					"content-security-policy": "default-src 'none'",
+				},
+			}),
+		);
+		await cache?.put(key, res.clone()).catch(() => {});
+		return request.method === "HEAD" ? new Response(null, res) : res;
+	}
 	// Each organization's own logo (the switcher's), uploaded in Settings.
 	const logo = /^\/logos\/([A-Za-z0-9_-]{1,100})$/.exec(url.pathname);
 	if (logo?.[1] && (request.method === "GET" || request.method === "HEAD")) {
