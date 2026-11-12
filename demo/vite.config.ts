@@ -25,6 +25,7 @@ const SWAP: Record<string, string> = {
 	// The Worker's entry (src/server.ts) runs in the page too, for its public pages.
 	"@sentry/cloudflare": here("./shims/sentry-cloudflare.ts"),
 	"@tanstack/react-start/server-entry": here("./shims/server-entry.ts"),
+	"@resvg/resvg-wasm/index_bg.wasm": here("./shims/resvg-wasm.ts"),
 };
 const SWAP_FILES: Record<string, string> = {
 	[`${SRC}server/auth.ts`]: here("./shims/auth.ts"),
