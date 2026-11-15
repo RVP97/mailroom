@@ -189,6 +189,29 @@ export function chatRoom(conversationId: string) {
 }
 
 /**
+ * Opens a socket on the chat's room. Cloudflare can refuse the room for a moment ("internal
+ * error; reference = …": a reset, a move, a storage blip); one more try on a new stub usually
+ * reaches it, and otherwise the caller gets a 503 instead of an unhandled error: the widget and
+ * the dashboard reconnect on their own, and poll meanwhile.
+ */
+export async function openRoomSocket(conversationId: string, request: Request): Promise<Response> {
+	for (let attempt = 0; ; attempt++) {
+		const room = chatRoom(conversationId);
+		if (!room) return new Response("Live updates aren't available", { status: 503 });
+		try {
+			return await room.fetch(request);
+		} catch (error) {
+			if (attempt === 0) continue;
+			console.warn("chat: room unavailable", error);
+			return new Response("Live updates are briefly unavailable", {
+				status: 503,
+				headers: { "retry-after": "5" },
+			});
+		}
+	}
+}
+
+/**
  * Tells whoever is connected; never fails the caller (D1 already has it). A room that was reset
  * (a deploy, or Cloudflare moving it) says its error is retryable: one more try, on a new stub,
  * reaches the new instance.

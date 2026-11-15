@@ -28,7 +28,7 @@ import {
 	visitorSendsLink,
 	widgetByKey,
 } from "./chat";
-import { chatRoom } from "./chat-room";
+import { chatRoom, openRoomSocket } from "./chat-room";
 import widgetSource from "./chat-widget.js?raw";
 import { db, schema } from "./db";
 import { baseUrl, inboundRetentionDays } from "./env";
@@ -346,8 +346,7 @@ export async function handleChat(request: Request, now = Date.now()): Promise<Re
 					return fail(426, "upgrade_required", "Expected a WebSocket", headers);
 				const chat = await visitorChat(key, url.searchParams.get("token"));
 				if (!chat) return fail(401, "unknown_chat", "This chat has ended", headers);
-				const room = chatRoom(chat.conversation.id);
-				if (!room)
+				if (!chatRoom(chat.conversation.id))
 					return fail(503, "unavailable", "Live updates aren't available", headers);
 				const forwarded = new Request(request.url, {
 					headers: {
@@ -358,7 +357,7 @@ export async function handleChat(request: Request, now = Date.now()): Promise<Re
 						"x-chat-conversation": chat.conversation.id,
 					},
 				});
-				return room.fetch(forwarded);
+				return await openRoomSocket(chat.conversation.id, forwarded);
 			}
 			default:
 				return fail(404, "not_found", "Not found", headers);
@@ -406,12 +405,12 @@ export async function handleTeamLive(request: Request): Promise<Response> {
 		.get();
 	if (!x || !brands.includes(x.brand) || x.channel !== "chat")
 		return new Response("Not found", { status: 404 });
-	const room = chatRoom(id);
-	if (!room) return new Response("Live updates aren't available", { status: 503 });
+	if (!chatRoom(id)) return new Response("Live updates aren't available", { status: 503 });
 	// A member without emails:unmasked sees the visitor's digits dotted here too.
 	const { memberAccess } = await import("./access");
 	const access = await memberAccess(org.organizationId, session.user.id);
-	return room.fetch(
+	return openRoomSocket(
+		id,
 		new Request(request.url, {
 			headers: {
 				upgrade: "websocket",
