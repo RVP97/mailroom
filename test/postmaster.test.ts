@@ -15,7 +15,8 @@ import { seedOrg } from "./helpers";
 const NOW = Date.parse("2027-03-10T12:00:00.000Z");
 
 /** A fake Google: tokens, the domains list, verification, statistics and compliance. */
-function fakeGoogle(o: { verified: Set<string>; dnsReady: Set<string> }) {
+function fakeGoogle(o: { verified: Set<string>; dnsReady: Set<string>; blips?: number }) {
+	let blips = o.blips ?? 0;
 	const calls: string[] = [];
 	const json = (body: unknown, status = 200) => Response.json(body, { status });
 	setPostmasterFetcher((async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -30,6 +31,10 @@ function fakeGoogle(o: { verified: Set<string>; dnsReady: Set<string> }) {
 					id_token: `x.${btoa(JSON.stringify({ email: "owner@example.com" }))}.y`,
 				});
 			return json({ access_token: "access-1", expires_in: 3600 });
+		}
+		if (blips > 0) {
+			blips--;
+			return json({ error: "internal_failure" }, 500);
 		}
 		const path = decodeURIComponent(url.pathname.replace(/^\/v2\//, ""));
 		if (method === "GET" && path === "domains")
@@ -122,5 +127,18 @@ describe("Gmail Postmaster Tools", () => {
 			.from(schema.postmasterStats)
 			.where(eq(schema.postmasterStats.domain, org.domain));
 		expect(stats).toHaveLength(1);
+	});
+
+	it("tries Google once more after its own blip (500 internal_failure)", async () => {
+		await setSetting("postmaster_refresh_token", "refresh-1");
+		await seedOrg();
+		const calls = fakeGoogle({
+			verified: new Set<string>(),
+			dnsReady: new Set<string>(),
+			blips: 1,
+		});
+		await syncPostmaster(NOW);
+		expect(calls.filter((c) => c === "GET /v2/domains")).toHaveLength(2);
+		expect(calls).toContain("POST /v2/domains");
 	});
 });

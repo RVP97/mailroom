@@ -34,6 +34,24 @@ export const setPostmasterFetcher = (f: typeof fetch | undefined) => {
 	fetcher = f ?? ((...a) => fetch(...a));
 };
 
+/** Google's 5xx and 429 answers are its own blips (`internal_failure`): worth one more try. */
+const googleBlip = (status: number) => status >= 500 || status === 429;
+
+/** Google's fetch, tried once more after a blip. */
+async function googleFetch(url: string, init: RequestInit) {
+	const r = await fetcher(url, init);
+	if (!googleBlip(r.status)) return r;
+	await new Promise((done) => setTimeout(done, 1000));
+	return fetcher(url, init);
+}
+
+/** A Google error that the next run (6 hours on) gets past: a warning, not an error to fix. */
+const report = (what: string, error: unknown) =>
+	(error instanceof PostmasterError && googleBlip(error.status) ? console.warn : console.error)(
+		what,
+		error,
+	);
+
 // ── Connecting ─────────────────────────────────────────────────────────────
 
 let hmacKey: Promise<CryptoKey> | null = null;
@@ -145,7 +163,7 @@ async function token(now = Date.now()) {
 	if (accessToken && accessToken.until > now + 60_000) return accessToken.value;
 	const refresh = await getSetting("postmaster_refresh_token");
 	if (!refresh) throw new PostmasterError(401, "Google isn't connected");
-	const r = await fetcher(TOKEN_URL, {
+	const r = await googleFetch(TOKEN_URL, {
 		method: "POST",
 		headers: { "content-type": "application/x-www-form-urlencoded" },
 		body: new URLSearchParams({
@@ -153,7 +171,7 @@ async function token(now = Date.now()) {
 			client_id: cfg().GOOGLE_CLIENT_ID ?? "",
 			client_secret: cfg().GOOGLE_CLIENT_SECRET ?? "",
 			grant_type: "refresh_token",
-		}),
+		}).toString(),
 	});
 	if (!r.ok) throw new PostmasterError(r.status, `Google's token: ${await r.text()}`);
 	const t = (await r.json()) as { access_token: string; expires_in?: number };
@@ -171,7 +189,7 @@ export class PostmasterError extends Error {
 }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-	const r = await fetcher(`${API}/${path}`, {
+	const r = await googleFetch(`${API}/${path}`, {
 		method,
 		headers: {
 			authorization: `Bearer ${await token()}`,
@@ -365,14 +383,14 @@ export async function syncPostmaster(now = Date.now()) {
 			pageToken = encodeURIComponent(r.nextPageToken);
 		}
 	} catch (error) {
-		console.error("postmaster: list failed", error);
+		report("postmaster: list failed", error);
 		return;
 	}
 	for (const domain of domains) {
 		try {
 			await syncDomain(domain, known.get(domain.id) ?? null, listed.get(domain.name), now);
 		} catch (error) {
-			console.error("postmaster:", domain.name, error);
+			report(`postmaster: ${domain.name}`, error);
 			await upsert(domain, { error: String((error as Error).message).slice(0, 300) }, now);
 		}
 	}
