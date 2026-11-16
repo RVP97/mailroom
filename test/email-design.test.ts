@@ -189,8 +189,24 @@ describe("email images", () => {
 		expect(new Uint8Array(await res.arrayBuffer())).toEqual(png);
 		expect((await serveMedia("/media/org1/../x.png")).status).toBe(404);
 		await expect(uploadMedia("org1", "data:image/png;base64,aGVsbG8=")).rejects.toThrow(
-			/isn't what it says it is/,
+			/isn't what its name says, so it can't be uploaded/,
 		);
+		// A program called .png, and a PNG header claiming 50,000 × 50,000 pixels.
+		await expect(
+			uploadMedia("org1", `data:image/png;base64,${btoa("MZ\x90\0")}`),
+		).rejects.toThrow(/Programs/);
+		const huge = new Uint8Array(24);
+		huge.set([
+			0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52,
+		]);
+		new DataView(huge.buffer).setUint32(16, 50_000);
+		new DataView(huge.buffer).setUint32(20, 50_000);
+		await expect(
+			uploadMedia("org1", `data:image/png;base64,${btoa(String.fromCharCode(...huge))}`),
+		).rejects.toThrow(/too many pixels; use a smaller one/);
+		await expect(
+			uploadMedia("org1", `data:font/woff2;base64,${btoa("wOFF....")}`),
+		).rejects.toThrow(/isn't what its name says/);
 		await expect(uploadMedia("org1", "data:text/html;base64,aGVsbG8=")).rejects.toThrow(/PNG/);
 	});
 });

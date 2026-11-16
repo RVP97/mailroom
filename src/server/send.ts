@@ -1,5 +1,6 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
+import { refuseFile } from "../lib/file-safety";
 import { suppressedAmong, undeliverable } from "./address-checks";
 import { bareAddress, buildMime, encodeAddress, utf8Base64 } from "./aws/mime";
 import { SesError, sendRaw } from "./aws/ses";
@@ -197,6 +198,35 @@ async function fetchAttachment(path: string): Promise<string> {
 	return utf8Base64(bytes);
 }
 
+/** A ZIP attachment may hold this much (an email takes 40 MB: a month of facturas fits). */
+const ATTACHMENT_ZIP = { bytes: 1024 * 1024 * 1024, entries: 20_000 };
+
+/**
+ * Refuses an attachment that isn't what its name says, is a program or macro document, a zip
+ * bomb, an XML or SVG with a DOCTYPE or an image of too many pixels (src/lib/file-safety.ts):
+ * the same rules as every other file people put into Mailroom. Other kinds of files pass.
+ */
+function refuseAttachment(
+	f: { filename: string; content: string; contentType?: string },
+	i: number,
+) {
+	let bytes: Uint8Array;
+	try {
+		bytes = Uint8Array.from(atob(f.content), (c) => c.charCodeAt(0));
+	} catch {
+		throw validation(`attachments.${i}.content: not base64`);
+	}
+	const refused = refuseFile(f.filename, f.contentType, bytes, {
+		zip: ATTACHMENT_ZIP,
+	});
+	if (refused)
+		throw new ApiError(
+			422,
+			"attachment_refused",
+			`attachments.${i} (${f.filename}): ${refused}`,
+		);
+}
+
 function parseSchedule(value: string | undefined, now: number): number | null {
 	if (!value) return null;
 	const at = Date.parse(value);
@@ -253,13 +283,16 @@ export async function prepare(ctx: OrgContext, input: Parsed, o: SendOptions): P
 		throw validation(`An email takes at most ${MAX_RECIPIENTS} recipients (to, cc and bcc)`);
 	const sendAt = parseSchedule(input.scheduled_at ?? input.scheduledAt, now);
 	const files: Prepared["files"] = [];
-	for (const a of input.attachments ?? [])
-		files.push({
+	for (const [i, a] of (input.attachments ?? []).entries()) {
+		const file = {
 			filename: a.filename,
 			content: a.content ?? (await fetchAttachment(a.path as string)),
 			contentType: a.content_type ?? a.contentType,
 			contentId: a.content_id ?? a.contentId,
-		});
+		};
+		refuseAttachment(file, i);
+		files.push(file);
+	}
 	const id = crypto.randomUUID();
 	const content: StoredContent = {
 		html: input.html,

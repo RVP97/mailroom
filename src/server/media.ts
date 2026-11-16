@@ -1,3 +1,4 @@
+import { refuseContent } from "../lib/file-safety";
 import { baseUrl, cfg } from "./env";
 import { validation } from "./errors";
 import { shownHere } from "./public-host";
@@ -9,25 +10,15 @@ import { shownHere } from "./public-host";
 
 export const MEDIA_MAX_BYTES = 3 * 1024 * 1024;
 
-const TYPES: Record<string, { ext: string; check: (b: Uint8Array) => boolean }> = {
-	"image/png": { ext: "png", check: (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e },
-	"image/jpeg": { ext: "jpg", check: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
-	"image/gif": {
-		ext: "gif",
-		check: (b) => String.fromCharCode(...b.subarray(0, 4)) === "GIF8",
-	},
-	"image/webp": {
-		ext: "webp",
-		check: (b) =>
-			String.fromCharCode(...b.subarray(0, 4)) === "RIFF" &&
-			String.fromCharCode(...b.subarray(8, 12)) === "WEBP",
-	},
+/** What can be uploaded (each checked to be what it says by refuseContent, src/lib/file-safety.ts). */
+const TYPES: Record<string, { ext: string }> = {
+	"image/png": { ext: "png" },
+	"image/jpeg": { ext: "jpg" },
+	"image/gif": { ext: "gif" },
+	"image/webp": { ext: "webp" },
 	// A brand kit's own fonts (inboxes that show web fonts fetch them from here).
-	"font/woff2": {
-		ext: "woff2",
-		check: (b) => String.fromCharCode(...b.subarray(0, 4)) === "wOF2",
-	},
-	"font/woff": { ext: "woff", check: (b) => String.fromCharCode(...b.subarray(0, 4)) === "wOFF" },
+	"font/woff2": { ext: "woff2" },
+	"font/woff": { ext: "woff" },
 };
 const BY_EXT = Object.fromEntries(Object.entries(TYPES).map(([t, v]) => [v.ext, t]));
 
@@ -48,7 +39,9 @@ export async function uploadMedia(organizationId: string, dataUrl: string) {
 	if (!m || !kind) throw validation("Upload a PNG, JPEG, GIF or WebP image, or a WOFF2 font.");
 	const bytes = Uint8Array.from(atob(m[2] as string), (c) => c.charCodeAt(0));
 	if (bytes.byteLength > MEDIA_MAX_BYTES) throw validation("Files can be up to 3 MB.");
-	if (!kind.check(bytes)) throw validation("That file isn't what it says it is.");
+	// What it really is (a program called .png is refused), and no image of a billion pixels.
+	const refused = refuseContent(type, bytes, { verb: "uploaded" });
+	if (refused) throw validation(refused);
 	const name = `${crypto.randomUUID().replace(/-/g, "")}.${kind.ext}`;
 	await bucket().put(`media/${organizationId}/${name}`, bytes, {
 		httpMetadata: { contentType: type, cacheControl: "public, max-age=31536000, immutable" },

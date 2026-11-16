@@ -1,4 +1,5 @@
 import { type Dmarc, orgDomain } from "./dmarc";
+import { svgRefusal } from "./file-safety";
 
 /**
  * BIMI: the brand logo mailbox providers show beside a domain's emails. It takes three things:
@@ -22,6 +23,9 @@ const FORBIDDEN = /<\s*(script|image|foreignObject|a|animate\w*|set|iframe|video
  */
 export function prepareBimiSvg(input: string, title: string): { svg: string } | { error: string } {
 	let svg = input.replace(/^﻿/, "").trim();
+	// A DOCTYPE with entities is refused, not stripped (src/lib/file-safety.ts).
+	const refused = svgRefusal(svg, "uploaded");
+	if (refused) return { error: refused };
 	// The XML prolog, comments, doctype and editor metadata only add weight.
 	svg = svg
 		.replace(/<\?xml[^>]*\?>/g, "")

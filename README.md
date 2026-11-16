@@ -81,6 +81,10 @@ An organization that should be fully apart can optionally use its own SES accoun
 
 - **Sending API compatible with Resend's**: `POST /api/emails`, `/api/emails/batch`, scheduling,
   `Idempotency-Key`, tags, attachments. Resend's SDKs work by changing their base URL.
+  Attachments are checked like every file put into Mailroom (`src/lib/file-safety.ts`): one
+  that's a program or macro document, isn't what its name says, is a zip bomb, an XML or SVG with
+  a DOCTYPE or an image of over 100 million pixels is refused (422 `attachment_refused`); other
+  kinds (.ics, .html…) pass. It isn't a virus scanner.
 - **Logs and timelines** for every email (sent, delivered, opened, clicked, bounced, complained),
   from SES's events through SNS, each one **signature-checked**.
 - **Open and click tracking on your own domain**: Mailroom rewrites links itself and serves them
@@ -927,7 +931,8 @@ Drafts and replies take `attachments` (up to 20 files, 20 MB together): new file
 (`{"filename", "content": <base64>, "content_type"}`), a message's attachment from the same
 conversation (`{"message_id", "attachment_id"}`, which needs `attachments`), or, on a draft, the
 files it has (`{"id"}`); given, the list replaces the draft's. A draft's new files wait in R2 and
-go when it's sent or discarded.
+go when it's sent or discarded. New files follow the same checks as API attachments (422
+`attachment_refused`).
 
 Also: `GET /api/inboxes`, `GET /api/messages?q=&from=&since=&has_attachments=`,
 `GET /api/messages/:id/attachments/:attachment_id`,

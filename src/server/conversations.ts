@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
+import { refuseFile } from "../lib/file-safety";
 import { maskDigits, maskedSearch, maskHeaders } from "../lib/permissions";
 import { bareAddress } from "./aws/mime";
 import { db, schema } from "./db";
@@ -1305,6 +1306,10 @@ async function prepareFiles(
 				const id = crypto.randomUUID();
 				const key = `reply-files/${x.id}/${id}`;
 				const bytes = Uint8Array.from(atob(f.content), (ch) => ch.charCodeAt(0));
+				// Not a program, macro document, zip bomb… (src/lib/file-safety.ts).
+				const refused = refuseFile(f.filename, f.content_type, bytes);
+				if (refused)
+					throw new ApiError(422, "attachment_refused", `${f.filename}: ${refused}`);
 				await bucket.put(key, bytes, {
 					httpMetadata: { contentType: f.content_type ?? "application/octet-stream" },
 				});

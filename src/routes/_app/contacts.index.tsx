@@ -79,6 +79,7 @@ import {
 } from "@/functions/contacts";
 import { parseCsv } from "@/lib/csv";
 import { errorMessage } from "@/lib/errors";
+import { refuseFile } from "@/lib/file-safety";
 import { formatAgo, formatDateTime } from "@/lib/format";
 import { useMe } from "@/lib/me";
 import { usePendingSearch } from "@/lib/pending";
@@ -1040,9 +1041,12 @@ function readCsv(text: string) {
 function ImportContacts({ brand, segments }: { brand?: string; segments: Data["segments"] }) {
 	const router = useRouter();
 	const [open, setOpen] = useState(false);
-	const [file, setFile] = useState<{ name: string; parsed: ReturnType<typeof readCsv> } | null>(
-		null,
-	);
+	const [file, setFile] = useState<{
+		name: string;
+		parsed: ReturnType<typeof readCsv>;
+		/** Why the file can't be read as a CSV (a program or spreadsheet renamed .csv). */
+		refused?: string;
+	} | null>(null);
 	const [segment, setSegment] = useState<string>("none");
 	const [progress, setProgress] = useState<number | null>(null);
 	const rows = file?.parsed?.rows ?? [];
@@ -1115,18 +1119,35 @@ function ImportContacts({ brand, segments }: { brand?: string; segments: Data["s
 								onChange={async (e) => {
 									const f = e.target.files?.[0];
 									if (!f) return setFile(null);
-									setFile({ name: f.name, parsed: readCsv(await f.text()) });
+									// What it really is before reading it (src/lib/file-safety.ts).
+									const bytes = new Uint8Array(await f.arrayBuffer());
+									const refused = refuseFile(
+										f.name,
+										f.type || "text/csv",
+										bytes,
+										{
+											verb: "imported",
+										},
+									);
+									if (refused)
+										return setFile({ name: f.name, parsed: null, refused });
+									setFile({
+										name: f.name,
+										parsed: readCsv(new TextDecoder().decode(bytes)),
+									});
 								}}
 							/>
 							{file && (
 								<FieldDescription>
-									{file.parsed
-										? `${rows.length.toLocaleString()} rows${
-												file.parsed.columns.length
-													? `; properties: ${file.parsed.columns.join(", ")}`
-													: ""
-											}`
-										: "No email column found in this file."}
+									{file.refused
+										? file.refused
+										: file.parsed
+											? `${rows.length.toLocaleString()} rows${
+													file.parsed.columns.length
+														? `; properties: ${file.parsed.columns.join(", ")}`
+														: ""
+												}`
+											: "No email column found in this file."}
 								</FieldDescription>
 							)}
 						</Field>

@@ -139,6 +139,48 @@ describe("API", () => {
 		expect(list.data.map((e) => e.id)).toContain(id);
 	});
 
+	it("refuses attachments that are programs, disguised, zip bombs or XML with a DOCTYPE", async () => {
+		const aws = fakeOutside();
+		const org = await orgWithKey();
+		const send = (filename: string, content: string, content_type?: string) =>
+			call(org.token, "POST", "/emails", {
+				from: `x@${org.domain}`,
+				to: "ana@cliente.test",
+				subject: "s",
+				text: "t",
+				attachments: [{ filename, content: btoa(content), content_type }],
+			});
+		const laughs = '<?xml version="1.0"?><!DOCTYPE l [<!ENTITY a "aaaa">]><l>&a;</l>';
+		for (const [name, content, why] of [
+			["setup.exe", "MZ\x90\0", /Programs/],
+			["factura.pdf", "MZ\x90\0", /Programs/],
+			["factura.pdf", "<html>not a pdf</html>", /isn't what its name says/],
+			["plan.docm", "PK\x03\x04", /macros/],
+			["cfdi.xml", laughs, /DOCTYPE/],
+		] as const) {
+			const res = await send(name, content);
+			expect(res.status, name).toBe(422);
+			expect(await res.json()).toMatchObject({
+				name: "attachment_refused",
+				message: expect.stringMatching(why),
+			});
+		}
+		expect(aws.sends).toHaveLength(0);
+		// A real PDF, a CFDI, and kinds not checked here (an invitation) are sent.
+		const ok = await call(org.token, "POST", "/emails", {
+			from: `x@${org.domain}`,
+			to: "ana@cliente.test",
+			subject: "s",
+			text: "t",
+			attachments: [
+				{ filename: "factura.pdf", content: btoa("%PDF-1.4\n%%EOF") },
+				{ filename: "cfdi.xml", content: btoa('<?xml version="1.0"?><cfdi:Comprobante/>') },
+				{ filename: "cita.ics", content: btoa("BEGIN:VCALENDAR\nEND:VCALENDAR") },
+			],
+		});
+		expect(ok.status).toBe(200);
+	});
+
 	it("keeps organizations apart", async () => {
 		fakeOutside();
 		const a = await orgWithKey();

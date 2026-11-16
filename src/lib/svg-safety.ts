@@ -1,3 +1,5 @@
+import { svgRefusal } from "./file-safety";
+
 /**
  * Why an SVG can't be an organization's logo, or null. Shown only in <img> (where nothing runs)
  * and served with a CSP that allows nothing, but refused anyway when it carries code or reaches
@@ -5,6 +7,9 @@
  */
 export function unsafeSvg(svg: string): string | null {
 	if (!/<svg\b[^>]*>/i.test(svg)) return "That isn't an SVG file.";
+	// A DOCTYPE with entities (entity bombs, external entities): src/lib/file-safety.ts.
+	const refused = svgRefusal(svg, "uploaded");
+	if (refused) return refused;
 	if (/<\s*(script|foreignObject|iframe|embed|object)\b/i.test(svg))
 		return "The logo has scripts or embedded HTML. Export it as plain shapes.";
 	if (/\son[a-z]+\s*=/i.test(svg)) return "The logo has scripts in its attributes.";

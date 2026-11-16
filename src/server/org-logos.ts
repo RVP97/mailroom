@@ -1,4 +1,5 @@
 import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { refuseContent } from "../lib/file-safety";
 import { toBase64, unsafeSvg } from "../lib/svg-safety";
 import { db, schema } from "./db";
 import { validation } from "./errors";
@@ -13,18 +14,6 @@ export { unsafeSvg };
 
 /** The largest image accepted (the dashboard sends a 256 px square, a few KB). */
 export const ORG_LOGO_MAX_BYTES = 200 * 1024;
-
-const TYPES = {
-	"image/png": (b: Uint8Array) =>
-		b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47,
-	"image/jpeg": (b: Uint8Array) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
-	"image/webp": (b: Uint8Array) =>
-		String.fromCharCode(...b.subarray(0, 4)) === "RIFF" &&
-		String.fromCharCode(...b.subarray(8, 12)) === "WEBP",
-	// An SVG keeps its shapes sharp at any size; checked below, served under a CSP that runs nothing.
-	"image/svg+xml": (b: Uint8Array) =>
-		/<svg\b/i.test(new TextDecoder().decode(b.subarray(0, 4096))),
-} as const;
 
 /** An SVG's text as the data: URL setOrgLogo takes. */
 export const svgDataUrl = (svg: string) => `data:image/svg+xml;base64,${toBase64(svg)}`;
@@ -89,7 +78,7 @@ export async function setOrgLogo(organizationId: string, dataUrl: string | null)
 		dataUrl,
 	);
 	if (!m?.[1] || !m[2]) throw validation("Upload the logo as a PNG, JPEG, WebP or SVG image.");
-	const type = m[1] as keyof typeof TYPES;
+	const type = m[1];
 	let bytes: Uint8Array;
 	try {
 		bytes = Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0));
@@ -98,7 +87,9 @@ export async function setOrgLogo(organizationId: string, dataUrl: string | null)
 	}
 	if (bytes.length > ORG_LOGO_MAX_BYTES)
 		throw validation(`The logo is ${Math.ceil(bytes.length / 1024)} KB; the most is 200 KB.`);
-	if (!TYPES[type](bytes)) throw validation("That file isn't the image it says it is.");
+	// What it really is, no billion-pixel image, no SVG DOCTYPE (src/lib/file-safety.ts).
+	const refused = refuseContent(type, bytes, { verb: "uploaded" });
+	if (refused) throw validation(refused);
 	if (type === "image/svg+xml") {
 		const why = unsafeSvg(new TextDecoder().decode(bytes));
 		if (why) throw validation(why);

@@ -83,7 +83,7 @@ describe("chat files: what they really are", () => {
 		expect(refuseContent(DOCX, zip({ "word/document.xml": "<w/>" }))).toMatch(/isn't what/);
 		expect(refuseContent("application/zip", zip({ "setup.exe": "MZ" }))).toMatch(/Archives/);
 		expect(refuseContent("application/zip", zip({ "more.7z": "x" }))).toMatch(/Archives/);
-		expect(refuseContent("image/svg+xml", bytes("<svg/>"))).toMatch(/can't be sent/);
+		expect(refuseContent("application/x-msdownload", bytes("<svg/>"))).toMatch(/can't be sent/);
 	});
 
 	it("refuses archives with a password, PDFs that launch programs and XML with a DOCTYPE", () => {
