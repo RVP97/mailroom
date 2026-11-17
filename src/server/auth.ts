@@ -205,6 +205,13 @@ function createAuth() {
 				// Admins create organizations; members join by invitation.
 				allowUserToCreateOrganization: (user) => isAdminEmail(user.email),
 				invitationExpiresIn: 7 * 86_400,
+				// Its URL handle (src/lib/org-handle.ts), random, right after it's made.
+				organizationHooks: {
+					async afterCreateOrganization({ organization }) {
+						const { giveHandle } = await import("./org-handles");
+						await giveHandle(organization.id);
+					},
+				},
 				async sendInvitationEmail(data) {
 					const { html, text } = systemLayout({
 						title: `Join ${data.organization.name} on Mailroom`,

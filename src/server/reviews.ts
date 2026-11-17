@@ -6,8 +6,8 @@ import { logActivity } from "./activity";
 import { getBroadcast } from "./broadcasts";
 import { addComment } from "./comments";
 import { db, schema } from "./db";
-import { baseUrl } from "./env";
 import { ApiError } from "./errors";
+import { appLink } from "./org-handles";
 import { sendSystemEmail, systemLayout } from "./system-email";
 import { iso } from "./time";
 
@@ -104,7 +104,8 @@ function tell(to: string[], subject: string, title: string, lines: string[], url
 		void background(sendSystemEmail({ to: address, subject, html, text }));
 }
 
-const link = (id: string) => `${baseUrl() || "http://localhost:3000"}/broadcasts/${id}`;
+/** The broadcast's page, in its organization (src/server/org-handles.ts). */
+const link = (organizationId: string, id: string) => appLink(organizationId, `/broadcasts/${id}`);
 
 export async function requestReview(o: {
 	organizationId: string;
@@ -154,7 +155,7 @@ export async function requestReview(o: {
 			`"${x.subject || x.name || "Untitled"}" is ready for a look.`,
 			...(o.note?.trim() ? [`They wrote: ${o.note.trim()}`] : []),
 		],
-		link(x.id),
+		await link(o.organizationId, x.id),
 	);
 	return getBroadcast(o.brand, o.id);
 }
@@ -245,7 +246,7 @@ export async function decideReview(o: {
 				...(o.note?.trim() ? [o.note.trim()] : []),
 				...(o.approve ? ["Whoever can send may send or schedule it now."] : []),
 			],
-			link(x.id),
+			await link(o.organizationId, x.id),
 		);
 	return getBroadcast(o.brand, o.id);
 }

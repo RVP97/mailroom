@@ -1,9 +1,11 @@
 import { type ErrorComponentProps, Link, useRouter } from "@tanstack/react-router";
 import { RotateCw, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
+import { NoOrgAccess } from "@/components/no-org-access";
 import { Button } from "@/components/ui/button";
 import { forgetMe, forgetRememberedMe, isNetworkError } from "@/lib/me";
 import { isStaleCode, reloadForNewCode } from "@/lib/stale-code";
+import { isOrgUnavailable, repinFromAddress } from "@/lib/tab-org";
 
 /** What a page shows while its data loads for the first time: its frame, sketched. */
 export function PagePending() {
@@ -53,18 +55,52 @@ export function RowsPending({ rows = 8 }: { rows?: number }) {
 	);
 }
 
+/** An address that matches no page. */
+export function PageMissing() {
+	return (
+		<div className="flex min-h-[70svh] flex-col items-center justify-center gap-1 px-4 text-center">
+			<p className="font-mono text-sm text-faint">404</p>
+			<h1 className="text-xl font-semibold tracking-[-0.015em]">This page doesn't exist</h1>
+			<p className="text-base text-muted-foreground">The link may be old, or mistyped.</p>
+			<Button
+				asChild
+				variant="outline"
+				className="mt-5"
+			>
+				<Link to="/">Go to the overview</Link>
+			</Button>
+		</div>
+	);
+}
+
 /** A page that failed: what happened, and a way to try again. Signed out? Back to sign-in. */
 export function PageError({ error, reset }: ErrorComponentProps) {
 	const router = useRouter();
 	const signedOut = error instanceof Response && error.status === 401;
 	const [reloading] = useState(() => isStaleCode(error) && reloadForNewCode());
+	// The tab's organization refused: what the tab remembered is stale if the address names
+	// another one (it takes that one and asks again, once); otherwise the address's isn't theirs.
+	const [refused] = useState(() => {
+		if (!isOrgUnavailable(error)) return null;
+		return repinFromAddress() ? "retry" : "no-access";
+	});
+	useEffect(() => {
+		if (refused !== "retry") return;
+		forgetMe();
+		reset();
+		void router.invalidate();
+	}, [refused, reset, router]);
 	useEffect(() => {
 		if (!signedOut) return;
 		forgetMe();
 		forgetRememberedMe();
-		void router.navigate({ to: "/login", search: { next: window.location.pathname } });
+		void router.navigate({
+			to: "/login",
+			search: { next: `${window.location.pathname}${window.location.search}` },
+		});
 	}, [signedOut, router]);
-	if (signedOut || reloading) return null;
+	if (refused === "no-access") return <NoOrgAccess />;
+	if (signedOut || reloading || refused) return null;
 	const message =
 		error instanceof Response
 			? error.statusText || `The server answered ${error.status}`

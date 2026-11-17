@@ -1,6 +1,6 @@
 import { viewScope } from "../brands";
 import { today } from "../today";
-import { brand, brandsOf, orgAt, organization, type Tool } from "./kit";
+import { brand, brandsOf, dashboardUrl, orgAt, organization, type Tool } from "./kit";
 
 /** Today: what needs the person now (the dashboard's Today page). */
 export const TODAY_TOOLS: Tool[] = [
@@ -17,13 +17,25 @@ export const TODAY_TOOLS: Tool[] = [
 				brandsOf(org.id, a.brand),
 				viewScope(org.id),
 			]);
-			return today({
+			const found = await today({
 				brands,
 				userId: ctx.userId,
 				canApprove: org.access.can("broadcasts:approve"),
 				canReply: org.access.can("inbox:reply"),
 				names: new Map(scope.brands.map((b) => [b.id, b.name])),
 			});
+			return withUrls(found, (path) => dashboardUrl(org, path));
 		},
 	},
 ];
+
+/** Every item's dashboard `link` ("/domains/x") gets its full `url` in the organization too. */
+function withUrls<T>(value: T, url: (path: string) => string): T {
+	if (Array.isArray(value)) return value.map((v) => withUrls(v, url)) as T;
+	if (!value || typeof value !== "object") return value;
+	const out: Record<string, unknown> = {};
+	for (const [k, v] of Object.entries(value)) out[k] = withUrls(v, url);
+	const link = (value as { link?: unknown }).link;
+	if (typeof link === "string" && link.startsWith("/")) out.url = url(link);
+	return out as T;
+}

@@ -2,8 +2,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { recipients } from "./alerts";
 import { brandIds } from "./brands";
 import { db, schema } from "./db";
-import { cfg } from "./env";
 import { statsByTemplate, timeToInbox } from "./insights";
+import { appLink } from "./org-handles";
 import { postmasterView } from "./postmaster";
 import { dailyStats } from "./queries";
 import { sendSystemEmail, systemLayout } from "./system-email";
@@ -152,7 +152,7 @@ export async function sendDigest(
 				...lines,
 				"You get this every Monday as an owner or admin. Turn it off in Settings.",
 			],
-			button: { label: "Open Insights", url: `${cfg().BETTER_AUTH_URL ?? ""}/insights` },
+			button: { label: "Open Insights", url: await appLink(org.id, "/insights") },
 		});
 		const to = o.to ? [o.to] : await recipients(org.id);
 		const results = await Promise.allSettled(

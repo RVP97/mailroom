@@ -17,7 +17,7 @@ import { type McpContext, memberships, TOOLS } from "./tools";
  * one of the deployment's admins).
  */
 
-const INSTRUCTIONS = `Mailroom is a Resend-style email platform on Amazon SES. Each organization is one business; its brands (list_brands) are who its emails are from, each its own SES tenant with its own domains, contacts, suppressions and reputation. Tools that act on an organization take \`organization\` (its slug, id or name); call list_organizations first when the person belongs to several (it also lists your permissions there). Tools that act on one brand take \`brand\`; without it, the organization's own.
+const INSTRUCTIONS = `Mailroom is a Resend-style email platform on Amazon SES. Each organization is one business; its brands (list_brands) are who its emails are from, each its own SES tenant with its own domains, contacts, suppressions and reputation. Tools that act on an organization take \`organization\` (its slug, id, name, or the handle in its dashboard links: mailroom.example.com/<handle>/…); call list_organizations first when the person belongs to several (it also lists your permissions there and each one's dashboard url). Tools that act on one brand take \`brand\`; without it, the organization's own.
 
 What's here, by area (everything the dashboard does):
 - Sending: send_email (also scheduled, with attachments or as a sandbox check), list_emails, get_email, cancel_email, get_stats, get_insights, get_insight_detail, sending_status.

@@ -1,5 +1,7 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { instrumentDurableObjectWithSentry, withSentry } from "@sentry/cloudflare";
 import handler from "@tanstack/react-start/server-entry";
+import { handleOfPath, isAppSectionPath } from "./lib/org-path";
 import { ChatRoom as ChatRoomObject } from "./server/chat-room";
 import { Dispatcher as DispatcherObject } from "./server/dispatcher";
 import { sentryOptions } from "./server/sentry";
@@ -13,6 +15,11 @@ export const ChatRoom = instrumentDurableObjectWithSentry(
 	(env: Env) => sentryOptions(env) ?? {},
 	ChatRoomObject,
 );
+
+/** The organization handle the requested address names, for the router's links on the server. */
+const requestHandle = new AsyncLocalStorage<string | undefined>();
+(globalThis as { __requestHandle?: () => string | undefined }).__requestHandle = () =>
+	requestHandle.getStore();
 
 const SECURITY_HEADERS: Record<string, string> = {
 	"X-Content-Type-Options": "nosniff",
@@ -252,7 +259,17 @@ export default withSentry(sentryOptions, {
 			const status = result === "invalid" ? 403 : result === "retry" ? 503 : 200;
 			return new Response(result, { status });
 		}
-		return secured(await handler.fetch(request));
+		// An organization page without its organization (/emails: an old link, a bookmark, an
+		// email from before handles): the same page in the one the person last used. Signed out,
+		// it goes on to sign-in as before, and comes back to this address after.
+		const handle = handleOfPath(url.pathname);
+		if (!handle && isAppSectionPath(url.pathname)) {
+			const { redirectToLastUsed } = await import("./server/org-handles");
+			const moved = await redirectToLastUsed(request);
+			if (moved) return secured(moved);
+		}
+		// The first paint's links carry the organization this address names (src/router.tsx).
+		return secured(await requestHandle.run(handle, () => handler.fetch(request)));
 	},
 	// DMARC aggregate reports, routed here by Cloudflare Email Routing (server/dmarc-reports.ts).
 	async email(message: ForwardableEmailMessage, _env: Env, _ctx: ExecutionContext) {

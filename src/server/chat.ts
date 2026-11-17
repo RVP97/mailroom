@@ -29,6 +29,7 @@ import { baseUrl, cfg } from "./env";
 import { ApiError, notFound, validation } from "./errors";
 import { sign } from "./inbound";
 import { checkSendLists, type Inbox, type InboxActor, logInbox, need } from "./inboxes";
+import { appLink } from "./org-handles";
 import { iso } from "./time";
 
 /**
@@ -2365,7 +2366,7 @@ export async function notifyTeam(now = Date.now(), sender?: ChatSender) {
 		}
 		const who = x.visitor_name || x.visitor_email || "Visitor";
 		const site = hostOfUrl(x.page_url);
-		const url = `${baseUrl()}/received/${x.id}`;
+		const url = await appLink(inbox.organization_id, `/received/${x.id}`);
 		const from = fromOf(inbox);
 		const first =
 			(

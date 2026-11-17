@@ -1351,12 +1351,15 @@ async function notifyTeam(
 	if (!to.length) return;
 	const values = await runValues(x, run, contact);
 	const { sendSystemEmail, systemLayout } = await import("./system-email");
-	const { baseUrl } = await import("./env");
+	const { appLink } = await import("./org-handles");
 	const subject = `${x.name}: ${contact.email}`;
 	const body = systemLayout({
 		title: subject,
 		lines: fill(s.message, values).split(/\n+/).filter(Boolean),
-		button: { label: "Open the contact", url: `${baseUrl()}/contacts/${contact.id}` },
+		button: {
+			label: "Open the contact",
+			url: await appLink(x.organization_id, `/contacts/${contact.id}`),
+		},
 	});
 	for (const address of to) await sendSystemEmail({ to: address, subject, ...body });
 }

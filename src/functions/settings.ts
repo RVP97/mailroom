@@ -15,6 +15,7 @@ import { dnsHelp } from "@/server/domain-connect";
 import { baseUrl } from "@/server/env";
 import { ApiError } from "@/server/errors";
 import { can, orgMiddleware } from "@/server/middleware";
+import { appLink } from "@/server/org-handles";
 import { setOrgLogo, setOrgLogoBackground } from "@/server/org-logos";
 import { postmasterTokens } from "@/server/postmaster";
 import {
@@ -200,7 +201,8 @@ export const dnsHelpFn = createServerFn({ method: "GET" })
 				// next to it rather than replace it, and two BIMI records break both.
 				bimi: !bimiRecord || !bimi || bimi.found,
 			},
-			`${baseUrl()}/domains/${d.id}?connected=1`,
+			// Back from the DNS host, to this organization's domain page.
+			await appLink(context.organizationId, `/domains/${d.id}?connected=1`),
 		);
 	});
 

@@ -1,4 +1,5 @@
 import { createMiddleware, createStart } from "@tanstack/react-start";
+import { ORG_HEADER, tabHandle } from "./lib/tab-org";
 
 /**
  * Every server function's unexpected errors go to Sentry (src/server/sentry.ts): TanStack turns a
@@ -14,9 +15,18 @@ const reportErrors = createMiddleware({ type: "function" }).server(async ({ next
 	}
 });
 
+/**
+ * Every call says which organization this tab shows (src/lib/tab-org.ts): the server acts on it
+ * (after checking membership), not on whichever one the session last switched to in another tab.
+ */
+const tabOrganization = createMiddleware({ type: "function" }).client(async ({ next }) => {
+	const handle = tabHandle();
+	return next(handle ? { headers: { [ORG_HEADER]: handle } } : undefined);
+});
+
 // The dashboard renders in the browser: the Worker only serves data, which keeps it inside the
 // free plan's 10 ms of CPU per request.
 export const startInstance = createStart(() => ({
 	defaultSsr: false,
-	functionMiddleware: [reportErrors],
+	functionMiddleware: [tabOrganization, reportErrors],
 }));

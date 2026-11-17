@@ -2198,13 +2198,23 @@ async function event(
 }
 
 /** An email to a team member about a conversation, with the link to it. */
-async function mail(to: string, subject: string, x: Pick<Conversation, "id">, lines: string[]) {
+async function mail(
+	to: string,
+	subject: string,
+	x: Pick<Conversation, "id" | "organization_id">,
+	lines: string[],
+) {
 	try {
 		const { sendSystemEmail, systemLayout } = await import("./system-email");
+		const { appLink } = await import("./org-handles");
 		const body = systemLayout({
 			title: subject,
 			lines,
-			button: { label: "Open the conversation", url: `${baseUrl()}/received/${x.id}` },
+			// Opens the organization it's about (src/server/org-handles.ts).
+			button: {
+				label: "Open the conversation",
+				url: await appLink(x.organization_id, `/received/${x.id}`),
+			},
 		});
 		await sendSystemEmail({ to, subject, ...body });
 	} catch (error) {
