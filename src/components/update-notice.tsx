@@ -1,4 +1,4 @@
-import { ArrowUpRight, X } from "lucide-react";
+import { ArrowUpRight, ShieldAlert, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { versionStatusFn } from "@/functions/admin";
@@ -71,8 +71,15 @@ export function RepoLink({ me }: { me: Me }) {
 			<GitHubMark className="size-3.5 shrink-0" />
 			<span className="flex-1 truncate">Mailroom {VERSION}</span>
 			{update ? (
-				<span className="rounded-full bg-brand/12 px-1.5 py-px text-[11px] font-medium text-brand">
-					Update
+				<span
+					className={cn(
+						"rounded-full px-1.5 py-px text-[11px] font-medium",
+						status?.securityUpdate
+							? "bg-destructive/12 text-destructive"
+							: "bg-brand/12 text-brand",
+					)}
+				>
+					{status?.securityUpdate ? "Security" : "Update"}
 				</span>
 			) : (
 				<ArrowUpRight className="size-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
@@ -88,7 +95,8 @@ export function UpdateNotice({ me }: { me: Me }) {
 		typeof window === "undefined" ? null : readDismissed(),
 	);
 	const latest = status?.updateAvailable ? status.latest : null;
-	if (!latest || dismissed === latest.version) return null;
+	// A security update shows as the banner above the page instead, which can't be dismissed.
+	if (!latest || status?.securityUpdate || dismissed === latest.version) return null;
 	const dismiss = () => {
 		try {
 			localStorage.setItem(DISMISSED, latest.version);
@@ -163,5 +171,43 @@ export function UpdateNotice({ me }: { me: Me }) {
 				</Button>
 			</div>
 		</section>
+	);
+}
+
+/**
+ * Above every page while a newer release fixes a security problem (its title says "security"):
+ * not dismissible, gone once the deployment runs that version. Admins are also emailed once.
+ */
+export function SecurityUpdateBanner({ me }: { me: Me }) {
+	const status = useVersionStatus(me.isAdmin);
+	if (!status?.securityUpdate || !status.latest) return null;
+	return (
+		<div
+			role="alert"
+			className="flex items-start gap-2 border-b border-[color-mix(in_oklch,var(--destructive)_30%,transparent)] bg-destructive/[0.08] px-4 py-2.5 text-sm md:px-10 lg:rounded-t-xl"
+		>
+			<ShieldAlert className="mt-0.5 size-4 shrink-0 text-destructive" />
+			<span className="min-w-0 flex-1">
+				Mailroom {status.latest.version} fixes a security problem. This deployment runs{" "}
+				{status.current}: update it soon.{" "}
+				<a
+					href={status.latest.url}
+					target="_blank"
+					rel="noreferrer"
+					className="font-medium underline underline-offset-4"
+				>
+					What's fixed
+				</a>{" "}
+				·{" "}
+				<a
+					href={status.upgradeUrl}
+					target="_blank"
+					rel="noreferrer"
+					className="font-medium underline underline-offset-4"
+				>
+					How to update
+				</a>
+			</span>
+		</div>
 	);
 }

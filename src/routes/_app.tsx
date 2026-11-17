@@ -64,7 +64,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Kbd } from "@/components/ui/kbd";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { RepoLink, UpdateNotice } from "@/components/update-notice";
+import { RepoLink, SecurityUpdateBanner, UpdateNotice } from "@/components/update-notice";
 import { authClient } from "@/lib/auth-client";
 import {
 	forgetMe,
@@ -217,6 +217,7 @@ function Shell({ me, children }: { me: Me; children: ReactNode }) {
 						className="relative min-h-[calc(100svh-3rem)] bg-background lg:min-h-[calc(100svh-1rem)] lg:rounded-xl lg:shadow-card"
 					>
 						<NavProgress />
+						<SecurityUpdateBanner me={me} />
 						<StoppedBanner me={me} />
 						{children}
 					</div>

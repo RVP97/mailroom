@@ -1191,7 +1191,10 @@ permission: `scripts/update-iam.sh`) is listed there.
 
 **Releasing (maintainers).** Bump `version` in `package.json`, push to main, then publish a
 GitHub release tagged `v<version>` whose notes list the changes as `- ` bullets (the first
-four show in the dashboard's card). Drafts and pre-releases aren't offered as updates.
+four show in the dashboard's card). Drafts and pre-releases aren't offered as updates. A
+release that fixes a security problem says **security** in its title (`Mailroom 1.2.1: security
+fix`): deployments older than it show admins a red banner that can't be dismissed until they
+update, and email their `ADMIN_EMAILS` once.
 
 ## Contributing and security
 

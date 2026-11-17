@@ -1,7 +1,10 @@
 import { env } from "cloudflare:workers";
+import { inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearSettingsCache } from "@/server/settings";
+import { db, schema } from "@/server/db";
+import { clearSettingsCache, getSetting } from "@/server/settings";
 import {
+	alertSecurityUpdate,
 	compareVersions,
 	highlights,
 	latestRelease,
@@ -9,13 +12,23 @@ import {
 	versionStatus,
 } from "@/server/updates";
 
-const RELEASE = {
-	tag_name: "v99.1.0",
-	name: "Mailroom 99.1",
-	html_url: "https://github.com/RVP97/mailroom/releases/tag/v99.1.0",
+const release = (
+	tag: string,
+	o: Partial<{ name: string; draft: boolean; prerelease: boolean }> = {},
+) => ({
+	tag_name: tag,
+	name: o.name ?? `Mailroom ${tag}`,
+	html_url: `https://github.com/RVP97/mailroom/releases/tag/${tag}`,
 	published_at: "2026-11-17T12:00:00Z",
 	body: "Some intro.\n\n## What's new\n- **Faster** broadcasts\n* A [new page](https://x.test) for polls\n- `code` here\n- four\n- five\n",
-};
+	draft: o.draft ?? false,
+	prerelease: o.prerelease ?? false,
+});
+const RELEASES = [
+	release("v99.2.0-beta.1", { prerelease: true }),
+	release("v99.1.0"),
+	release("v1.0.0"),
+];
 
 function fakeGitHub(answer: () => Response) {
 	const calls: string[] = [];
@@ -28,7 +41,12 @@ function fakeGitHub(answer: () => Response) {
 }
 
 describe("new versions", () => {
-	beforeEach(() => clearSettingsCache());
+	beforeEach(async () => {
+		await db
+			.delete(schema.appSettings)
+			.where(inArray(schema.appSettings.key, ["latest_release", "security_update_emailed"]));
+		clearSettingsCache();
+	});
 	afterEach(() => {
 		vi.restoreAllMocks();
 		(env as { UPDATE_CHECK?: string }).UPDATE_CHECK = undefined;
@@ -42,7 +60,7 @@ describe("new versions", () => {
 	});
 
 	it("takes the release notes' bullet points as plain text", () => {
-		expect(highlights(RELEASE.body)).toEqual([
+		expect(highlights(release("v1.0.0").body)).toEqual([
 			"Faster broadcasts",
 			"A new page for polls",
 			"code here",
@@ -50,12 +68,13 @@ describe("new versions", () => {
 		]);
 	});
 
-	it("asks GitHub once a day and says when an update is out", async () => {
-		const calls = fakeGitHub(() => Response.json(RELEASE));
+	it("asks GitHub once a day and says when an update is out (not pre-releases)", async () => {
+		const calls = fakeGitHub(() => Response.json(RELEASES));
 		const s = await versionStatus();
-		expect(calls).toEqual(["https://api.github.com/repos/RVP97/mailroom/releases/latest"]);
+		expect(calls).toEqual(["https://api.github.com/repos/RVP97/mailroom/releases?per_page=30"]);
 		expect(s.current).toBe(RUNNING_VERSION);
 		expect(s.updateAvailable).toBe(true);
+		expect(s.securityUpdate).toBe(false);
 		expect(s.latest?.version).toBe("99.1.0");
 		expect(s.latest?.highlights[0]).toBe("Faster broadcasts");
 
@@ -67,7 +86,7 @@ describe("new versions", () => {
 	});
 
 	it("is quiet when GitHub doesn't answer, keeping what it knew", async () => {
-		fakeGitHub(() => Response.json(RELEASE));
+		fakeGitHub(() => Response.json(RELEASES));
 		const t0 = new Date("2030-01-01T00:00:00Z");
 		await latestRelease(t0);
 		clearSettingsCache();
@@ -83,14 +102,38 @@ describe("new versions", () => {
 	});
 
 	it("no update when the running version is the newest", async () => {
-		fakeGitHub(() => Response.json({ ...RELEASE, tag_name: `v${RUNNING_VERSION}` }));
+		fakeGitHub(() => Response.json([release(`v${RUNNING_VERSION}`, { name: "Security fix" })]));
 		const s = await versionStatus();
 		expect(s.updateAvailable).toBe(false);
+		expect(s.securityUpdate).toBe(false);
+	});
+
+	it("a security fix between this version and the newest one counts, and admins are emailed once", async () => {
+		fakeGitHub(() =>
+			Response.json([
+				release("v99.1.0"),
+				release("v99.0.1", { name: "Mailroom 99.0.1: security fix" }),
+			]),
+		);
+		const s = await versionStatus();
+		expect(s.securityUpdate).toBe(true);
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		await alertSecurityUpdate();
+		const sent = log.mock.calls.filter((c) =>
+			String(c[0]).includes("Security update: Mailroom 99.1.0"),
+		);
+		expect(sent.length).toBeGreaterThan(0);
+		expect(await getSetting("security_update_emailed")).toBe("99.1.0");
+		log.mockClear();
+		await alertSecurityUpdate();
+		expect(log.mock.calls.filter((c) => String(c[0]).includes("Security update"))).toHaveLength(
+			0,
+		);
 	});
 
 	it("UPDATE_CHECK=false never asks GitHub", async () => {
 		(env as { UPDATE_CHECK?: string }).UPDATE_CHECK = "false";
-		const calls = fakeGitHub(() => Response.json(RELEASE));
+		const calls = fakeGitHub(() => Response.json(RELEASES));
 		const s = await versionStatus();
 		expect(calls).toHaveLength(0);
 		expect(s.checking).toBe(false);

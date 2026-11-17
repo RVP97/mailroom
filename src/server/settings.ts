@@ -29,7 +29,9 @@ export type SettingKey =
 	 * { message, at }, or "" once a send works again. */
 	| "aws_credentials_error"
 	/** The newest Mailroom release on GitHub, as JSON, and when it was asked (src/server/updates.ts). */
-	| "latest_release";
+	| "latest_release"
+	/** The release whose security fix the admins were last emailed about. */
+	| "security_update_emailed";
 
 const cache = new Map<string, { value: string | null; until: number }>();
 const TTL_MS = 30_000;

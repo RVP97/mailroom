@@ -88,6 +88,9 @@ export async function runCron(scheduledTime: number) {
 			checkSlowDelivery(scheduledTime),
 		);
 	if (minute === 23) jobs.push(runFeeds(scheduledTime));
+	// A newer Mailroom release that fixes a security problem: the admins are emailed once
+	// (src/server/updates.ts; GitHub is asked at most once a day).
+	if (minute === 41) jobs.push(import("./updates").then((m) => m.alertSecurityUpdate()));
 	if (at.getUTCHours() === 3 && minute === 0) jobs.push(purge(scheduledTime));
 	if (at.getUTCHours() === 4 && minute === 17) jobs.push(runDeliverabilityWatch(scheduledTime));
 	// Automations on dates (birthdays, trials ending) and on contacts who stopped engaging: once a

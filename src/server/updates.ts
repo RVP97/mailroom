@@ -29,6 +29,8 @@ export interface LatestRelease {
 
 interface Kept {
 	release: LatestRelease | null;
+	/** Versions whose release fixes a security problem. */
+	securityVersions?: string[];
 	checkedAt: string;
 	error?: string;
 }
@@ -43,6 +45,8 @@ export interface VersionStatus {
 	checking: boolean;
 	latest: LatestRelease | null;
 	updateAvailable: boolean;
+	/** A release newer than this one fixes a security problem: update soon. */
+	securityUpdate: boolean;
 	checkedAt: string | null;
 }
 
@@ -92,9 +96,17 @@ async function kept(): Promise<Kept | null> {
 	}
 }
 
-/** GitHub's latest (published, not draft or pre-release) release of the upstream repo. */
-async function askGitHub(): Promise<LatestRelease | null> {
-	const res = await fetch(`https://api.github.com/repos/${UPSTREAM_REPO}/releases/latest`, {
+/** A release that fixes a security problem: "security" in its title or tag. */
+export const isSecurityRelease = (r: { name?: string | null; tag_name: string }) =>
+	/\bsecurity\b/i.test(`${r.name ?? ""} ${r.tag_name}`);
+
+/**
+ * The upstream repo's recent published releases (not drafts or pre-releases): the newest, and
+ * the versions that fix a security problem (so a deployment several versions behind hears about
+ * a security fix even when the newest release isn't one).
+ */
+async function askGitHub(): Promise<Pick<Kept, "release" | "securityVersions">> {
+	const res = await fetch(`https://api.github.com/repos/${UPSTREAM_REPO}/releases?per_page=30`, {
 		headers: {
 			accept: "application/vnd.github+json",
 			"user-agent": "mailroom-update-check",
@@ -102,22 +114,33 @@ async function askGitHub(): Promise<LatestRelease | null> {
 		},
 		signal: AbortSignal.timeout(TIMEOUT_MS),
 	});
-	if (res.status === 404) return null;
 	if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
-	const r = (await res.json()) as {
+	const all = (await res.json()) as {
 		tag_name: string;
 		name?: string | null;
 		html_url: string;
 		published_at?: string | null;
 		body?: string | null;
-	};
+		draft?: boolean;
+		prerelease?: boolean;
+	}[];
+	const published = all.filter((r) => !r.draft && !r.prerelease);
+	const r = published.reduce<(typeof published)[number] | null>(
+		(best, x) => (!best || compareVersions(x.tag_name, best.tag_name) > 0 ? x : best),
+		null,
+	);
 	return {
-		version: r.tag_name.replace(/^v/i, ""),
-		tag: r.tag_name,
-		name: r.name || r.tag_name,
-		url: r.html_url,
-		publishedAt: r.published_at ?? "",
-		highlights: highlights(r.body ?? ""),
+		release: r && {
+			version: r.tag_name.replace(/^v/i, ""),
+			tag: r.tag_name,
+			name: r.name || r.tag_name,
+			url: r.html_url,
+			publishedAt: r.published_at ?? "",
+			highlights: highlights(r.body ?? ""),
+		},
+		securityVersions: published
+			.filter(isSecurityRelease)
+			.map((x) => x.tag_name.replace(/^v/i, "")),
 	};
 }
 
@@ -131,11 +154,12 @@ export async function latestRelease(now = new Date()): Promise<Kept | null> {
 	}
 	let next: Kept;
 	try {
-		next = { release: await askGitHub(), checkedAt: now.toISOString() };
+		next = { ...(await askGitHub()), checkedAt: now.toISOString() };
 	} catch (error) {
 		// Keep what we knew; try again in a few hours.
 		next = {
 			release: before?.release ?? null,
+			securityVersions: before?.securityVersions,
 			checkedAt: now.toISOString(),
 			error: error instanceof Error ? error.message : String(error),
 		};
@@ -148,6 +172,7 @@ export async function versionStatus(): Promise<VersionStatus> {
 	const checking = updateCheckOn();
 	const k = checking ? await latestRelease().catch(() => null) : null;
 	const latest = k?.release ?? null;
+	const updateAvailable = !!latest && compareVersions(latest.version, RUNNING_VERSION) > 0;
 	return {
 		current: RUNNING_VERSION,
 		commit: typeof __SENTRY_RELEASE__ === "string" ? __SENTRY_RELEASE__ : "",
@@ -155,7 +180,38 @@ export async function versionStatus(): Promise<VersionStatus> {
 		upgradeUrl: UPGRADE_URL,
 		checking,
 		latest,
-		updateAvailable: !!latest && compareVersions(latest.version, RUNNING_VERSION) > 0,
+		updateAvailable,
+		securityUpdate:
+			updateAvailable &&
+			(k?.securityVersions ?? []).some((v) => compareVersions(v, RUNNING_VERSION) > 0),
 		checkedAt: k?.checkedAt ?? null,
 	};
+}
+
+/**
+ * Cron (hourly; GitHub is still asked at most once a day): when a newer release fixes a security
+ * problem, email the deployment's admins once per newest version.
+ */
+export async function alertSecurityUpdate() {
+	const s = await versionStatus();
+	if (!s.securityUpdate || !s.latest) return;
+	if ((await getSetting("security_update_emailed")) === s.latest.version) return;
+	const { adminEmails } = await import("./env");
+	const { sendSystemEmail, systemLayout } = await import("./system-email");
+	const { html, text } = systemLayout({
+		title: `Update Mailroom: ${s.latest.version} fixes a security problem`,
+		lines: [
+			`This deployment runs Mailroom ${s.current}. A newer release fixes a security problem, so please update soon.`,
+			'If your repo has the Mailroom update action, merge its "Update Mailroom" pull request; the release notes say if anything else is needed.',
+		],
+		button: { label: "What's in the release", url: s.latest.url },
+	});
+	for (const to of adminEmails())
+		await sendSystemEmail({
+			to,
+			subject: `Security update: Mailroom ${s.latest.version}`,
+			html,
+			text,
+		}).catch((error) => console.error("updates: security email failed", error));
+	await setSetting("security_update_emailed", s.latest.version);
 }
