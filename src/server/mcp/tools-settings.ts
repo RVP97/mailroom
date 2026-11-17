@@ -1103,7 +1103,7 @@ export const SETTINGS_TOOLS: Tool[] = [
 			return {
 				...s,
 				how_to_update:
-					"Pull the upstream repo's main into your copy (git remote add upstream https://github.com/RVP97/mailroom && git pull upstream main) and push: Workers Builds deploys and applies new D1 migrations.",
+					"Merge the 'Update Mailroom to vX' pull request that the repo's Mailroom update GitHub Action opens in your copy (Actions › Mailroom update › Run workflow to check now). By hand: git remote add upstream https://github.com/RVP97/mailroom && git pull upstream main && git push. Workers Builds deploys and applies new D1 migrations.",
 			};
 		},
 	},

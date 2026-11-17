@@ -1153,20 +1153,38 @@ newer than yours, the deployment's admins (`ADMIN_EMAILS`) see a card with what'
 repo. Dismissing the card hides it until the next version. `UPDATE_CHECK=false` turns the check
 off. Assistants can ask too: the MCP tool `mailroom_version`.
 
-**Updating.** Pull this repo's changes into your copy and push: Workers Builds deploys, applying
-new D1 migrations first.
+**Updating: merge the update pull request.** Your copy of the repo comes with a GitHub Action,
+**Mailroom update** (`.github/workflows/mailroom-update.yml`). Once a day it looks for a new
+release, and when there is one it opens a pull request in your repo, "Update Mailroom to
+v1.2.0", with the release notes. Merge it: Workers Builds deploys, applying new D1 migrations
+first. It never changes main by itself, and it does nothing in this repo.
 
-- A fork: GitHub's **Sync fork** button on your fork, or the commands below.
-- A copy made by the Deploy button (not a fork, so Sync fork doesn't apply), or a clone:
+- On a fork, GitHub keeps Actions off until you turn them on: **Actions** tab › **I understand
+  my workflows, go ahead and enable them**. To check right away: **Mailroom update** › **Run
+  workflow**.
+- A copy made by the Deploy button may start without Mailroom's history. Its first update joins
+  the histories, keeping your `wrangler.jsonc`; the pull request says so. Later ones are
+  ordinary merges.
+- If you changed a file the update changes too, the pull request shows the conflict and GitHub
+  lets you settle it in the browser.
+- GitHub doesn't let the Action's built-in token push changes to `.github/workflows/`. When an
+  update has some, you get an issue with the commands below instead, unless you add a
+  fine-grained token (Contents, Pull requests and Workflows: read and write, on your repo) as
+  the secret `MAILROOM_UPDATE_TOKEN`.
+- GitHub pauses scheduled Actions in a repo with no activity for 60 days; merging an update
+  counts as activity. To hear about releases anyway: **Watch › Custom › Releases** on this repo.
 
-  ```sh
-  git remote add upstream https://github.com/RVP97/mailroom   # once
-  git pull upstream main
-  git push
-  ```
+**Updating by hand.** On a fork, GitHub's **Sync fork** button. On a Deploy-button copy or a
+clone:
 
-  If you changed files yourself, git may ask you to settle conflicts first. Keeping your own
-  values in `MAILROOM_WRANGLER_CONFIG` instead of `wrangler.jsonc` avoids most of them.
+```sh
+git remote add upstream https://github.com/RVP97/mailroom   # once
+git pull upstream main
+git push
+```
+
+Either way, if you changed files yourself, git may ask you to settle conflicts first. Keeping
+your own values in `MAILROOM_WRANGLER_CONFIG` instead of `wrangler.jsonc` avoids most of them.
 
 Read the release notes first: anything that needs a step from you (a new secret, an AWS
 permission: `scripts/update-iam.sh`) is listed there.

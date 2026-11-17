@@ -1,0 +1,152 @@
+# Updates for your copy of Mailroom (a fork, a Deploy-button copy or a clone pushed to GitHub).
+# Once a day it looks for a new Mailroom release. When there is one, it opens a pull request in
+# this repo, "Update Mailroom to vX.Y.Z", with the release notes. Merge it and Workers Builds
+# deploys the new version (and applies its database migrations), like any push to main.
+#
+# It never touches main by itself: you review and merge. It does nothing in Mailroom's own repo.
+# Run it any time from the Actions tab (Mailroom update › Run workflow). To stop it, disable the
+# workflow in the Actions tab or delete this file.
+name: Mailroom update
+
+on:
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: mailroom-update
+
+env:
+  UPSTREAM: RVP97/mailroom
+
+jobs:
+  update:
+    if: github.repository != 'RVP97/mailroom'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.repository.default_branch }}
+          # Optional: a fine-grained token with Contents, Pull requests and Workflows (write) on
+          # this repo, saved as the secret MAILROOM_UPDATE_TOKEN, lets updates that change files
+          # in .github/workflows through too (GitHub doesn't let the built-in token push those).
+          token: ${{ secrets.MAILROOM_UPDATE_TOKEN || github.token }}
+
+      - name: Look for a new release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release=$(gh api "repos/$UPSTREAM/releases/latest")
+          tag=$(jq -r .tag_name <<<"$release")
+          latest=${tag#v}
+          current=$(jq -r .version package.json)
+          echo "This copy runs $current; the newest release is $latest."
+          newest=$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -n1)
+          if [ "$latest" = "$current" ] || [ "$newest" = "$current" ]; then
+            echo "Up to date."; echo "update=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          branch="mailroom-update/$tag"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "The pull request for $tag is already open (branch $branch)."
+            echo "update=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          jq -r '.body // ""' <<<"$release" > "$RUNNER_TEMP/notes.md"
+          {
+            echo "update=true"
+            echo "tag=$tag"
+            echo "current=$current"
+            echo "branch=$branch"
+            echo "url=$(jq -r .html_url <<<"$release")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Prepare the update branch
+        if: steps.release.outputs.update == 'true'
+        id: branch
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          BRANCH: ${{ steps.release.outputs.branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --no-tags "https://github.com/$UPSTREAM.git" "refs/tags/$TAG:refs/tags/upstream-$TAG"
+          git switch -c "$BRANCH"
+          if git merge-base HEAD "upstream-$TAG" >/dev/null; then
+            # Shared history (a fork or a clone): a normal merge. If it conflicts, open the pull
+            # request from the release itself: GitHub shows the conflicts and lets you settle them.
+            if git merge --no-edit -m "Update Mailroom to $TAG" "upstream-$TAG"; then
+              echo "how=merge" >> "$GITHUB_OUTPUT"
+            else
+              git merge --abort
+              git reset --hard "upstream-$TAG"
+              echo "how=conflicts" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            # A copy that started without Mailroom's history (some Deploy-button copies): join the
+            # histories once, taking Mailroom's files but keeping this deployment's own settings.
+            git merge --allow-unrelated-histories --no-commit -X theirs "upstream-$TAG" || true
+            git checkout HEAD -- wrangler.jsonc 2>/dev/null || true
+            git add -A
+            git commit --no-edit -m "Update Mailroom to $TAG (first update: joins Mailroom's history)"
+            echo "how=joined" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open the pull request
+        if: steps.release.outputs.update == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.MAILROOM_UPDATE_TOKEN || github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          CURRENT: ${{ steps.release.outputs.current }}
+          BRANCH: ${{ steps.release.outputs.branch }}
+          URL: ${{ steps.release.outputs.url }}
+          HOW: ${{ steps.branch.outputs.how }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          body="$RUNNER_TEMP/body.md"
+          {
+            echo "Mailroom **$TAG** is out (this copy runs $CURRENT). Merging this deploys it: Workers Builds builds main and applies any new database migrations first."
+            echo
+            case "$HOW" in
+              conflicts) echo "> **Some files conflict** with changes made in this copy. Use **Resolve conflicts** below (or merge locally), then merge." ; echo ;;
+              joined) echo "> This is this copy's first update: it joins Mailroom's history, keeping your \`wrangler.jsonc\`. Check **Files changed** for anything of yours that it replaced. Later updates are ordinary merges." ; echo ;;
+            esac
+            echo "Read the notes for any step you need to take yourself (a new secret, an AWS permission)."
+            echo
+            echo "## What's new in $TAG"
+            echo
+            cat "$RUNNER_TEMP/notes.md"
+            echo
+            echo "[The release on GitHub]($URL) · [All releases](https://github.com/$UPSTREAM/releases)"
+          } > "$body"
+          if ! git push origin "$BRANCH" 2>"$RUNNER_TEMP/push.log"; then
+            cat "$RUNNER_TEMP/push.log"
+            # GitHub doesn't let this workflow's token change workflow files: when an update
+            # does, ask for it to be pulled by hand instead.
+            {
+              echo "Mailroom **$TAG** is out, but this update changes GitHub workflow files, which the automatic update isn't allowed to push. (To let it next time, add the secret MAILROOM_UPDATE_TOKEN: see .github/workflows/mailroom-update.yml.)"
+              echo
+              echo "Update by hand: GitHub's **Sync fork** button on a fork, or:"
+              echo
+              echo '```sh'
+              echo "git remote add upstream https://github.com/$UPSTREAM   # once"
+              echo "git pull upstream main"
+              echo "git push"
+              echo '```'
+              echo
+              echo "[What's new]($URL)"
+            } > "$body"
+            if [ -z "$(gh issue list --state open --search "\"Update Mailroom to $TAG\" in:title" --json number --jq '.[].number' || true)" ]; then
+              gh issue create --title "Update Mailroom to $TAG" --body-file "$body" || true
+            fi
+            exit 0
+          fi
+          gh pr create --base "$BASE" --head "$BRANCH" --title "Update Mailroom to $TAG" --body-file "$body"
