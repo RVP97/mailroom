@@ -132,6 +132,7 @@ import {
 	brand,
 	brandOf,
 	DESIGN_HELP,
+	dashboardUrl,
 	domainOf,
 	domainView,
 	logged,
@@ -171,6 +172,8 @@ export interface Membership {
 	id: string;
 	name: string;
 	slug: string;
+	/** The short id in its dashboard URLs (src/lib/org-handle.ts); dashboardUrl() uses it. */
+	handle: string | null;
 	role: string;
 	access: Access;
 	/** Sees runs of 4+ digits in emails as dots. */
@@ -183,6 +186,7 @@ export async function memberships(userId: string): Promise<Membership[]> {
 			id: schema.organization.id,
 			name: schema.organization.name,
 			slug: schema.organization.slug,
+			handle: schema.organization.handle,
 			...accessColumns,
 		})
 		.from(schema.member)
@@ -196,6 +200,7 @@ export async function memberships(userId: string): Promise<Membership[]> {
 			id: r.id,
 			name: r.name,
 			slug: r.slug,
+			handle: r.handle,
 			role: r.role,
 			access,
 			masked: !access.can("emails:unmasked"),
@@ -278,16 +283,18 @@ export const TOOLS: Tool[] = [
 		name: "list_organizations",
 		title: "List organizations",
 		description:
-			"The organizations (businesses) you belong to, with your role and whether each is set up to send.",
+			"The organizations (businesses) you belong to, with your role, whether each is set up to send, and its dashboard address (`url`: its pages are under it, e.g. url + /emails).",
 		input: {},
 		readOnly: true,
 		run: async (_args, ctx) => ({
 			you: { email: ctx.email, deployment_admin: ctx.isAdmin },
 			organizations: await Promise.all(
-				ctx.organizations.map(async ({ access, masked: _, ...o }) => {
+				ctx.organizations.map(async (m) => {
+					const { access, masked: _, ...o } = m;
 					const brands = await listBrands(o.id);
 					return {
 						...o,
+						url: dashboardUrl(m, "/"),
 						permissions: access.summary().permissions,
 						// Its own brand's: whether it can send without naming another.
 						sending: brands[0]?.sending ?? "not_set_up",

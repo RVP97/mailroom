@@ -2,7 +2,7 @@ import { and, asc, eq, isNull, lt, or } from "drizzle-orm";
 import { recipients } from "./alerts";
 import { orgOf } from "./brands";
 import { db, schema } from "./db";
-import { cfg } from "./env";
+import { appLink } from "./org-handles";
 import { dnsRecords } from "./provision";
 import { sendSystemEmail, systemLayout } from "./system-email";
 import { iso } from "./time";
@@ -230,7 +230,10 @@ async function notify(d: Domain, problems: HealthProblem[], listings: Listing[])
 	const body = systemLayout({
 		title: subject,
 		lines,
-		button: { label: "Open the domain", url: `${cfg().BETTER_AUTH_URL ?? ""}/domains/${d.id}` },
+		button: {
+			label: "Open the domain",
+			url: await appLink(d.organization_id, `/domains/${d.id}`),
+		},
 	});
 	const to = await recipients(await orgOf(d.organization_id));
 	const results = await Promise.allSettled(

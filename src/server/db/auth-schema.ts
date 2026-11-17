@@ -82,6 +82,12 @@ export const organization = sqliteTable("organization", {
 	id: text("id").primaryKey(),
 	name: text("name").notNull(),
 	slug: text("slug").notNull().unique(),
+	/**
+	 * The short random id in its pages' URLs: mailroom.example.com/k7x2m9/emails
+	 * (src/lib/org-handle.ts). Never derived from the name, never changes, never reused. Set on
+	 * every row, brands too (they open under their organization, so their links use its handle).
+	 */
+	handle: text("handle").unique(),
 	logo: text("logo"),
 	createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 	metadata: text("metadata"),

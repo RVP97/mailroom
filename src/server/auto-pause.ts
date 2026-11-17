@@ -3,7 +3,8 @@ import { explainBounce } from "../lib/bounces";
 import { bareAddress } from "./aws/mime";
 import { orgOf } from "./brands";
 import { db, schema } from "./db";
-import { adminEmails, cfg } from "./env";
+import { adminEmails } from "./env";
+import { appLink } from "./org-handles";
 import { setDomainPaused } from "./provision";
 import { sendSystemEmail, systemLayout } from "./system-email";
 import { dayOf, iso } from "./time";
@@ -109,7 +110,7 @@ async function notify(brandId: string, domain: string, count: number) {
 			`In the last 24 hours ${count} emails from ${domain} went to addresses that don't exist. Left alone, that gets Amazon SES to pause the whole brand, receipts and codes included.`,
 			"Clean the list it sends to (remove addresses that bounced), then resume the domain on its page. Emails sent meanwhile are refused with domain_paused.",
 		],
-		button: { label: "Open Mailroom", url: cfg().BETTER_AUTH_URL ?? "" },
+		button: { label: "Open the domains", url: await appLink(org, "/domains") },
 	});
 	await Promise.allSettled(
 		to.map((address) => sendSystemEmail({ to: address, subject, ...body })),

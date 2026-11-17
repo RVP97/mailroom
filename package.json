@@ -51,9 +51,9 @@
 	"scripts": {
 		"mailroom": "node cli/mailroom.mjs",
 		"dev": "vite dev --port 3000",
-		"build": "vite build && node scripts/sentry-upload.mjs prepare",
+		"build": "node scripts/check-org-urls.mjs && vite build && node scripts/sentry-upload.mjs prepare",
 		"preview": "vite preview",
-		"deploy": "node scripts/deployment-config.mjs && vite build && node scripts/sentry-upload.mjs prepare && wrangler d1 migrations apply DB --remote && wrangler deploy && node scripts/sentry-upload.mjs upload",
+		"deploy": "node scripts/deployment-config.mjs && node scripts/check-org-urls.mjs && vite build && node scripts/sentry-upload.mjs prepare && wrangler d1 migrations apply DB --remote && wrangler deploy && node scripts/sentry-upload.mjs upload",
 		"cf-typegen": "wrangler types --strict-vars=false",
 		"typecheck": "tsc --noEmit",
 		"db:generate": "drizzle-kit generate",

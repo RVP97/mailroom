@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { authClient } from "@/lib/auth-client";
 import { forgetMe, loadMe } from "@/lib/me";
+import { repinFromAddress } from "@/lib/tab-org";
 
 export const Route = createFileRoute("/new")({
 	// The deployment's admins create organizations; an organization's own brands are made in
@@ -71,6 +72,8 @@ function NewOrganization() {
 					}
 					const id = r.data.id;
 					await authClient.organization.setActive({ organizationId: id });
+					// This tab now shows the new one (the session's): its address gets its handle.
+					repinFromAddress("/");
 					forgetMe();
 					router.clearCache();
 					await router.navigate({ to: "/" });

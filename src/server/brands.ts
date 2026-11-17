@@ -2,6 +2,7 @@ import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { batch, db, raw, schema } from "./db";
 import { ApiError, notFound, validation } from "./errors";
 import { forgetOrg } from "./org";
+import { withNewHandle } from "./org-handles";
 import { moveDomainTenant, setUpOrganization } from "./provision";
 import { inScope, type Scope } from "./queries";
 import { iso } from "./time";
@@ -196,15 +197,18 @@ export async function createBrand(
 	// The organization's slug first, so SES's tenant names show whose it is.
 	const slug = `${parent.slug}-${slugPart(name).slice(0, 30) || "brand"}-${id.slice(0, 6)}`;
 	const now = new Date();
-	await db.batch([
-		db.insert(schema.organization).values({ id, name, slug, createdAt: now }),
-		db.insert(schema.brands).values({
-			id,
-			parent_id: organizationId,
-			external_id: externalId,
-			created_at: iso(now.getTime()),
-		}),
-	]);
+	// A handle like every organization row's (its links use its organization's, src/server/org-handles.ts).
+	await withNewHandle((handle) =>
+		db.batch([
+			db.insert(schema.organization).values({ id, name, slug, handle, createdAt: now }),
+			db.insert(schema.brands).values({
+				id,
+				parent_id: organizationId,
+				external_id: externalId,
+				created_at: iso(now.getTime()),
+			}),
+		]),
+	);
 	parents.delete(id);
 	await trySetUp(id);
 	return { brand: await getBrand(organizationId, id), created: true };

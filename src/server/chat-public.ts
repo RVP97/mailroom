@@ -385,13 +385,20 @@ export async function handleTeamLive(request: Request): Promise<Response> {
 	const session = await auth().api.getSession({ headers: request.headers });
 	if (!session) return new Response("Sign in again", { status: 401 });
 	const m = schema.member;
-	const active = session.session.activeOrganizationId ?? null;
+	// The tab's organization (?org=, src/lib/tab-org.ts), else the session's.
+	const { requestedOrg, resolveOrgRef } = await import("./org-handles");
+	const named = requestedOrg(request);
+	const requested = named ? await resolveOrgRef(named) : named;
+	const active =
+		requested === undefined ? (session.session.activeOrganizationId ?? null) : requested;
 	const rows = await db
 		.select({ organizationId: m.organizationId })
 		.from(m)
 		.where(eq(m.userId, session.user.id));
-	const org = rows.find((r) => r.organizationId === active) ?? rows[0];
-	if (!org) return new Response("Forbidden", { status: 403 });
+	const org =
+		rows.find((r) => r.organizationId === active) ??
+		(requested === undefined ? rows[0] : undefined);
+	if (!org) return new Response("Not found", { status: 404 });
 	const { brandIds } = await import("./brands");
 	const brands = await brandIds(org.organizationId);
 	const x = await db

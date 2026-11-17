@@ -3,6 +3,7 @@ import { useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
 import { forgetMe, loadMe, useMe } from "@/lib/me";
+import { setTabHandle, tabHandle } from "@/lib/tab-org";
 
 /**
  * Switching organization in place: no reload and no blank frame. The veil
@@ -81,18 +82,31 @@ export function useSwitchOrg() {
 			},
 		});
 		const started = performance.now();
+		const previous = tabHandle();
 		try {
+			// The session remembers it as the last one used (where links without an
+			// organization open); this tab's own calls name it themselves.
 			const res = await authClient.organization.setActive({ organizationId: id });
 			if (res.error) throw new Error(res.error.message ?? "Couldn't switch organization");
+			// The tab's organization first: every call from here on is the new one's.
+			if (org.handle) setTabHandle(org.handle);
 			forgetMe();
+			router.clearCache();
 			await loadMe();
 			const to = sectionOf(router.state.location.pathname) as "/";
-			router.clearCache();
 			// The new organization's page loads behind the veil, so it opens complete.
 			await router.preloadRoute({ to }).catch(() => {});
 			await wait(Math.max(0, LEAST_MS - (performance.now() - started)));
-			await router.navigate({ to });
+			// A new history entry (Back returns to the previous organization), even for the same
+			// section: the state tells the router it's another place.
+			await router.navigate({
+				to,
+				state: ((prev: Record<string, unknown>) => ({ ...prev, org: org.handle })) as never,
+			});
 			await router.invalidate();
+			// A page this person can't open in the new organization: its overview instead.
+			if (to !== "/" && router.state.matches.some((m) => m.status === "error"))
+				await router.navigate({ to: "/", replace: true });
 			const home = new Promise<void>((resolve) => {
 				onFaded = resolve;
 				setTimeout(resolve, FADE_MS);
@@ -101,6 +115,8 @@ export function useSwitchOrg() {
 			if (current) set({ ...current, phase: "arriving" });
 			await home;
 		} catch (error) {
+			// Still this tab's organization: its calls go on naming it.
+			if (previous) setTabHandle(previous);
 			toast.error(error instanceof Error ? error.message : "Couldn't switch organization");
 		} finally {
 			onFaded = null;

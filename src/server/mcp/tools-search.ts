@@ -2,7 +2,7 @@ import { z } from "zod";
 import { viewScope } from "../brands";
 import { SEARCH_KINDS, type SearchKind, searchEverything } from "../search";
 import { personActor } from "./inbox-tools";
-import { brand, brandsOf, orgAt, organization, type Tool } from "./kit";
+import { brand, brandsOf, dashboardUrl, orgAt, organization, type Tool } from "./kit";
 
 /** Search everything (the dashboard's ⌘K). */
 export const SEARCH_TOOLS: Tool[] = [
@@ -29,7 +29,7 @@ export const SEARCH_TOOLS: Tool[] = [
 				viewScope(org.id),
 				personActor(org, ctx),
 			]);
-			return searchEverything({
+			const found = await searchEverything({
 				organizationId: org.id,
 				brands,
 				actor,
@@ -39,6 +39,11 @@ export const SEARCH_TOOLS: Tool[] = [
 				per: a.per as number | undefined,
 				kinds: a.kinds as SearchKind[] | undefined,
 			});
+			// Each hit's full dashboard link, in this organization.
+			return {
+				...found,
+				hits: found.hits.map((h) => ({ ...h, url: dashboardUrl(org, h.path) })),
+			};
 		},
 	},
 ];

@@ -1,8 +1,9 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { orgOf } from "./brands";
 import { db, schema } from "./db";
-import { adminEmails, cfg } from "./env";
+import { adminEmails } from "./env";
 import { tenantSends } from "./org";
+import { appLink } from "./org-handles";
 import { setDomainPaused } from "./provision";
 import {
 	DEFAULT_LIMITS,
@@ -168,7 +169,7 @@ async function notify(
 	const body = systemLayout({
 		title: subject,
 		lines,
-		button: { label: "Open Mailroom", url: cfg().BETTER_AUTH_URL ?? "" },
+		button: { label: "Open Mailroom", url: await appLink(brand.id, "/") },
 	});
 	// A brand's alerts go to its organization's people.
 	const to = await recipients(await orgOf(brand.id));

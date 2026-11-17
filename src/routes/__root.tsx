@@ -1,8 +1,8 @@
 import interLatin from "@fontsource-variable/inter/files/inter-latin-opsz-normal.woff2?url";
-import { createRootRoute, HeadContent, Link, Scripts } from "@tanstack/react-router";
+import { createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { PageMissing } from "@/components/route-states";
 import { ThemeProvider } from "@/components/theme-provider";
-import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { keepTapsInScrollLocks } from "@/lib/tap-slop";
@@ -43,20 +43,7 @@ export const Route = createRootRoute({
 	shellComponent: RootDocument,
 	// The server's page for every address (the dashboard renders in the browser).
 	pendingComponent: FirstPaint,
-	notFoundComponent: () => (
-		<div className="flex min-h-[70svh] flex-col items-center justify-center gap-1 px-4 text-center">
-			<p className="font-mono text-sm text-faint">404</p>
-			<h1 className="text-xl font-semibold tracking-[-0.015em]">This page doesn't exist</h1>
-			<p className="text-base text-muted-foreground">The link may be old, or mistyped.</p>
-			<Button
-				asChild
-				variant="outline"
-				className="mt-5"
-			>
-				<Link to="/">Go to the overview</Link>
-			</Button>
-		</div>
-	),
+	notFoundComponent: PageMissing,
 });
 
 function RootDocument({ children }: { children: React.ReactNode }) {

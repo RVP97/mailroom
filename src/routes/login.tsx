@@ -13,7 +13,9 @@ import { Spinner } from "@/components/ui/spinner";
 import { signInOptionsFn } from "@/functions/sign-in";
 import { authClient } from "@/lib/auth-client";
 import { forgetMe } from "@/lib/me";
+import { handleOfPath } from "@/lib/org-path";
 import { usePasskeySignIn } from "@/lib/passkeys";
+import { repinFromAddress } from "@/lib/tab-org";
 
 export const Route = createFileRoute("/login")({
 	validateSearch: z.object({
@@ -71,7 +73,13 @@ function Login() {
 					organizationId: r.data.member.organizationId,
 				});
 		}
-		await navigate({ to: next?.startsWith("/") ? next : "/", replace: true });
+		const to = next?.startsWith("/") && !next.startsWith("//") ? next : "/";
+		// Back to an organization's address (/k7x2m9/emails): a full load opens it as that
+		// organization's tab. Anything else: this tab's organization is the session's again (an
+		// invitation just accepted, or someone else signed in).
+		if (handleOfPath(to)) return window.location.assign(to);
+		repinFromAddress(to);
+		await navigate({ to, replace: true });
 	}
 
 	const passkey = usePasskeySignIn(done);

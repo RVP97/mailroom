@@ -1,12 +1,12 @@
 import { createMiddleware } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
-import { and, asc, eq } from "drizzle-orm";
 import { NO_PERMISSION_MESSAGE, PERMISSION_LABEL, type Permission } from "../lib/permissions";
-import { accessColumns, accessFromRow, roleJoin } from "./access";
+import { ORG_UNAVAILABLE, ORG_UNAVAILABLE_HEADER } from "../lib/tab-org";
+import { accessFromRow } from "./access";
 import { logActivity } from "./activity";
 import { auth } from "./auth";
-import { db, schema } from "./db";
 import { isAdminEmail } from "./env";
+import { membershipFor, requestedOrg, resolveOrgRef } from "./org-handles";
 
 /**
  * The dashboard's data boundary: every server function resolves the Better Auth session and the
@@ -20,40 +20,56 @@ import type { Role } from "../lib/roles";
 const unauthorized = () => new Response("Sign in again", { status: 401 });
 const forbidden = (why = "You don't have access to this") => new Response(why, { status: 403 });
 
+/** A request naming an organization that doesn't exist or isn't the person's: the same answer. */
+export const orgUnavailable = () =>
+	new Response(ORG_UNAVAILABLE, { status: 404, headers: { [ORG_UNAVAILABLE_HEADER]: "1" } });
+
 export const sessionMiddleware = createMiddleware().server(async ({ next }) => {
-	const session = await auth().api.getSession({ headers: getRequest().headers });
+	const request = getRequest();
+	// The tab's organization (src/lib/tab-org.ts), looked up alongside the session.
+	const named = requestedOrg(request);
+	const [session, requested] = await Promise.all([
+		auth().api.getSession({ headers: request.headers }),
+		named ? resolveOrgRef(named) : named,
+	]);
 	if (!session) throw unauthorized();
 	return next({
 		context: {
 			userId: session.user.id,
 			email: session.user.email,
 			name: session.user.name,
-			activeOrganizationId: session.session.activeOrganizationId ?? null,
+			/**
+			 * The organization this call is about: the one the tab names (null when it names one
+			 * that doesn't exist), or the session's when it names none. Membership is checked
+			 * where it's used (orgMiddleware, getMe); calls about the person ignore it.
+			 */
+			activeOrganizationId:
+				requested === undefined
+					? (session.session.activeOrganizationId ?? null)
+					: requested,
+			/** The call named its organization (a tab), so it's refused rather than replaced. */
+			namedOrganization: requested !== undefined,
+			/** The one the session last switched to (shared by every tab). */
+			sessionOrganizationId: session.session.activeOrganizationId ?? null,
 			isAdmin: isAdminEmail(session.user.email),
 		},
 	});
 });
 
-/** The session's organization (or the person's first one), their role and access in it. */
+/**
+ * The organization the call is about (the tab's, else the session's, else the person's first),
+ * their role and access in it. A tab naming one the person isn't in is refused, never answered
+ * with another organization's data, or a change would land in the wrong one.
+ */
 export const orgMiddleware = createMiddleware()
 	.middleware([sessionMiddleware])
 	.server(async ({ next, context }) => {
-		const m = schema.member;
-		const rows = await db
-			.select({ organizationId: m.organizationId, ...accessColumns })
-			.from(m)
-			.leftJoin(schema.organizationRole, roleJoin)
-			.where(
-				context.activeOrganizationId
-					? and(
-							eq(m.userId, context.userId),
-							eq(m.organizationId, context.activeOrganizationId),
-						)
-					: eq(m.userId, context.userId),
-			)
-			.orderBy(asc(m.createdAt))
-			.limit(1);
-		const membership = rows[0];
+		const membership = await membershipFor(
+			context.userId,
+			context.activeOrganizationId,
+			context.namedOrganization,
+		);
+		if (membership === "unavailable") throw orgUnavailable();
 		if (!membership) throw forbidden("You aren't a member of any organization yet");
 		const access = accessFromRow(membership);
 		return next({

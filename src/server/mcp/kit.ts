@@ -1,8 +1,10 @@
 import { z } from "zod";
+import { inOrg } from "../../lib/org-path";
 import { NO_PERMISSION_MESSAGE, PERMISSION_LABEL, type Permission } from "../../lib/permissions";
 import { logActivity } from "../activity";
 import { brandIds, brandIn } from "../brands";
 import { db, schema } from "../db";
+import { baseUrl } from "../env";
 import { ApiError, notFound } from "../errors";
 import { bimiLogoUrl, dnsRecords } from "../provision";
 import { inScope, type Scope } from "../queries";
@@ -30,7 +32,9 @@ export interface Tool {
 export const organization = z
 	.string()
 	.optional()
-	.describe("The organization's slug, id or name. Optional when you belong to only one.");
+	.describe(
+		"The organization's slug, id, name or URL handle (the 6 characters after the domain in a dashboard link). Optional when you belong to only one.",
+	);
 
 export const brand = z
 	.string()
@@ -68,12 +72,22 @@ export const forbidden = (org: Membership, p?: Permission) =>
 		`${NO_PERMISSION_MESSAGE} (${org.name}${p ? `: ${PERMISSION_LABEL[p].toLowerCase()}` : ""}).`,
 	);
 
-/** The organization a call names (slug, id or name; optional with one), if the person may. */
+/**
+ * A full dashboard link to `path` in the organization (/received/x →
+ * https://mailroom.example.com/k7x2m9/received/x), for the tools' answers: it opens that
+ * organization, not whichever one the person last used. Person and public pages stay as they are.
+ */
+export const dashboardUrl = (org: Pick<Membership, "handle">, path: string) =>
+	`${baseUrl()}${inOrg(org.handle, path)}`;
+
+/** The organization a call names (slug, handle, id or name; optional with one), if the person may. */
 export function orgAt(ctx: McpContext, ref: unknown, need: Need = "member"): Membership {
 	const r = typeof ref === "string" ? ref.trim().toLowerCase() : "";
 	const list = ctx.organizations;
 	const org = r
-		? list.find((o) => o.id === ref || o.slug === r || o.name.toLowerCase() === r)
+		? list.find(
+				(o) => o.id === ref || o.slug === r || o.handle === r || o.name.toLowerCase() === r,
+			)
 		: list.length === 1
 			? list[0]
 			: undefined;

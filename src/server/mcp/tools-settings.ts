@@ -10,7 +10,7 @@ import { db, schema } from "../db";
 import { domainHealth } from "../deliverability";
 import { sendsReportsHere, withReportsAddress } from "../dmarc-address";
 import { dnsHelp } from "../domain-connect";
-import { baseUrl, requestLogRetentionDays } from "../env";
+import { requestLogRetentionDays } from "../env";
 import { ApiError, notFound } from "../errors";
 import { checkAddress } from "../firewall";
 import {
@@ -57,6 +57,7 @@ import { personActor } from "./inbox-tools";
 import {
 	brand,
 	brandOf,
+	dashboardUrl,
 	defined,
 	domainOf,
 	domainView,
@@ -416,7 +417,7 @@ export const SETTINGS_TOOLS: Tool[] = [
 					dmarc: dmarc?.found ?? true,
 					bimi: !bimiRecord || !bimi || bimi.found,
 				},
-				`${baseUrl()}/domains/${d.id}?connected=1`,
+				dashboardUrl(org, `/domains/${d.id}?connected=1`),
 			).catch(() => null);
 			const own = dmarc?.found && !dmarc.inherited ? dmarc.record : null;
 			return {

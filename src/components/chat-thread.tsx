@@ -41,6 +41,7 @@ import {
 import { errorMessage } from "@/lib/errors";
 import { formatAgo, formatDateTime } from "@/lib/format";
 import { Ph, useSketching } from "@/lib/sketch";
+import { ORG_PARAM, tabHandle } from "@/lib/tab-org";
 import { cn } from "@/lib/utils";
 
 /**
@@ -143,7 +144,9 @@ function useRoom(
 		let again: ReturnType<typeof setTimeout> | undefined;
 		let clearTyping: ReturnType<typeof setTimeout> | undefined;
 		const open = () => {
-			const url = `${location.origin.replace(/^http/, "ws")}/chat-live/${id}`;
+			// This tab's organization, not whichever one another tab switched to.
+			const handle = tabHandle();
+			const url = `${location.origin.replace(/^http/, "ws")}/chat-live/${id}${handle ? `?${ORG_PARAM}=${handle}` : ""}`;
 			const s = new WebSocket(url);
 			ws.current = s;
 			s.onopen = () => {

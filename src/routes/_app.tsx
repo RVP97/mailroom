@@ -1,6 +1,7 @@
 import {
 	createFileRoute,
 	Link,
+	notFound,
 	Outlet,
 	redirect,
 	useLocation,
@@ -47,10 +48,11 @@ import { type ComponentType, type ReactNode, Suspense, useEffect, useMemo, useSt
 import { CommandMenu, type NavItem, useCommandMenu } from "@/components/command-menu";
 import { Mark } from "@/components/logo";
 import { NavProgress } from "@/components/nav-progress";
+import { NoOrgAccess } from "@/components/no-org-access";
 import { UserAvatar } from "@/components/org-avatar";
 import { OrgSwitchVeil } from "@/components/org-switch-veil";
 import { OrgSwitcher } from "@/components/org-switcher";
-import { PagePending } from "@/components/route-states";
+import { PageMissing as MissingPage, PagePending } from "@/components/route-states";
 import { StoppedBanner } from "@/components/stopped-banner";
 import { useTheme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
@@ -78,20 +80,35 @@ import {
 import { useEnteringPage } from "@/lib/pending";
 import { Ph, Sketch, SketchTarget } from "@/lib/sketch";
 import { useSwitchOrg } from "@/lib/switch-org";
+import { adoptHandle, isOrgUnavailable, repinFromAddress } from "@/lib/tab-org";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app")({
 	// A loader, not beforeLoad: on the first visit it runs alongside the page's own data instead of
 	// before it, and afterwards it answers from the browser's copy.
+	// An address naming an organization that isn't the person's (someone else's, mistyped, or one
+	// they were removed from): a page saying so, never another organization's pages instead. A
+	// refusal of the tab's remembered organization while the address names another (or none) is
+	// the tab's to fix: it takes the address's and asks once more (repinFromAddress).
 	loader: async ({ location }) => {
 		try {
-			return await loadMe();
+			try {
+				return await loadMe();
+			} catch (error) {
+				if (!isOrgUnavailable(error) || !repinFromAddress()) throw error;
+				forgetMe();
+				return await loadMe();
+			}
 		} catch (error) {
 			if (error instanceof Response && error.status === 401)
-				throw redirect({ to: "/login", search: { next: location.href } });
+				// The address as the browser shows it (with its organization), to come back to.
+				throw redirect({ to: "/login", search: { next: location.publicHref } });
+			if (isOrgUnavailable(error)) throw notFound({ data: { org: true } });
 			throw error;
 		}
 	},
+	notFoundComponent: ({ data }) =>
+		(data as { org?: boolean } | undefined)?.org ? <NoOrgAccess /> : <MissingPage />,
 	// The dashboard renders in the browser (start.ts), so this is what the first paint shows.
 	pendingComponent: AppPending,
 	pendingMs: 0,
@@ -143,6 +160,8 @@ function AppLayout() {
 	const me = Route.useLoaderData();
 	const router = useRouter();
 	const entering = useEnteringPage();
+	// This tab's organization when its address names none (a person's page like /account first).
+	adoptHandle(me.active?.handle);
 
 	// Fetch every page's data while the browser is idle, so the first click on each is instant too,
 	// and the code of the pages opened from a list (an email, a domain).
@@ -586,11 +605,14 @@ const STAND_IN_ME: Me = {
 	pausedDomains: [],
 	user: { id: "", email: "someone@example.com", name: "Someone" },
 	isAdmin: false,
-	organizations: [{ id: "", name: "Organization", slug: "", role: "owner", logo: null }],
+	organizations: [
+		{ id: "", name: "Organization", slug: "", handle: null, role: "owner", logo: null },
+	],
 	active: {
 		id: "",
 		name: "Organization",
 		slug: "",
+		handle: null,
 		role: "owner",
 		roleName: "Owner",
 		logo: null,

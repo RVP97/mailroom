@@ -2,8 +2,8 @@ import { eq } from "drizzle-orm";
 import { recipients } from "./alerts";
 import { orgOf } from "./brands";
 import { db, schema } from "./db";
-import { cfg } from "./env";
 import { type Latency, SLOW_SECONDS, timeToInbox } from "./insights";
+import { appLink } from "./org-handles";
 import { sendSystemEmail, systemLayout } from "./system-email";
 import { iso } from "./time";
 
@@ -50,7 +50,7 @@ export async function checkSlowDelivery(now = Date.now()) {
 					: "It's slow at every provider, which usually means SES or the queue is behind: check the sending rate in the AWS account page.",
 				"Login codes and password resets that take this long often get requested again.",
 			],
-			button: { label: "Open Insights", url: `${cfg().BETTER_AUTH_URL ?? ""}/insights` },
+			button: { label: "Open Insights", url: await appLink(brand.id, "/insights") },
 		});
 		const to = await recipients(await orgOf(brand.id));
 		const results = await Promise.allSettled(
