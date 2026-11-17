@@ -27,6 +27,14 @@ export const accountStatusFn = createServerFn({ method: "GET" })
 		return { status, byOrg, all, costs, receiving, split };
 	});
 
+/** The running Mailroom version and the newest release on GitHub (asked at most once a day). */
+export const versionStatusFn = createServerFn({ method: "GET" })
+	.middleware([adminMiddleware])
+	.handler(async () => {
+		const { versionStatus } = await import("@/server/updates");
+		return versionStatus();
+	});
+
 /** Asks Cost Explorer again now (unless it answered in the last few minutes). */
 export const refreshCostsFn = createServerFn({ method: "POST" })
 	.middleware([adminMiddleware])

@@ -1089,5 +1089,23 @@ export const SETTINGS_TOOLS: Tool[] = [
 			return { costs, by_organization: await costByOrganization(costs).catch(() => null) };
 		},
 	},
+	{
+		name: "mailroom_version",
+		title: "Mailroom's version and updates",
+		description:
+			"The Mailroom version this deployment runs, the newest release on GitHub (checked at most once a day; off with UPDATE_CHECK=false), whether an update is out, its highlights and how to update.",
+		input: {},
+		readOnly: true,
+		openWorld: true,
+		run: async () => {
+			const { versionStatus } = await import("../updates");
+			const s = await versionStatus();
+			return {
+				...s,
+				how_to_update:
+					"Pull the upstream repo's main into your copy (git remote add upstream https://github.com/RVP97/mailroom && git pull upstream main) and push: Workers Builds deploys and applies new D1 migrations.",
+			};
+		},
+	},
 	...WORKFLOW_TOOLS,
 ];

@@ -101,7 +101,10 @@
 		"DOMAIN_CONNECT_PROVIDER_ID": "",
 		// Who runs this deployment, named on the public About, Privacy and Terms pages.
 		"OPERATOR_NAME": "",
-		"CONTACT_EMAIL": ""
+		"CONTACT_EMAIL": "",
+		// Once a day the Worker asks GitHub for Mailroom's newest release, and the deployment's
+		// admins see a notice when it's newer than this one (src/server/updates.ts). "false": off.
+		"UPDATE_CHECK": "true"
 	}
 	// Secrets (wrangler secret put …): BETTER_AUTH_SECRET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY;
 	// optional: DOMAIN_CONNECT_PRIVATE_KEY (scripts/domain-connect-key.sh), CLOUDFLARE_API_TOKEN

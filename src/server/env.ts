@@ -53,6 +53,8 @@ export interface MailroomEnv {
 	EMAILABLE_API_KEY?: string;
 	/** Emailable checks a month at most (default 1000). */
 	EMAILABLE_MONTHLY_LIMIT?: string;
+	/** "false": never ask GitHub for new Mailroom releases (src/server/updates.ts). */
+	UPDATE_CHECK?: string;
 }
 
 export const cfg = () => env as unknown as MailroomEnv;

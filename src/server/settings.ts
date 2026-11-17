@@ -27,7 +27,9 @@ export type SettingKey =
 	| "postmaster_connected_at"
 	/** AWS refused the deployment's keys while sending (src/server/aws-health.ts): JSON
 	 * { message, at }, or "" once a send works again. */
-	| "aws_credentials_error";
+	| "aws_credentials_error"
+	/** The newest Mailroom release on GitHub, as JSON, and when it was asked (src/server/updates.ts). */
+	| "latest_release";
 
 const cache = new Map<string, { value: string | null; until: number }>();
 const TTL_MS = 30_000;

@@ -64,6 +64,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Kbd } from "@/components/ui/kbd";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { RepoLink, UpdateNotice } from "@/components/update-notice";
 import { authClient } from "@/lib/auth-client";
 import {
 	forgetMe,
@@ -222,6 +223,7 @@ function Shell({ me, children }: { me: Me; children: ReactNode }) {
 				</main>
 			</div>
 			<OrgSwitchVeil />
+			<UpdateNotice me={me} />
 		</CommandMenu>
 	);
 }
@@ -344,7 +346,8 @@ function SidebarContent({ me, onPicked }: { me: Me; onPicked?: () => void }) {
 					/>
 				)}
 			</nav>
-			<div className="mt-auto">
+			<div className="mt-auto flex flex-col gap-1">
+				<RepoLink me={me} />
 				<UserMenu me={me} />
 			</div>
 		</div>

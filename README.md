@@ -564,6 +564,7 @@ Vars live in `wrangler.jsonc` (or `MAILROOM_WRANGLER_CONFIG`); secrets are set w
 | `CLOUDFLARE_ACCOUNT_ID` | empty | Where sign-up forms make their Turnstile widgets ([Sign-up forms](#sign-up-forms)). |
 | `DOMAIN_CONNECT_PROVIDER_ID` | empty | One-click DNS with your own Domain Connect template ([details](domain-connect/README.md)). |
 | `SENTRY_DSN` | empty | Error tracking in Sentry, for the Worker and the dashboard. |
+| `UPDATE_CHECK` | `true` | `false` stops the daily check for new Mailroom releases ([Updating](#updating)). |
 
 | Secret | |
 | --- | --- |
@@ -1144,9 +1145,35 @@ outside a data spot, or on any layout shift after loading.
 
 ## Updating
 
-Pull this repo's changes into your copy (with the button, GitHub's **Sync fork** doesn't apply,
-so add this repo as a remote: `git remote add upstream https://github.com/RVP97/mailroom &&
-git pull upstream main`) and push: Workers Builds deploys, applying new D1 migrations first.
+**Knowing there's a new version.** Mailroom is released as [GitHub releases](https://github.com/RVP97/mailroom/releases)
+(`v1.2.0`, with what changed). Once a day your Worker asks GitHub for the newest one (one
+request, never from your visitors' browsers; nothing about your deployment is sent). When it's
+newer than yours, the deployment's admins (`ADMIN_EMAILS`) see a card with what's new and an
+**Update** mark next to the version at the bottom of the sidebar, which always links to this
+repo. Dismissing the card hides it until the next version. `UPDATE_CHECK=false` turns the check
+off. Assistants can ask too: the MCP tool `mailroom_version`.
+
+**Updating.** Pull this repo's changes into your copy and push: Workers Builds deploys, applying
+new D1 migrations first.
+
+- A fork: GitHub's **Sync fork** button on your fork, or the commands below.
+- A copy made by the Deploy button (not a fork, so Sync fork doesn't apply), or a clone:
+
+  ```sh
+  git remote add upstream https://github.com/RVP97/mailroom   # once
+  git pull upstream main
+  git push
+  ```
+
+  If you changed files yourself, git may ask you to settle conflicts first. Keeping your own
+  values in `MAILROOM_WRANGLER_CONFIG` instead of `wrangler.jsonc` avoids most of them.
+
+Read the release notes first: anything that needs a step from you (a new secret, an AWS
+permission: `scripts/update-iam.sh`) is listed there.
+
+**Releasing (maintainers).** Bump `version` in `package.json`, push to main, then publish a
+GitHub release tagged `v<version>` whose notes list the changes as `- ` bullets (the first
+four show in the dashboard's card). Drafts and pre-releases aren't offered as updates.
 
 ## Contributing and security
 
