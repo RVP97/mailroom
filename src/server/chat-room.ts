@@ -1,4 +1,5 @@
 import { DurableObject, env } from "cloudflare:workers";
+import { isTransient } from "./db/retry";
 
 /**
  * One website chat's live line (src/server/chat.ts): the open WebSockets of the visitor's tabs
@@ -213,8 +214,9 @@ export async function openRoomSocket(conversationId: string, request: Request): 
 
 /**
  * Tells whoever is connected; never fails the caller (D1 already has it). A room that was reset
- * (a deploy, or Cloudflare moving it) says its error is retryable: one more try, on a new stub,
- * reaches the new instance.
+ * (a deploy, or Cloudflare moving it) says its error is retryable, and Cloudflare's bare
+ * "internal error; reference = …" is a blip too: one more try, on a new stub, reaches it. If the
+ * blip lasts, it's only a warning: D1 has it, so the next refresh shows it.
  */
 export async function pushToRoom(conversationId: string, event: RoomEvent, teamEvent?: RoomEvent) {
 	for (let attempt = 0; ; attempt++) {
@@ -222,9 +224,14 @@ export async function pushToRoom(conversationId: string, event: RoomEvent, teamE
 			await chatRoom(conversationId)?.broadcast(event, teamEvent);
 			return;
 		} catch (error) {
-			const retryable = (error as { retryable?: boolean } | null)?.retryable === true;
-			if (attempt === 0 && retryable) continue;
-			console.error("chat: room not told", error);
+			const transient =
+				(error as { retryable?: boolean } | null)?.retryable === true || isTransient(error);
+			if (attempt === 0 && transient) {
+				await new Promise((r) => setTimeout(r, 100));
+				continue;
+			}
+			if (transient) console.warn("chat: room briefly unavailable, not told", error);
+			else console.error("chat: room not told", error);
 			return;
 		}
 	}
