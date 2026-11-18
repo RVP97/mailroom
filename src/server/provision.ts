@@ -468,9 +468,28 @@ export async function refreshTenantStatus(organizationId: string) {
 			reputation: r.ReputationEntity ?? null,
 		};
 	} catch (error) {
-		console.error("provision: tenant status not read", error);
+		// A passing failure (SES slow past the 30s timeout, throttled, or down a moment) is read
+		// again on the next run, 5 minutes on; it's only an error once the status is an hour old.
+		const lastRead = row.tenant_checked_at ? Date.parse(row.tenant_checked_at) : 0;
+		if (passingAwsFailure(error) && Date.now() - lastRead < STATUS_STALE_MS)
+			console.warn("provision: tenant status not read this time", error);
+		else console.error("provision: tenant status not read", error);
 		return row;
 	}
+}
+
+/** How old a tenant's status can get before a failure to read it is reported. */
+const STATUS_STALE_MS = 60 * 60_000;
+
+/** A timeout, a dropped connection, or SES saying it's busy or briefly unavailable. */
+function passingAwsFailure(error: unknown) {
+	if (error instanceof SesError) return error.transient;
+	const name = (error as { name?: string } | null)?.name;
+	return (
+		name === "TimeoutError" ||
+		name === "AbortError" ||
+		/Network connection lost|fetch failed/i.test(String((error as Error)?.message))
+	);
 }
 
 // ── Domains ────────────────────────────────────────────────────────────────
