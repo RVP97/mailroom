@@ -1466,6 +1466,9 @@ export async function saveDraft(
 	assertFree(actor, x, now);
 	if (v.saved_reply_id && v.text === undefined)
 		v.text = (await savedReplyText(actor, x, v.saved_reply_id)).text;
+	// A chat line has a cap (src/server/chat.ts): say so now, not when the draft is sent.
+	if (x.channel === "chat" && v.text !== undefined)
+		(await import("./chat")).assertTeamText(v.text);
 	const inbox = await inboxOfConversation(x);
 	const d = await replyDefaults(x, inbox);
 	const from = actor.type === "agent" ? d.from : (v.from ?? d.from);

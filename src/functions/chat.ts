@@ -201,7 +201,7 @@ export const sendChatFileFn = createServerFn({ method: "POST" })
 			conversation: z.string(),
 			filename: z.string().max(300),
 			data: z.string().max(14_500_000),
-			text: z.string().max(4000).optional(),
+			text: z.string().max(20_000).optional(),
 			client_id: z.string().max(80).optional(),
 		}),
 	)

@@ -62,8 +62,13 @@ const c = schema.conversations;
 // ── Limits ─────────────────────────────────────────────────────────────────
 
 export const CHAT_LIMITS = {
-	/** Characters in one message. */
+	/** Characters in one visitor message from the widget (longer is refused, never cut). */
 	text: 4000,
+	/**
+	 * Characters in one line from the team (dashboard, API, MCP, an emailed reply) or an emailed
+	 * visitor answer. Longer is refused with this number, never cut.
+	 */
+	teamText: 20_000,
 	/** Visitor messages a minute, per chat. */
 	perMinute: 20,
 	/** Visitor messages in one chat. */
@@ -76,6 +81,15 @@ export const CHAT_LIMITS = {
 	/** Websites per widget. */
 	origins: 20,
 };
+
+/** A team line over the cap is refused with the cap in the message, never cut. */
+export function assertTeamText(text: string) {
+	const n = text.trim().length;
+	if (n > CHAT_LIMITS.teamText)
+		throw validation(
+			`text: a chat message takes up to ${CHAT_LIMITS.teamText.toLocaleString("en-US")} characters (this one has ${n.toLocaleString("en-US")}); shorten it or send it in parts`,
+		);
+}
 
 export const FILE_TYPES: Record<string, string> = {
 	"image/png": "png",
@@ -936,7 +950,7 @@ async function postVisitorLine(
 		author: "visitor",
 		author_id: null,
 		author_name: x.visitor_name,
-		text: m.text.slice(0, CHAT_LIMITS.text),
+		text: m.text,
 		attachments: m.attachments?.length ? m.attachments : null,
 		via: m.via,
 		client_id: m.client_id,
@@ -1685,8 +1699,9 @@ export async function teamSays(
 	now = Date.now(),
 ) {
 	need(actor as InboxActor, "send");
-	const text = m.text.trim().slice(0, CHAT_LIMITS.text);
+	const text = m.text.trim();
 	if (!text && !m.attachments?.length) throw validation("text: write the reply");
+	assertTeamText(text);
 	if (m.client_id) {
 		const again = await lineByClientId(x.id, m.client_id);
 		if (again) return again;
@@ -1997,7 +2012,7 @@ export function replyText(raw: string | null | undefined) {
 		)
 		.replace(/\n{3,}/g, "\n\n")
 		.trim();
-	return text.slice(0, CHAT_LIMITS.text);
+	return text;
 }
 
 /** An HTML part as text, for replies without a plain-text part. */
@@ -2080,6 +2095,8 @@ export async function chatEmailIn(e: ChatEmail): Promise<boolean> {
 	const now = e.now ?? Date.now();
 	const content = e.parsed?.text?.trim() ? e.parsed.text : htmlText(e.parsed?.html ?? "");
 	const text = replyText(content);
+	// Too long for a chat line: kept whole as a received email on the usual path, never cut.
+	if (text.length > CHAT_LIMITS.teamText) return false;
 	const files: ChatAttachment[] = [];
 	for (const a of (e.parsed?.attachments ?? []).slice(0, 5)) {
 		const type = lower(a.mimeType ?? "");

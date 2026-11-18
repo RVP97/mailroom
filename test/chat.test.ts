@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
+	CHAT_LIMITS,
 	type ChatSender,
 	chatWidgetView,
 	deleteChatFiles,
@@ -541,6 +542,74 @@ describe("website chat: sending a draft twice", () => {
 		expect(
 			replyText("Gracias\n\n##- Escriba su respuesta arriba de esta línea -##\nviejo"),
 		).toBe("Gracias");
+	});
+});
+
+describe("website chat: long messages", () => {
+	// A reply of ~6,400 characters (the Fiscalisto one) was cut at 4,000 and still answered "sent".
+	const long = Array.from({ length: 160 }, (_, i) => `Línea ${i}: los servicios incluidos.`).join(
+		"\n",
+	);
+
+	it("a team draft longer than the visitor's cap goes to the chat whole, and its email too", async () => {
+		expect(long.length).toBeGreaterThan(CHAT_LIMITS.text);
+		const { org, widget } = await setUp();
+		const t0 = Date.parse("2025-03-06T11:00:00Z");
+		vi.setSystemTime(t0);
+		const chat = await start(widget.public_key, "¿Qué incluye?", { email: "ana@guest.test" });
+		const pat = person(org.id);
+		const draft = await saveDraft(pat, chat.conversation.id, { text: long });
+		vi.setSystemTime(t0 + 60_000);
+		const sent = await sendReply(pat, chat.conversation.id, {}, noEmail, { draftId: draft.id });
+		vi.useRealTimers();
+		expect(sent.text).toBe(long);
+		const stored = await db
+			.select()
+			.from(schema.chatMessages)
+			.where(eq(schema.chatMessages.conversation_id, chat.conversation.id));
+		expect(stored.find((l) => l.author === "person")?.text).toBe(long);
+		const seen = await call(widget.public_key, "messages", { token: chat.token });
+		expect(seen.json.messages.at(-1).text).toBe(long);
+		const mail = sender();
+		expect(await emailVisitors(t0 + 10 * 60_000, mail.s)).toBe(1);
+		expect(mail.sent[0]?.text).toContain(long.slice(-200));
+	});
+
+	it("over the team's cap is refused with the cap, at draft and at send, never cut", async () => {
+		const { org, widget } = await setUp();
+		const chat = await start(widget.public_key);
+		const pat = person(org.id);
+		const huge = "a".repeat(20_001);
+		await expect(saveDraft(pat, chat.conversation.id, { text: huge })).rejects.toThrow(
+			/up to 20,000 characters/,
+		);
+		await expect(sendReply(pat, chat.conversation.id, { text: huge }, noEmail)).rejects.toThrow(
+			/up to 20,000 characters/,
+		);
+		const lines = await db
+			.select()
+			.from(schema.chatMessages)
+			.where(eq(schema.chatMessages.conversation_id, chat.conversation.id));
+		expect(lines.filter((l) => l.author === "person")).toHaveLength(0);
+	});
+
+	it("an emailed answer keeps all its words (no cut at the widget's cap)", () => {
+		expect(replyText(`${long}\n\nOn Mon, Ana wrote:\n> old`)).toBe(long);
+	});
+
+	it("a visitor's message over the widget's cap is refused, not cut", async () => {
+		const { widget } = await setUp();
+		const chat = await start(widget.public_key);
+		const r = await call(widget.public_key, "messages", {
+			body: { text: "b".repeat(CHAT_LIMITS.text + 1) },
+			token: chat.token,
+		});
+		expect(r.status).toBe(422);
+		const lines = await db
+			.select()
+			.from(schema.chatMessages)
+			.where(eq(schema.chatMessages.conversation_id, chat.conversation.id));
+		expect(lines.filter((l) => l.author === "visitor")).toHaveLength(1);
 	});
 });
 
