@@ -13,7 +13,7 @@ import type { BrandKit } from "../../lib/brand-kit";
 import type { Block, EmailDoc } from "../../lib/email-doc";
 import type { FileStorage } from "../chat-storage";
 import type { SegmentRules } from "../live-segments";
-import { organization } from "./auth-schema";
+import { organization, user } from "./auth-schema";
 
 export * from "./auth-schema";
 
@@ -2069,6 +2069,19 @@ export const organizationSettings = sqliteTable("organization_settings", {
 	/** Frequency cap: at most cap_count broadcasts per person in cap_days (null: no cap). */
 	cap_count: integer("cap_count"),
 	cap_days: integer("cap_days"),
+	updated_at: text("updated_at").notNull(),
+});
+
+/** A person's own preferences across organizations (not any one organization's). */
+export const userSettings = sqliteTable("user_settings", {
+	user_id: text("user_id")
+		.primaryKey()
+		.references(() => user.id, { onDelete: "cascade" }),
+	/**
+	 * Combine every organization's weekly digest into one Monday email instead of sending one per
+	 * organization (src/server/digest.ts). Off by default.
+	 */
+	combine_digests: integer("combine_digests", { mode: "boolean" }).notNull().default(false),
 	updated_at: text("updated_at").notNull(),
 });
 

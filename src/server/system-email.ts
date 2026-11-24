@@ -133,3 +133,45 @@ ${o.button ? `<p style="margin:24px 0 8px"><a href="${escapeHtml(o.button.url)}"
 	].join("\n");
 	return { html, text };
 }
+
+/** Multi-section layout for platform emails that summarize several organizations at once. */
+export function systemSectionsLayout(o: {
+	title: string;
+	intro?: string;
+	sections: { title: string; lines: string[]; link?: { label: string; url: string } }[];
+	footer?: string;
+	button?: { label: string; url: string };
+}) {
+	const html = `<!doctype html><html><body style="margin:0;padding:32px 16px;background:#f6f6f4;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1c1c1a">
+<table role="presentation" width="100%" style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e7e6e1;border-radius:12px"><tr><td style="padding:32px">
+<p style="margin:0 0 24px;font-size:15px;font-weight:600;letter-spacing:-.01em">Mailroom</p>
+<h1 style="margin:0 0 12px;font-size:20px;font-weight:600">${escapeHtml(o.title)}</h1>
+${o.intro ? `<p style="margin:0 0 20px;font-size:14px;line-height:1.55;color:#4a4a46">${escapeHtml(o.intro)}</p>` : ""}
+${o.sections
+	.map(
+		(s) => `<div style="border-top:1px solid #e7e6e1;padding-top:16px;margin-top:16px">
+<table role="presentation" width="100%" style="margin:0 0 8px"><tr>
+<td style="font-size:15px;font-weight:600;color:#1c1c1a">${escapeHtml(s.title)}</td>
+${s.link ? `<td align="right" style="font-size:13px"><a href="${escapeHtml(s.link.url)}" style="color:#1c1c1a;text-decoration:underline">${escapeHtml(s.link.label)}</a></td>` : ""}
+</tr></table>
+${s.lines.map((l) => `<p style="margin:0 0 8px;font-size:14px;line-height:1.55;color:#4a4a46">${escapeHtml(l)}</p>`).join("")}
+</div>`,
+	)
+	.join("")}
+${o.footer ? `<p style="margin:20px 0 0;padding-top:16px;border-top:1px solid #e7e6e1;font-size:13px;line-height:1.5;color:#6f6e69">${escapeHtml(o.footer)}</p>` : ""}
+${o.button ? `<p style="margin:20px 0 8px"><a href="${escapeHtml(o.button.url)}" style="display:inline-block;background:#1c1c1a;color:#fff;text-decoration:none;font-size:14px;font-weight:500;padding:10px 18px;border-radius:8px">${escapeHtml(o.button.label)}</a></p>` : ""}
+</td></tr></table></body></html>`;
+	const text = [
+		o.title,
+		...(o.intro ? ["", o.intro] : []),
+		...o.sections.flatMap((s) => [
+			"",
+			s.title,
+			...s.lines,
+			...(s.link ? [`${s.link.label}: ${s.link.url}`] : []),
+		]),
+		...(o.footer ? ["", o.footer] : []),
+		...(o.button ? ["", `${o.button.label}: ${o.button.url}`] : []),
+	].join("\n");
+	return { html, text };
+}

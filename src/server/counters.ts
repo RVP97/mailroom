@@ -25,15 +25,15 @@ export function senderDomain(from: string): string {
 
 /**
  * One more in a counter, for the brand and for its sending domain. With `onlyIfNull`, only when
- * the email's column is still empty (first open, first click), so it must run before the email
- * is updated.
+ * the email's column is still empty (first delivery, first open, first click), so it must run
+ * before the email is updated.
  */
 export function bump(
 	organizationId: string,
 	day: string,
 	from: string,
 	counter: Counter,
-	onlyIfNull?: { emailId: string; column: "opened_at" | "clicked_at" },
+	onlyIfNull?: { emailId: string; column: "delivered_at" | "opened_at" | "clicked_at" },
 ) {
 	const domain = senderDomain(from);
 	const when = onlyIfNull

@@ -302,7 +302,12 @@ export const LIMITS = {
 	complaint: { warning: 0.001, danger: 0.005 },
 } as const;
 
-export const rate = (part: number, whole: number) => (whole > 0 ? part / whole : 0);
+/**
+ * A share of `whole` (delivery, open, click, bounce, complaint rate), capped at 100%: daily
+ * counters bucket each event by its own day, so an email sent before midnight and delivered or
+ * opened after can otherwise make `part` exceed `whole` in a short window.
+ */
+export const rate = (part: number, whole: number) => (whole > 0 ? Math.min(1, part / whole) : 0);
 
 export function health(t: Totals) {
 	const bounce = rate(t.bounced, t.sent);

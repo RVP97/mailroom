@@ -185,4 +185,123 @@ describe("weekly digest", () => {
 		expect(sent()).toBe(first);
 		log.mockRestore();
 	});
+
+	it("caps delivery, open and click rates at 100% when events cross a day boundary", async () => {
+		const { digestFor } = await import("@/server/digest");
+		const org = await seedOrg();
+		const day = dayOf(NOW - 86_400_000);
+		await db.insert(schema.dailyStats).values({
+			organization_id: org.id,
+			day,
+			sent: 20,
+			delivered: 21,
+			opened: 25,
+			clicked: 30,
+		});
+		const lines = await digestFor(org.id, NOW);
+		expect(lines?.[0]).toContain("100.0% were delivered");
+		expect(lines?.[0]).toContain("100.0% opened");
+		expect(lines?.[0]).toContain("100.0% clicked");
+		expect(lines?.[0]).not.toContain("105");
+	});
+
+	it("combines weekly digests into one email for people who turn it on, keeping others separate", async () => {
+		const { runWeeklyDigest, sendCombinedDigest, setCombineDigests } = await import(
+			"@/server/digest"
+		);
+		const orgA = await seedOrg();
+		const orgB = await seedOrg();
+		const quietOrg = await seedOrg();
+		const day = dayOf(NOW - 86_400_000);
+		await db.insert(schema.dailyStats).values([
+			{ organization_id: orgA.id, day, sent: 120, delivered: 118, opened: 50 },
+			{ organization_id: orgB.id, day, sent: 40, delivered: 40, opened: 20 },
+		]);
+		// orgB has a paused domain so it should appear before orgA in the combined email.
+		await db
+			.update(schema.domains)
+			.set({ paused_at: iso(NOW) })
+			.where(eq(schema.domains.id, orgB.domainId));
+
+		const combinedUser = { id: `u_${uid()}`, email: `combined-${uid()}@team.test` };
+		const separateUser = { id: `u_${uid()}`, email: `separate-${uid()}@team.test` };
+		await db.insert(schema.user).values([
+			{
+				id: combinedUser.id,
+				name: "Combined",
+				email: combinedUser.email,
+				emailVerified: true,
+			},
+			{
+				id: separateUser.id,
+				name: "Separate",
+				email: separateUser.email,
+				emailVerified: true,
+			},
+		]);
+		for (const o of [orgA, orgB, quietOrg]) {
+			await db.insert(schema.member).values([
+				{
+					id: `m_${uid()}`,
+					organizationId: o.id,
+					userId: combinedUser.id,
+					role: "owner",
+					createdAt: new Date(NOW),
+				},
+				{
+					id: `m_${uid()}`,
+					organizationId: o.id,
+					userId: separateUser.id,
+					role: "owner",
+					createdAt: new Date(NOW),
+				},
+			]);
+		}
+		await setCombineDigests(combinedUser.id, true, NOW);
+
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		await runWeeklyDigest(NOW);
+		const emailsTo = (addr: string) =>
+			log.mock.calls
+				.map((c) => String(c[0]))
+				.filter((l) => l.startsWith(`[email to ${addr}]`));
+
+		// Combined user gets ONE email with both active orgs (issues first) and not the quiet org.
+		const combinedEmails = emailsTo(combinedUser.email);
+		expect(combinedEmails).toHaveLength(1);
+		const combinedBody = combinedEmails[0] ?? "";
+		expect(combinedBody).toContain("Your week in email · 2 organizations");
+		expect(combinedBody).toContain("Across 2 organizations last week: 160 emails sent");
+		expect(combinedBody).toContain(`Org ${orgA.id}`);
+		expect(combinedBody).toContain(`Org ${orgB.id}`);
+		expect(combinedBody).not.toContain(`Org ${quietOrg.id}`);
+		expect(combinedBody.indexOf(`Org ${orgB.id}`)).toBeLessThan(
+			combinedBody.indexOf(`Org ${orgA.id}`),
+		);
+
+		// Separate user still gets two individual emails (one per active org).
+		const separateEmails = emailsTo(separateUser.email);
+		expect(separateEmails).toHaveLength(2);
+		expect(separateEmails.some((l) => l.includes(`Org ${orgA.id}: your week in email`))).toBe(
+			true,
+		);
+		expect(separateEmails.some((l) => l.includes(`Org ${orgB.id}: your week in email`))).toBe(
+			true,
+		);
+
+		// A second run in the same week sends nothing again.
+		const beforeSecond = log.mock.calls.length;
+		await runWeeklyDigest(NOW + 60_000);
+		expect(log.mock.calls.length).toBe(beforeSecond);
+
+		// On-demand combined digest emails only the caller with their active organizations.
+		const onDemand = await sendCombinedDigest(
+			{ userId: combinedUser.id, email: combinedUser.email, isAdmin: false },
+			NOW,
+		);
+		expect(onDemand).toEqual({ sent: true, count: 2, to: combinedUser.email });
+		expect(emailsTo(combinedUser.email)).toHaveLength(2);
+
+		log.mockRestore();
+	});
 });

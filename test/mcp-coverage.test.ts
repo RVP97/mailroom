@@ -298,6 +298,18 @@ describe("MCP coverage", () => {
 			weekly_digest: false,
 		});
 		expect(s).toMatchObject({ name: "Harbor Inn", weekly_digest: false });
+		expect(
+			await call("update_account_settings", { combine_weekly_digests: true }),
+		).toMatchObject({ combine_weekly_digests: true });
+		expect(await call("get_organization_settings", {})).toMatchObject({
+			weekly_digest: false,
+			combine_weekly_digests: true,
+		});
+		expect(await call("send_digest_now", { combined: true })).toMatchObject({
+			sent: false,
+			count: 0,
+			to: owner.email,
+		});
 		expect((await call("delete_role", { role: role.slug })).failed).toBeTruthy();
 		expect((await call("remove_member", { member: m.id })).removed).toBe(m.id);
 		expect((await call("delete_role", { role: role.slug })).deleted).toBe(role.slug);

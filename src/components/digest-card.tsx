@@ -12,17 +12,31 @@ import {
 } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
-import { getDigestFn, sendDigestNowFn, setDigestFn } from "@/functions/digest";
+import {
+	getDigestFn,
+	sendCombinedDigestNowFn,
+	sendDigestNowFn,
+	setCombineDigestsFn,
+	setDigestFn,
+} from "@/functions/digest";
 import { errorMessage } from "@/lib/errors";
+import { useMe } from "@/lib/me";
 
-/** The weekly digest (src/server/digest.ts): a switch, and a copy now to whoever asks. */
+/** The weekly digest (src/server/digest.ts): per-org switch, optional multi-org combine, and send now. */
 export function DigestCard({ canManage }: { canManage: boolean }) {
+	const me = useMe();
+	const multiOrg = me.organizations.length > 1 || me.isAdmin;
 	const [on, setOn] = useState<boolean | null>(null);
+	const [combine, setCombine] = useState<boolean | null>(null);
 	const [busy, setBusy] = useState(false);
-	const [sending, setSending] = useState(false);
+	const [combineBusy, setCombineBusy] = useState(false);
+	const [sending, setSending] = useState<"org" | "combined" | null>(null);
 	useEffect(() => {
 		getDigestFn()
-			.then((d) => setOn(d.on))
+			.then((d) => {
+				setOn(d.on);
+				setCombine(d.combine);
+			})
 			.catch(() => {});
 	}, []);
 	return (
@@ -55,13 +69,45 @@ export function DigestCard({ canManage }: { canManage: boolean }) {
 					/>
 				</CardAction>
 			</CardHeader>
-			<CardContent>
+			{multiOrg && (
+				<div className="flex items-start justify-between gap-4 border-t border-border/70 px-5 py-4">
+					<div className="min-w-0">
+						<p className="text-sm font-medium">Combine across organizations</p>
+						<p className="mt-0.5 text-xs text-muted-foreground">
+							Put every organization's Monday report into one email instead of sending
+							a separate email for each. Applies to your account.
+						</p>
+					</div>
+					<Switch
+						checked={combine ?? false}
+						disabled={combineBusy || combine === null}
+						aria-label="Combine weekly digests across organizations"
+						onCheckedChange={async (v) => {
+							setCombineBusy(true);
+							try {
+								await setCombineDigestsFn({ data: { combine: v } });
+								setCombine(v);
+								toast.success(
+									v
+										? "Weekly digests will arrive in one email"
+										: "Weekly digests will arrive separately per organization",
+								);
+							} catch (error) {
+								toast.error(await errorMessage(error));
+							} finally {
+								setCombineBusy(false);
+							}
+						}}
+					/>
+				</div>
+			)}
+			<CardContent className="flex flex-wrap gap-2">
 				<Button
 					variant="outline"
 					size="sm"
-					disabled={sending}
+					disabled={sending !== null}
 					onClick={async () => {
-						setSending(true);
+						setSending("org");
 						try {
 							const r = await sendDigestNowFn();
 							if (r.sent) toast.success(`Sent last week's digest to ${r.to}`);
@@ -69,13 +115,41 @@ export function DigestCard({ canManage }: { canManage: boolean }) {
 						} catch (error) {
 							toast.error(await errorMessage(error));
 						} finally {
-							setSending(false);
+							setSending(null);
 						}
 					}}
 				>
-					{sending ? <Spinner /> : <Send />}
+					{sending === "org" ? <Spinner /> : <Send />}
 					Send me last week's
 				</Button>
+				{multiOrg && (
+					<Button
+						variant="outline"
+						size="sm"
+						disabled={sending !== null}
+						onClick={async () => {
+							setSending("combined");
+							try {
+								const r = await sendCombinedDigestNowFn();
+								if (r.sent)
+									toast.success(
+										`Sent combined digest (${r.count} ${r.count === 1 ? "organization" : "organizations"}) to ${r.to}`,
+									);
+								else
+									toast.info(
+										"Nothing was sent last week across your organizations",
+									);
+							} catch (error) {
+								toast.error(await errorMessage(error));
+							} finally {
+								setSending(null);
+							}
+						}}
+					>
+						{sending === "combined" ? <Spinner /> : <Send />}
+						Send combined digest
+					</Button>
+				)}
 			</CardContent>
 		</Card>
 	);

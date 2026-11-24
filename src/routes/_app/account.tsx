@@ -6,6 +6,7 @@ import {
 	Mail,
 	MoreHorizontal,
 	Plus,
+	Send,
 	ShieldCheck,
 	Trash2,
 	Unlink,
@@ -21,6 +22,7 @@ import { TwoFactorChallenge } from "@/components/two-factor-challenge";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
+	CardAction,
 	CardContent,
 	CardDescription,
 	CardFooter,
@@ -46,9 +48,16 @@ import { FieldError } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
+import {
+	getDigestPreferenceFn,
+	sendCombinedDigestNowFn,
+	setCombineDigestsFn,
+} from "@/functions/digest";
 import { securityFn } from "@/functions/security";
 import { signInOptionsFn } from "@/functions/sign-in";
 import { authClient } from "@/lib/auth-client";
+import { errorMessage } from "@/lib/errors";
 import { formatRelative } from "@/lib/format";
 import { forgetMe, useMe } from "@/lib/me";
 import { useOptimisticState } from "@/lib/optimistic";
@@ -67,11 +76,12 @@ type Linked = { id: string; providerId: string; accountId: string; createdAt: Da
 
 export const Route = createFileRoute("/_app/account")({
 	loader: async () => {
-		const [keys, accounts, options, security] = await Promise.all([
+		const [keys, accounts, options, security, digestPref] = await Promise.all([
 			authClient.passkey.listUserPasskeys(),
 			authClient.listAccounts(),
 			signInOptionsFn(),
 			securityFn(),
+			getDigestPreferenceFn(),
 		]);
 		return {
 			keys: (keys.data as Passkey[] | null) ?? [],
@@ -80,6 +90,7 @@ export const Route = createFileRoute("/_app/account")({
 			),
 			google: options.google,
 			security,
+			combineDigests: digestPref.combine,
 		};
 	},
 	head: () => ({ meta: [{ title: "Account · Mailroom" }] }),
@@ -102,6 +113,7 @@ export const Route = createFileRoute("/_app/account")({
 					passwordChangedAt: ago(60 * 24 * 30),
 					twoFactor: rememberedRows("two-factor", 0) > 0,
 				} satisfies Security,
+				combineDigests: rememberedRows("combine-digests", 0) > 0,
 			}}
 		>
 			<Account />
@@ -114,9 +126,10 @@ const withoutKey = (keys: Passkey[], id: string) => keys.filter((k) => k.id !== 
 
 function Account() {
 	const me = useMe();
-	const { security } = usePage(Route).data;
+	const { security, combineDigests } = usePage(Route).data;
 	useRememberRows("password", security.hasPassword ? 1 : 0);
 	useRememberRows("two-factor", security.twoFactor ? 1 : 0);
+	useRememberRows("combine-digests", combineDigests ? 1 : 0);
 	return (
 		<Page className="max-w-3xl">
 			<PageHeader
@@ -124,6 +137,7 @@ function Account() {
 				description={<Ph>{me.user.email}</Ph>}
 			/>
 			<Name />
+			<WeeklyDigestPreference initial={combineDigests} />
 			<SignInMethods />
 			<Passkeys />
 			<PasswordCard
@@ -135,6 +149,75 @@ function Account() {
 				email={me.user.email}
 			/>
 		</Page>
+	);
+}
+
+/** Combine every organization's Monday digest into one email for this account. */
+function WeeklyDigestPreference({ initial }: { initial: boolean }) {
+	const [combine, setCombine] = useState(initial);
+	const [busy, setBusy] = useState(false);
+	const [sending, setSending] = useState(false);
+	useEffect(() => {
+		setCombine(initial);
+	}, [initial]);
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle>Weekly digest</CardTitle>
+				<CardDescription>
+					Combine every organization's Monday report into one email instead of receiving a
+					separate email for each.
+				</CardDescription>
+				<CardAction>
+					<Switch
+						checked={combine}
+						disabled={busy}
+						aria-label="Combine weekly digests across organizations"
+						onCheckedChange={async (v) => {
+							setBusy(true);
+							try {
+								await setCombineDigestsFn({ data: { combine: v } });
+								setCombine(v);
+								toast.success(
+									v
+										? "Weekly digests will arrive in one email"
+										: "Weekly digests will arrive separately per organization",
+								);
+							} catch (error) {
+								toast.error(await errorMessage(error));
+							} finally {
+								setBusy(false);
+							}
+						}}
+					/>
+				</CardAction>
+			</CardHeader>
+			<CardContent>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={sending}
+					onClick={async () => {
+						setSending(true);
+						try {
+							const r = await sendCombinedDigestNowFn();
+							if (r.sent)
+								toast.success(
+									`Sent combined digest (${r.count} ${r.count === 1 ? "organization" : "organizations"}) to ${r.to}`,
+								);
+							else toast.info("Nothing was sent last week across your organizations");
+						} catch (error) {
+							toast.error(await errorMessage(error));
+						} finally {
+							setSending(false);
+						}
+					}}
+				>
+					{sending ? <Spinner /> : <Send />}
+					Send combined digest
+				</Button>
+			</CardContent>
+		</Card>
 	);
 }
 

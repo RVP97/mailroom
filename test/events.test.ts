@@ -284,6 +284,57 @@ describe("SES events", () => {
 		expect(stats.totals.clicked).toBe(1);
 	});
 
+	it("counts delivery once per email even when SES sends multiple Delivery events (e.g. CC)", async () => {
+		const org = await seedOrg();
+		fakeOutside();
+		const [r] = await createEmails(org.id, [
+			parseSend({
+				from: `a@${org.domain}`,
+				to: ["first@gmail.com"],
+				cc: ["second@outlook.com"],
+				subject: "s",
+				text: "t",
+			}),
+		]);
+		const saved = await row(r?.id as string);
+		const e = { id: saved?.id as string, messageId: saved?.message_id as string };
+		fakeOutside();
+		await handleSns(await snsNotification({ eventType: "Send", mail: mail(e) }));
+		await handleSns(
+			await snsNotification({
+				eventType: "Delivery",
+				mail: mail(e),
+				delivery: {
+					timestamp: "2026-12-31T23:30:05.000-06:00",
+					recipients: ["first@gmail.com"],
+				},
+			}),
+		);
+		await handleSns(
+			await snsNotification({
+				eventType: "Delivery",
+				mail: mail(e),
+				delivery: {
+					timestamp: "2026-12-31T23:30:08.000-06:00",
+					recipients: ["second@outlook.com"],
+				},
+			}),
+		);
+		const stats = await dailyStats(org.id, 3, Date.parse("2027-01-01T12:00:00Z"));
+		expect(stats.totals.sent).toBe(1);
+		expect(stats.totals.delivered).toBe(1);
+		const byDomain = await dailyStats(org.id, 3, Date.parse("2027-01-01T12:00:00Z"), {
+			domain: org.domain,
+		});
+		expect(byDomain.totals.delivered).toBe(1);
+		const providers = await db
+			.select()
+			.from(schema.providerStats)
+			.where(eq(schema.providerStats.organization_id, org.id));
+		const deliveredAcrossProviders = providers.reduce((sum, p) => sum + p.delivered, 0);
+		expect(deliveredAcrossProviders).toBe(1);
+	});
+
 	it("records an email sent over SMTP from its first event, by its configuration set", async () => {
 		const org = await seedOrg();
 		fakeOutside();

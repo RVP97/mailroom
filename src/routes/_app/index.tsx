@@ -177,7 +177,7 @@ const notDelivered = (t: Omit<Totals, never>) =>
 	t.bounced + t.soft_bounced + t.failed + t.suppressed;
 /** Everything Mailroom tried to send: what SES took plus what never got that far. */
 const attempted = (t: Totals) => t.sent + t.failed + t.suppressed;
-const ratio = (part: number, whole: number) => (whole > 0 ? part / whole : 0);
+const ratio = (part: number, whole: number) => (whole > 0 ? Math.min(1, part / whole) : 0);
 
 /** Where a number leads: the Emails list with the same brand, domain and range, plus a filter. */
 type EmailsSearch = {
@@ -1398,7 +1398,11 @@ function ByBrand({
 									<Ph>{formatNumber(o.sent)}</Ph>
 								</TableCell>
 								<TableCell className="hidden text-right tabular-nums sm:table-cell">
-									<Ph>{o.sent ? formatPercent(o.delivered / o.sent, 1) : "—"}</Ph>
+									<Ph>
+										{o.sent
+											? formatPercent(ratio(o.delivered, o.sent), 1)
+											: "—"}
+									</Ph>
 								</TableCell>
 								<TableCell
 									className={cn(

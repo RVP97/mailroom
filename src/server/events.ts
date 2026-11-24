@@ -209,23 +209,27 @@ function providerCounter(
 	return null;
 }
 
-/** One more in the provider's counter for the day; opens only the first time per email. */
+/**
+ * One more in the provider's counter for the day; deliveries and opens only the first time per
+ * email (an email with CC/BCC or multiple recipients gets one Send event and several Delivery
+ * events from SES).
+ */
 const bumpProvider = (
 	organizationId: string,
 	day: string,
 	provider: string,
 	counter: ProviderCounter,
-	firstOpenOf: string | null,
+	onlyIfNull?: { emailId: string; column: "delivered_at" | "opened_at" },
 ) =>
-	firstOpenOf
+	onlyIfNull
 		? raw(
 				`INSERT INTO provider_stats (organization_id, day, provider, ${counter})
-				SELECT ?1, ?2, ?3, 1 WHERE (SELECT opened_at FROM emails WHERE id = ?4) IS NULL
+				SELECT ?1, ?2, ?3, 1 WHERE (SELECT ${onlyIfNull.column} FROM emails WHERE id = ?4) IS NULL
 				ON CONFLICT (organization_id, day, provider) DO UPDATE SET ${counter} = ${counter} + 1`,
 				organizationId,
 				day,
 				provider,
-				firstOpenOf,
+				onlyIfNull.emailId,
 			)
 		: raw(
 				`INSERT INTO provider_stats (organization_id, day, provider, ${counter}) VALUES (?1, ?2, ?3, 1)
@@ -298,8 +302,10 @@ export async function applySesEvent(
 			queries.push(...bump(org, day, from, "sent"));
 			break;
 		case "Delivery":
+			queries.push(
+				...bump(org, day, from, "delivered", { emailId: email.id, column: "delivered_at" }),
+			);
 			set.delivered_at = sql`COALESCE(${em.delivered_at}, ${at})`;
-			queries.push(...bump(org, day, from, "delivered"));
 			// The shared mailbox-check cache is everyone's: only the deployment's own SES account
 			// writes to it (an organization's own account's topic is theirs to send to), and only
 			// for addresses this email went to.
@@ -402,9 +408,13 @@ export async function applySesEvent(
 	if (counter) {
 		const to =
 			firstRecipient(e) ?? e.mail?.destination?.[0] ?? (email.to as string[])[0] ?? null;
-		queries.push(
-			bumpProvider(org, day, providerOf(to), counter, counter === "opened" ? email.id : null),
-		);
+		const once =
+			counter === "delivered"
+				? { emailId: email.id, column: "delivered_at" as const }
+				: counter === "opened"
+					? { emailId: email.id, column: "opened_at" as const }
+					: undefined;
+		queries.push(bumpProvider(org, day, providerOf(to), counter, once));
 	}
 	// The counters go first: the first-open/click checks read the email before it changes.
 	queries.push(db.update(em).set(set).where(eq(em.id, email.id)));

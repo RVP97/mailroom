@@ -21,7 +21,14 @@ import {
 	resolveComment,
 } from "../comments";
 import { db, schema } from "../db";
-import { digestEnabled, sendDigest, setDigestEnabled } from "../digest";
+import {
+	combineDigestsEnabled,
+	digestEnabled,
+	sendCombinedDigest,
+	sendDigest,
+	setCombineDigests,
+	setDigestEnabled,
+} from "../digest";
 import { bodyRetentionDays, inboundRetentionDays, logRetentionDays } from "../env";
 import { ApiError } from "../errors";
 import {
@@ -299,20 +306,23 @@ export const TEAM_TOOLS: Tool[] = [
 		readOnly: true,
 		run: async (a, ctx) => {
 			const org = orgAt(ctx, a.organization);
-			const [approval, digest, archive, limits, actions, rules] = await Promise.all([
-				approvalRequired(org.id),
-				digestEnabled(org.id),
-				archiveEnabled(org.id),
-				getSendingLimits(),
-				organizationActions(org.id),
-				marketingRules(org.id),
-			]);
+			const [approval, digest, combineDigests, archive, limits, actions, rules] =
+				await Promise.all([
+					approvalRequired(org.id),
+					digestEnabled(org.id),
+					combineDigestsEnabled(ctx.userId),
+					archiveEnabled(org.id),
+					getSendingLimits(),
+					organizationActions(org.id),
+					marketingRules(org.id),
+				]);
 			return {
 				id: org.id,
 				name: org.name,
 				slug: org.slug,
 				approval_required: approval,
 				weekly_digest: digest,
+				combine_weekly_digests: combineDigests,
 				archive: { available: !!archiveBucket(), on: archive },
 				quiet_mode: rules.quiet_mode,
 				frequency_cap: rules.cap,
@@ -405,12 +415,39 @@ export const TEAM_TOOLS: Tool[] = [
 		},
 	},
 	{
+		name: "update_account_settings",
+		title: "Change your account preferences",
+		description:
+			"Updates your own Mailroom preferences across organizations. Set combine_weekly_digests to true to receive one combined Monday digest across all of your organizations, or false for one email per organization.",
+		input: {
+			combine_weekly_digests: z.boolean(),
+		},
+		run: async (a, ctx) => {
+			const combine = a.combine_weekly_digests as boolean;
+			await setCombineDigests(ctx.userId, combine);
+			return { combine_weekly_digests: combine };
+		},
+	},
+	{
 		name: "send_digest_now",
 		title: "Send me the weekly digest",
-		description: "Emails last week's digest of the organization now, only to you.",
-		input: { organization },
+		description:
+			"Emails last week's digest now, only to you. Pass combined: true to send one combined email across all organizations you receive digests for, or omit it (and pass organization if needed) for a single organization.",
+		input: {
+			organization,
+			combined: z
+				.boolean()
+				.optional()
+				.describe("Combine every organization you receive digests for into one email"),
+		},
 		openWorld: true,
 		run: async (a, ctx) => {
+			if (a.combined)
+				return sendCombinedDigest({
+					userId: ctx.userId,
+					email: ctx.email,
+					isAdmin: ctx.isAdmin,
+				});
 			const org = orgAt(ctx, a.organization);
 			const lines = await sendDigest({ id: org.id, name: org.name }, Date.now(), {
 				to: ctx.email,

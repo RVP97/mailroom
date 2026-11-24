@@ -174,7 +174,7 @@ function DetailSketch() {
 	);
 }
 
-const ratio = (part: number, whole: number) => (whole > 0 ? part / whole : 0);
+const ratio = (part: number, whole: number) => (whole > 0 ? Math.min(1, part / whole) : 0);
 
 const tone = (level: "ok" | "warning" | "danger") =>
 	level === "danger"
@@ -801,6 +801,7 @@ function OpenHours({
 							{hours.map((h, i) => (
 								<div
 									key={h.hour}
+									role="img"
 									className="relative flex h-full flex-1 items-end transition-opacity duration-150"
 									style={{ opacity: active === null || active === i ? 1 : 0.4 }}
 									onMouseEnter={() => setActive(i)}
