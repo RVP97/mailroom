@@ -45,7 +45,6 @@ import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
-import { Textarea } from "@/components/ui/textarea";
 import { aiDraftReplyFn, aiPolishFn } from "@/functions/ai";
 import type { getConversationFn } from "@/functions/inboxes";
 import {
@@ -775,8 +774,8 @@ export function UnifiedComposer({
 				)}
 
 				{/* Main textarea + autocomplete menu */}
-				<div className="relative px-3 pt-2.5">
-					<Textarea
+				<div className="relative">
+					<textarea
 						ref={box}
 						aria-label={isNote ? "Internal note" : "Reply"}
 						rows={isChat ? 2 : 3}
@@ -789,7 +788,7 @@ export function UnifiedComposer({
 									: "Write a reply… (/ saved replies, # help articles, ⌘↵ sends)"
 						}
 						className={cn(
-							"min-h-[68px] max-h-56 resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0",
+							"field-sizing-content block min-h-[76px] max-h-56 w-full resize-none border-0 bg-transparent px-3.5 py-2.5 text-[16px] leading-relaxed text-foreground placeholder:text-faint outline-none focus:outline-none focus-visible:outline-none md:text-sm",
 							isNote &&
 								"placeholder:text-amber-800/60 dark:placeholder:text-amber-200/50",
 						)}
