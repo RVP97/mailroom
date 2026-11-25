@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import { db, schema } from "./db";
+import { chunk, db, schema } from "./db";
 import { baseUrl } from "./env";
 import { notFound, validation } from "./errors";
 import { slugify } from "./newsletters";
@@ -224,26 +224,32 @@ export async function broadcastStats(ids: string[]) {
 	if (!ids.length) return {};
 	const e = schema.emails;
 	const ev = schema.emailEvents;
-	const [per, unsub] = await Promise.all([
-		db
-			.select({
-				id: e.broadcast_id,
-				sent: sql<number>`SUM(CASE WHEN ${e.sent_at} IS NOT NULL THEN 1 ELSE 0 END)`,
-				delivered: sql<number>`SUM(CASE WHEN ${e.delivered_at} IS NOT NULL THEN 1 ELSE 0 END)`,
-				opened: sql<number>`SUM(CASE WHEN ${e.opened_at} IS NOT NULL THEN 1 ELSE 0 END)`,
-				clicked: sql<number>`SUM(CASE WHEN ${e.clicked_at} IS NOT NULL THEN 1 ELSE 0 END)`,
-				bounced: sql<number>`SUM(CASE WHEN ${e.status} = 'bounced' THEN 1 ELSE 0 END)`,
-			})
-			.from(e)
-			.where(inArray(e.broadcast_id, ids))
-			.groupBy(e.broadcast_id),
-		db
-			.select({ id: e.broadcast_id, n: sql<number>`COUNT(*)` })
-			.from(ev)
-			.innerJoin(e, eq(e.id, ev.email_id))
-			.where(and(eq(ev.type, "email.unsubscribed"), inArray(e.broadcast_id, ids)))
-			.groupBy(e.broadcast_id),
-	]);
+	const per = [];
+	const unsub = [];
+	for (const part of chunk(ids)) {
+		const [p, u] = await Promise.all([
+			db
+				.select({
+					id: e.broadcast_id,
+					sent: sql<number>`SUM(CASE WHEN ${e.sent_at} IS NOT NULL THEN 1 ELSE 0 END)`,
+					delivered: sql<number>`SUM(CASE WHEN ${e.delivered_at} IS NOT NULL THEN 1 ELSE 0 END)`,
+					opened: sql<number>`SUM(CASE WHEN ${e.opened_at} IS NOT NULL THEN 1 ELSE 0 END)`,
+					clicked: sql<number>`SUM(CASE WHEN ${e.clicked_at} IS NOT NULL THEN 1 ELSE 0 END)`,
+					bounced: sql<number>`SUM(CASE WHEN ${e.status} = 'bounced' THEN 1 ELSE 0 END)`,
+				})
+				.from(e)
+				.where(inArray(e.broadcast_id, part))
+				.groupBy(e.broadcast_id),
+			db
+				.select({ id: e.broadcast_id, n: sql<number>`COUNT(*)` })
+				.from(ev)
+				.innerJoin(e, eq(e.id, ev.email_id))
+				.where(and(eq(ev.type, "email.unsubscribed"), inArray(e.broadcast_id, part)))
+				.groupBy(e.broadcast_id),
+		]);
+		per.push(...p);
+		unsub.push(...u);
+	}
 	const n = (v: unknown) => Number(v ?? 0);
 	const left = new Map(unsub.map((r) => [r.id as string, n(r.n)]));
 	return Object.fromEntries(
@@ -274,18 +280,21 @@ export async function broadcastStats(ids: string[]) {
 /** Campaigns' broadcast counts and how far each got, for the list. */
 export async function campaignCounts(ids: string[]) {
 	if (!ids.length) return new Map<string, { total: number; sent: number }>();
-	const rows = await db
-		.select({
-			id: b.campaign_id,
-			total: sql<number>`COUNT(*)`,
-			sent: sql<number>`SUM(CASE WHEN ${b.status} IN ('sending','sent','testing') THEN 1 ELSE 0 END)`,
-		})
-		.from(b)
-		.where(inArray(b.campaign_id, ids))
-		.groupBy(b.campaign_id);
-	return new Map(
-		rows.map((r) => [r.id as string, { total: Number(r.total), sent: Number(r.sent) }]),
-	);
+	const out = new Map<string, { total: number; sent: number }>();
+	for (const part of chunk(ids)) {
+		const rows = await db
+			.select({
+				id: b.campaign_id,
+				total: sql<number>`COUNT(*)`,
+				sent: sql<number>`SUM(CASE WHEN ${b.status} IN ('sending','sent','testing') THEN 1 ELSE 0 END)`,
+			})
+			.from(b)
+			.where(inArray(b.campaign_id, part))
+			.groupBy(b.campaign_id);
+		for (const r of rows)
+			out.set(r.id as string, { total: Number(r.total), sent: Number(r.sent) });
+	}
+	return out;
 }
 
 /**

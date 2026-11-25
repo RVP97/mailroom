@@ -459,6 +459,87 @@ describe("polls", () => {
 		expect(r).toMatchObject({ question: "Pool or beach?", total: 2 });
 		expect(r?.options.map((o) => o.votes)).toEqual([2, 0]);
 	});
+
+	it("supports non-UUID contact ids, prefetch safety, save_property, per-option actions and localization", async () => {
+		fakeOutside();
+		const { org, segment, ana, luis } = await setUp();
+		const design = {
+			version: 1 as const,
+			theme: {} as never,
+			blocks: [
+				{
+					id: "p-reward",
+					type: "poll" as const,
+					align: "left" as const,
+					question: "Want early access?",
+					options: ["Yes, send it", "No thanks"],
+					save_property: "early_access",
+					actions: [
+						{
+							message: "Your code: {{{contact.reward_code}}}",
+							cta_label: "Claim now",
+							cta_url: "https://example.com/redeem?code={{{contact.reward_code}}}",
+						},
+						null,
+					],
+				},
+			],
+		};
+		const x = await sendIssue(org, {
+			segment_id: segment.id,
+			subject: "Early access",
+			design,
+		});
+		await drain();
+
+		// Prefetch headers must not cast a vote.
+		const anaBase = await pollBase(x.id, ana.id);
+		const pref = await handlePoll(
+			new Request(`${anaBase}/p-reward/0`, { headers: { "sec-purpose": "prefetch" } }),
+		);
+		expect(pref.status).toBe(200);
+		expect((await pollResults(x.id, design))[0]?.total).toBe(0);
+
+		// Personalized reward action + Russian localization via contact.properties.lang.
+		await db
+			.update(schema.contacts)
+			.set({ properties: { lang: "ru", reward_code: "ABC 123" } })
+			.where(eq(schema.contacts.id, ana.id));
+		const yes = await (await handlePoll(new Request(`${anaBase}/p-reward/0`))).text();
+		expect(yes).toContain("Your code: ABC 123");
+		expect(yes).toContain("https://example.com/redeem?code=ABC%20123");
+		expect(yes).toContain("Спасибо");
+		const anaAfter = await db
+			.select()
+			.from(schema.contacts)
+			.where(eq(schema.contacts.id, ana.id))
+			.get();
+		expect(anaAfter?.properties?.early_access).toBe("Yes, send it");
+
+		// Option 1 has no action card.
+		const no = await (await handlePoll(new Request(`${anaBase}/p-reward/1`))).text();
+		expect(no).not.toContain("Claim now");
+
+		// Imported contacts with non-UUID ids (ct_<hash>) work too, and Accept-Language localizes.
+		const row = await db
+			.select()
+			.from(schema.contacts)
+			.where(eq(schema.contacts.id, luis.id))
+			.get();
+		const imported = {
+			...row,
+			id: `ct_${uid().replace(/-/g, "").slice(0, 24)}`,
+			email: `imported-${uid()}@example.com`,
+		};
+		await db.insert(schema.contacts).values(imported as never);
+		const theirs = await handlePoll(
+			new Request(`${await pollBase(x.id, imported.id)}/p-reward/0`, {
+				headers: { "accept-language": "es-MX,es;q=0.9" },
+			}),
+		);
+		expect(theirs.status).toBe(200);
+		expect(await theirs.text()).toContain("Gracias");
+	});
 });
 
 describe("campaigns", () => {

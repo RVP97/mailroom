@@ -1893,6 +1893,20 @@ export type AutomationStep =
 			equals?: string | number | null;
 			/** The contact opened (or clicked) the run's last email. */
 			engaged?: "opened" | "clicked" | null;
+			poll_broadcast_id?: string | null;
+			poll_id?: string | null;
+			poll_answer?: number | null;
+			survey_id?: string | null;
+			survey_answer?:
+				| "any"
+				| "promoter"
+				| "passive"
+				| "detractor"
+				| "at_least"
+				| "at_most"
+				| "choice"
+				| null;
+			survey_value?: number | null;
 			no?: AutomationStep[] | null;
 	  }
 	/** Adds the contact to a segment, or takes them out of it. */

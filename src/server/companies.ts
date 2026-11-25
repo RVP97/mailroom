@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { db, schema } from "./db";
+import { chunk, db, schema } from "./db";
 import { ApiError, notFound, validation } from "./errors";
 import { iso } from "./time";
 
@@ -117,15 +117,18 @@ export async function listCompanies(
 
 	if (!rows.length) return [];
 	const ids = rows.map((r) => r.id);
-	const counts = await db
-		.select({
-			company_id: schema.contacts.company_id,
-			n: sql<number>`count(*)`,
-		})
-		.from(schema.contacts)
-		.where(inArray(schema.contacts.company_id, ids))
-		.groupBy(schema.contacts.company_id);
-	const countMap = new Map(counts.map((c) => [c.company_id, Number(c.n)]));
+	const countMap = new Map<string, number>();
+	for (const part of chunk(ids)) {
+		const counts = await db
+			.select({
+				company_id: schema.contacts.company_id,
+				n: sql<number>`count(*)`,
+			})
+			.from(schema.contacts)
+			.where(inArray(schema.contacts.company_id, part))
+			.groupBy(schema.contacts.company_id);
+		for (const c of counts) if (c.company_id) countMap.set(c.company_id, Number(c.n));
+	}
 	return rows.map((r) => companyView(r, { contacts: countMap.get(r.id) ?? 0 }));
 }
 
@@ -153,28 +156,34 @@ export async function getCompany(brands: string[], id: string) {
 		.orderBy(desc(schema.contacts.updated_at))
 		.limit(100);
 
-	const emails = members.map((m) => m.email.toLowerCase());
-	const convs = emails.length
-		? await db
-				.select({
-					id: schema.conversations.id,
-					subject: schema.conversations.subject,
-					contact: schema.conversations.contact,
-					status: schema.conversations.status,
-					channel: schema.conversations.channel,
-					priority: schema.conversations.priority,
-					last_message_at: schema.conversations.last_message_at,
-				})
-				.from(schema.conversations)
-				.where(
-					and(
-						eq(schema.conversations.organization_id, row.organization_id),
-						inArray(schema.conversations.contact_address, emails),
-					),
-				)
-				.orderBy(desc(schema.conversations.last_message_at))
-				.limit(30)
-		: [];
+	const emails = [...new Set(members.map((m) => m.email.toLowerCase()))];
+	// D1 binds at most 100 parameters per statement (organization_id + emails + limit).
+	const convParts = [];
+	for (let i = 0; i < emails.length; i += 90) {
+		const part = await db
+			.select({
+				id: schema.conversations.id,
+				subject: schema.conversations.subject,
+				contact: schema.conversations.contact,
+				status: schema.conversations.status,
+				channel: schema.conversations.channel,
+				priority: schema.conversations.priority,
+				last_message_at: schema.conversations.last_message_at,
+			})
+			.from(schema.conversations)
+			.where(
+				and(
+					eq(schema.conversations.organization_id, row.organization_id),
+					inArray(schema.conversations.contact_address, emails.slice(i, i + 90)),
+				),
+			)
+			.orderBy(desc(schema.conversations.last_message_at))
+			.limit(30);
+		convParts.push(...part);
+	}
+	const convs = convParts
+		.sort((a, b) => (a.last_message_at < b.last_message_at ? 1 : -1))
+		.slice(0, 30);
 
 	const openCount = convs.filter((x) => x.status === "open").length;
 	return {

@@ -2,7 +2,7 @@ import { waitUntil } from "cloudflare:workers";
 import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { utf8Base64 } from "./aws/mime";
 import { orgOf } from "./brands";
-import { db, schema } from "./db";
+import { batch, db, schema } from "./db";
 import { iso } from "./time";
 
 /**
@@ -248,7 +248,12 @@ async function queue(
 		next_attempt_at: iso(h.down_since ? now + DOWN_WAIT_MS : now + IN_FLIGHT_MS),
 		created_at: iso(now),
 	}));
-	await db.insert(schema.webhookDeliveries).values(rows);
+	// Each webhook_deliveries row binds 9 parameters: chunk at 10 rows (90 <= D1's 100 limit).
+	const inserts = [];
+	for (let i = 0; i < rows.length; i += 10)
+		inserts.push(db.insert(schema.webhookDeliveries).values(rows.slice(i, i + 10)));
+	if (inserts.length === 1) await inserts[0];
+	else if (inserts.length > 1) await batch(inserts);
 	const attempt = Promise.all(
 		rows.map((r) => {
 			const hook = hooks.find((h) => h.id === r.webhook_id);

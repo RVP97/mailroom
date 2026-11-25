@@ -3,3 +3,6 @@
 BETTER_AUTH_SECRET=change-me-to-a-long-random-string # openssl rand -base64 32
 AWS_ACCESS_KEY_ID= # the Mailroom IAM user's access key (README: Amazon SES)
 AWS_SECRET_ACCESS_KEY=
+# Local development with no AWS account: fakes SES/SNS/STS/IAM and simulates Delivery/Bounce/Complaint
+# events (only active when BETTER_AUTH_URL is localhost / *.localhost).
+# AWS_MOCK=1

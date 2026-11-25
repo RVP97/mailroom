@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, lt, notInArray, sql } from "drizzle-orm";
-import { batch, db, schema } from "./db";
+import { batch, chunk, db, schema } from "./db";
 import { baseUrl, cfg } from "./env";
 import { gunzipJson } from "./gzip";
 import { iso } from "./time";
@@ -244,15 +244,20 @@ export async function archiveReceived(
  */
 export async function archiveChats(bucket: R2Bucket, conversationIds: string[]) {
 	if (!conversationIds.length) return;
-	const chats = await db
-		.select()
-		.from(schema.conversations)
-		.where(inArray(schema.conversations.id, conversationIds));
-	const lines = await db
-		.select()
-		.from(schema.chatMessages)
-		.where(inArray(schema.chatMessages.conversation_id, conversationIds))
-		.orderBy(asc(schema.chatMessages.created_at));
+	const chats: (typeof schema.conversations.$inferSelect)[] = [];
+	const lines: (typeof schema.chatMessages.$inferSelect)[] = [];
+	for (const part of chunk(conversationIds)) {
+		const [cPart, lPart] = await Promise.all([
+			db.select().from(schema.conversations).where(inArray(schema.conversations.id, part)),
+			db
+				.select()
+				.from(schema.chatMessages)
+				.where(inArray(schema.chatMessages.conversation_id, part))
+				.orderBy(asc(schema.chatMessages.created_at)),
+		]);
+		chats.push(...cPart);
+		lines.push(...lPart);
+	}
 	await store(
 		bucket,
 		"chats",

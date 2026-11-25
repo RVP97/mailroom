@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { domainFromEmail, upsertCompany } from "./companies";
-import { createProperty, listProperties, upsertContact } from "./contacts";
+import { importContacts } from "./contacts";
 import { validation } from "./errors";
 import { createArticle } from "./help-center";
 
@@ -89,7 +89,7 @@ export async function importContactsBundle(
 				: Array.isArray((parsed as { contacts?: unknown }).contacts)
 					? (parsed as { contacts: unknown[] }).contacts
 					: [];
-		records = arr.slice(0, 500).map((item) => {
+		records = arr.slice(0, 5000).map((item) => {
 			const out: Record<string, string> = {};
 			if (item && typeof item === "object") {
 				for (const [k, v] of Object.entries(item as Record<string, unknown>)) {
@@ -104,7 +104,7 @@ export async function importContactsBundle(
 		const [header, ...body] = rows;
 		if (!header?.length) throw validation("content: CSV needs a header row");
 		const keys = header.map(normKey);
-		records = body.slice(0, 500).map((r) => {
+		records = body.slice(0, 5000).map((r) => {
 			const out: Record<string, string> = {};
 			keys.forEach((k, idx) => {
 				if (k && r[idx]?.trim()) out[k] = (r[idx] as string).trim();
@@ -113,9 +113,14 @@ export async function importContactsBundle(
 		});
 	}
 
-	const existingProps = new Set((await listProperties(brandId)).map((p) => p.key));
-	let imported = 0;
-	let companiesSynced = 0;
+	const batchRows: {
+		email: string;
+		first_name?: string;
+		last_name?: string;
+		unsubscribed?: boolean;
+		properties?: Record<string, string>;
+	}[] = [];
+	const companiesByDomain = new Map<string, { name: string; plan?: string; count: number }>();
 	const errors: string[] = [];
 
 	for (const rec of records) {
@@ -149,36 +154,53 @@ export async function importContactsBundle(
 				!/^[a-z][a-z0-9_]{0,63}$/.test(k)
 			)
 				continue;
-			if (!existingProps.has(k)) {
-				await createProperty(brandId, { key: k, type: "string" }).catch(() => {});
-				existingProps.add(k);
-			}
 			properties[k] = v;
 		}
 
-		try {
-			await upsertContact(brandId, {
-				email,
-				...(firstKey ? { first_name: rec[firstKey] } : {}),
-				...(lastKey ? { last_name: rec[lastKey] } : {}),
-				...(unsubscribed !== undefined ? { unsubscribed } : {}),
-				...(Object.keys(properties).length ? { properties } : {}),
-				...(raw.segment_id ? { segments: [raw.segment_id] } : {}),
-			});
-			imported++;
+		batchRows.push({
+			email,
+			...(firstKey ? { first_name: rec[firstKey] } : {}),
+			...(lastKey ? { last_name: rec[lastKey] } : {}),
+			...(unsubscribed !== undefined ? { unsubscribed } : {}),
+			...(Object.keys(properties).length ? { properties } : {}),
+		});
 
-			const dom = domainFromEmail(email);
-			if (dom && (compKey || planKey)) {
-				await upsertCompany(brandId, {
-					name: (compKey && rec[compKey]) || dom.split(".")[0] || dom,
-					domain: dom,
-					...(planKey ? { plan: rec[planKey] } : {}),
-				}).catch(() => {});
-				companiesSynced++;
-			}
-		} catch (err) {
-			errors.push(`${email}: ${err instanceof Error ? err.message : "failed"}`);
+		const dom = domainFromEmail(email);
+		if (dom && (compKey || planKey)) {
+			const prev = companiesByDomain.get(dom);
+			companiesByDomain.set(dom, {
+				name: (compKey && rec[compKey]) || prev?.name || dom.split(".")[0] || dom,
+				...((planKey ? rec[planKey] : prev?.plan)
+					? { plan: (planKey ? rec[planKey] : prev?.plan) as string }
+					: {}),
+				count: (prev?.count ?? 0) + 1,
+			});
 		}
+	}
+
+	let imported = 0;
+	if (batchRows.length) {
+		try {
+			const res = await importContacts(brandId, batchRows, {
+				segment: raw.segment_id ?? null,
+			});
+			imported = res.added + res.updated;
+		} catch (err) {
+			errors.push(err instanceof Error ? err.message : "import failed");
+		}
+	}
+
+	let companiesSynced = 0;
+	for (const [domain, info] of companiesByDomain) {
+		await upsertCompany(brandId, {
+			name: info.name,
+			domain,
+			...(info.plan ? { plan: info.plan } : {}),
+		})
+			.then(() => {
+				companiesSynced += info.count;
+			})
+			.catch(() => {});
 	}
 
 	return { imported, companies_synced: companiesSynced, errors: errors.slice(0, 20) };

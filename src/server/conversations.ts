@@ -588,15 +588,19 @@ async function readState(reader: string | null, conversationId: string, ids: str
 			)
 			.get(),
 		ids.length
-			? db
-					.select({ id: schema.messageReads.message_id })
-					.from(schema.messageReads)
-					.where(
-						and(
-							inArray(schema.messageReads.message_id, ids),
-							eq(schema.messageReads.reader, reader),
-						),
-					)
+			? Promise.all(
+					chunk(ids, 90).map((part) =>
+						db
+							.select({ id: schema.messageReads.message_id })
+							.from(schema.messageReads)
+							.where(
+								and(
+									inArray(schema.messageReads.message_id, part),
+									eq(schema.messageReads.reader, reader),
+								),
+							),
+					),
+				).then((parts) => parts.flat())
 			: [],
 	]);
 	return { mark: mark?.at ?? "", read: new Set(rows.map((r) => r.id)) };
@@ -665,24 +669,30 @@ export async function getConversation(
 		: (messages.findLast((m) => m.answers_email_id)?.answers_email_id ?? null);
 	const outbound = [...new Set([...sentIds, ...(firstAnswers ? [firstAnswers] : [])])];
 	const emails = outbound.length
-		? await db
-				.select({
-					id: schema.emails.id,
-					status: schema.emails.status,
-					last_event: schema.emails.last_event,
-					sent_at: schema.emails.sent_at,
-					from: schema.emails.from,
-					to: schema.emails.to,
-					subject: schema.emails.subject,
-					created_at: schema.emails.created_at,
-				})
-				.from(schema.emails)
-				.where(
-					and(
-						inArray(schema.emails.id, outbound),
-						inArray(schema.emails.organization_id, actor.brands),
+		? (
+				await Promise.all(
+					chunk(outbound, Math.max(1, 95 - actor.brands.length)).map((part) =>
+						db
+							.select({
+								id: schema.emails.id,
+								status: schema.emails.status,
+								last_event: schema.emails.last_event,
+								sent_at: schema.emails.sent_at,
+								from: schema.emails.from,
+								to: schema.emails.to,
+								subject: schema.emails.subject,
+								created_at: schema.emails.created_at,
+							})
+							.from(schema.emails)
+							.where(
+								and(
+									inArray(schema.emails.id, part),
+									inArray(schema.emails.organization_id, actor.brands),
+								),
+							),
 					),
 				)
+			).flat()
 		: [];
 	const dots = (s: string | null | undefined) =>
 		s && actor.masked ? maskDigits(s) : (s ?? null);

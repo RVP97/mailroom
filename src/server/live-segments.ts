@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
 import { z } from "zod";
-import { db, raw, schema } from "./db";
+import { batch, db, raw, schema } from "./db";
 import { validation } from "./errors";
 import { iso } from "./time";
 
@@ -287,7 +287,13 @@ export async function checkRules(brand: string, raw: unknown, selfId?: string) {
 	return rules;
 }
 
-const MAX_MEMBERS = 100_000;
+const MAX_MEMBERS = 250_000;
+/** Rows of contact_segments per insert: 3 parameters each, under D1's 100-parameter limit. */
+const JOIN_ROWS = 33;
+/** IDs per DELETE ... WHERE segment_id = ? AND contact_id IN (...): under D1's 100-parameter limit. */
+const LEAVE_IDS = 90;
+/** Statements per D1 batch call. */
+const BATCH_STATEMENTS = 50;
 
 /** The ids of the brand's contacts who match the rules now. */
 export async function matching(brand: string, rules: SegmentRules, now = Date.now()) {
@@ -302,13 +308,20 @@ export async function matching(brand: string, rules: SegmentRules, now = Date.no
 	>[];
 	const joiner = rules.match === "any" ? sql` OR ` : sql` AND `;
 	const where = sqlParts.length ? sql`(${sql.join(sqlParts, joiner)})` : null;
+	if (!engagement.length)
+		return (
+			await db
+				.select({ id: ct.id })
+				.from(ct)
+				.where(and(eq(ct.organization_id, brand), where ?? undefined))
+				.limit(MAX_MEMBERS)
+		).map((r) => r.id);
 	const select = (w: SQL | null) =>
 		db
 			.select({ id: ct.id, email: ct.email })
 			.from(ct)
 			.where(and(eq(ct.organization_id, brand), w ?? undefined))
 			.limit(MAX_MEMBERS);
-	if (!engagement.length) return (await select(where)).map((r) => r.id);
 	// Engagement is scored in code: over the rule-matched contacts (all), or everyone (any).
 	const base = rules.match === "all" ? await select(where) : await select(null);
 	const { engagementOf } = await import("./engagement");
@@ -364,19 +377,36 @@ export async function refreshSegment(
 	const joined = [...want].filter((id) => !have.has(id));
 	const left = [...have].filter((id) => !want.has(id));
 	const at = iso(now);
-	for (let i = 0; i < joined.length; i += 50)
-		await db
-			.insert(cs)
-			.values(
-				joined
-					.slice(i, i + 50)
-					.map((contact_id) => ({ contact_id, segment_id: s.id, created_at: at })),
-			)
-			.onConflictDoNothing();
-	for (let i = 0; i < left.length; i += 90)
-		await db
-			.delete(cs)
-			.where(and(eq(cs.segment_id, s.id), inArray(cs.contact_id, left.slice(i, i + 90))));
+	// D1 binds at most 100 parameters per statement (3 per insert row), grouped into D1 batches
+	// so large segments (tens of thousands of contacts) don't incur thousands of serial roundtrips.
+	const insertStmts = [];
+	for (let i = 0; i < joined.length; i += JOIN_ROWS)
+		insertStmts.push(
+			db
+				.insert(cs)
+				.values(
+					joined
+						.slice(i, i + JOIN_ROWS)
+						.map((contact_id) => ({ contact_id, segment_id: s.id, created_at: at })),
+				)
+				.onConflictDoNothing(),
+		);
+	for (let i = 0; i < insertStmts.length; i += BATCH_STATEMENTS)
+		await batch(insertStmts.slice(i, i + BATCH_STATEMENTS));
+	const deleteStmts = [];
+	for (let i = 0; i < left.length; i += LEAVE_IDS)
+		deleteStmts.push(
+			db
+				.delete(cs)
+				.where(
+					and(
+						eq(cs.segment_id, s.id),
+						inArray(cs.contact_id, left.slice(i, i + LEAVE_IDS)),
+					),
+				),
+		);
+	for (let i = 0; i < deleteStmts.length; i += BATCH_STATEMENTS)
+		await batch(deleteStmts.slice(i, i + BATCH_STATEMENTS));
 	await db.update(schema.segments).set({ refreshed_at: at }).where(eq(schema.segments.id, s.id));
 	if (joined.length) {
 		const { onSegmentJoined } = await import("./automations");

@@ -1,8 +1,9 @@
 import { and, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import { resolvePublicLocale, type SurveyWords, surveyWords } from "../lib/public-locale";
 import { esc } from "../lib/signup-form-render";
 import { npsGroup, scaleOf } from "../lib/survey-scale";
-import { db, schema } from "./db";
+import { chunk, db, schema } from "./db";
 import { ApiError, notFound, validation } from "./errors";
 import { publicUrl } from "./public-host";
 import { iso } from "./time";
@@ -82,20 +83,19 @@ export async function listSurveys(brands: string[]) {
 		.where(inArray(sv.organization_id, brands))
 		.orderBy(desc(sv.created_at));
 	if (!rows.length) return [];
-	const counts = await db
-		.select({
-			id: sr.survey_id,
-			n: sql<number>`COUNT(*)`,
-			last: sql<string | null>`MAX(${sr.updated_at})`,
-		})
-		.from(sr)
-		.where(
-			inArray(
-				sr.survey_id,
-				rows.map((r) => r.id),
-			),
-		)
-		.groupBy(sr.survey_id);
+	const counts: { id: string; n: number; last: string | null }[] = [];
+	for (const part of chunk(rows.map((r) => r.id))) {
+		const found = await db
+			.select({
+				id: sr.survey_id,
+				n: sql<number>`COUNT(*)`,
+				last: sql<string | null>`MAX(${sr.updated_at})`,
+			})
+			.from(sr)
+			.where(inArray(sr.survey_id, part))
+			.groupBy(sr.survey_id);
+		counts.push(...found);
+	}
 	return rows.map((s) => {
 		const c = counts.find((x) => x.id === s.id);
 		return { ...surveyView(s), responses: Number(c?.n ?? 0), last_answer_at: c?.last ?? null };
@@ -524,7 +524,12 @@ async function page(
 	);
 }
 
-function form(s: Survey, picked: number | null, comment: string | null) {
+function form(
+	s: Survey,
+	picked: number | null,
+	comment: string | null,
+	w: SurveyWords = surveyWords("en"),
+) {
 	const scale = scaleOf(s);
 	const items = scale
 		.map(
@@ -537,20 +542,15 @@ function form(s: Survey, picked: number | null, comment: string | null) {
 			? `<div class="ends"><span>${esc(s.low_label ?? "")}</span><span>${esc(s.high_label ?? "")}</span></div>`
 			: "";
 	const c = s.comment_prompt
-		? `<label class="c" for="comment">${esc(s.comment_prompt)} (optional)</label><textarea id="comment" name="comment" rows="4" maxlength="2000">${esc(comment ?? "")}</textarea>`
+		? `<label class="c" for="comment">${esc(s.comment_prompt)} (${esc(w.optional)})</label><textarea id="comment" name="comment" rows="4" maxlength="2000">${esc(comment ?? "")}</textarea>`
 		: "";
-	return `<h1>${esc(s.question)}</h1><form method="post"><fieldset style="border:0;padding:0;margin:0"><legend style="position:absolute;left:-9999px">${esc(s.question)}</legend><div class="scale ${s.kind}">${items}</div>${ends}</fieldset>${c}<button type="submit">Send</button></form>`;
+	return `<h1>${esc(s.question)}</h1><form method="post"><fieldset style="border:0;padding:0;margin:0"><legend style="position:absolute;left:-9999px">${esc(s.question)}</legend><div class="scale ${s.kind}">${items}</div>${ends}</fieldset>${c}<button type="submit">${esc(w.send)}</button></form>`;
 }
 
-const missing = () =>
-	page(
-		null,
-		"Not found",
-		"<h1>This survey isn't available</h1><p>The link may be incomplete.</p>",
-		{
-			status: 404,
-		},
-	);
+const missing = (w: SurveyWords = surveyWords("en")) =>
+	page(null, w.notFoundTitle, `<h1>${esc(w.notFoundTitle)}</h1><p>${esc(w.notFoundBody)}</p>`, {
+		status: 404,
+	});
 
 /**
  * /s/<survey>[?v=]: anyone answers (a website's link); /s/web/<survey>/<v>: an email's web
@@ -561,31 +561,27 @@ const missing = () =>
  */
 export async function handleSurveyPage(request: Request, now = Date.now()): Promise<Response> {
 	const u = new URL(request.url);
+	const acceptLang = request.headers.get("accept-language");
+	let w = surveyWords(resolvePublicLocale(null, acceptLang));
 	const post = request.method === "POST";
 	const m =
-		/^\/s\/(?:(c|v)\/([0-9a-f-]{36})\/([A-Za-z0-9_-]{10,40})\/|web\/)?(sv_[a-z0-9]{20})(?:\/(\d{1,2}))?\/?$/.exec(
+		/^\/s\/(?:(c|v)\/([A-Za-z0-9_-]{1,64})\/([A-Za-z0-9_-]{10,40})\/|web\/)?(sv_[a-z0-9]{20})(?:\/(\d{1,2}))?\/?$/.exec(
 			u.pathname,
 		);
-	if (!m) return missing();
+	if (!m) return missing(w);
 	const [, who, ref, sig, id, raw] = m as unknown as (string | undefined)[];
 	const s = await db
 		.select()
 		.from(sv)
 		.where(eq(sv.id, id as string))
 		.get();
-	if (!s) return missing();
-	if (!s.enabled)
-		return page(
-			s.organization_id,
-			"Survey closed",
-			"<h1>This survey is closed</h1><p>Thanks for wanting to answer.</p>",
-		);
+	if (!s) return missing(w);
 	let contactId: string | null = null;
 	let conversationId: string | null = null;
 	if (who === "c") {
-		if (!(await verified(`survey:${ref}`, sig as string))) return missing();
+		if (!(await verified(`survey:${ref}`, sig as string))) return missing(w);
 		const c = await db
-			.select({ id: schema.contacts.id })
+			.select({ id: schema.contacts.id, properties: schema.contacts.properties })
 			.from(schema.contacts)
 			.where(
 				and(
@@ -594,12 +590,21 @@ export async function handleSurveyPage(request: Request, now = Date.now()): Prom
 				),
 			)
 			.get();
-		if (!c) return missing();
+		if (!c) return missing(w);
 		contactId = c.id;
+		w = surveyWords(
+			resolvePublicLocale(c.properties?.lang ?? c.properties?.locale, acceptLang),
+		);
 	} else if (who === "v") {
-		if (!(await verified(`survey-conversation:${ref}`, sig as string))) return missing();
+		if (!(await verified(`survey-conversation:${ref}`, sig as string))) return missing(w);
 		conversationId = ref as string;
 	}
+	if (!s.enabled)
+		return page(
+			s.organization_id,
+			w.closedTitle,
+			`<h1>${esc(w.closedTitle)}</h1><p>${esc(w.closedBody)}</p>`,
+		);
 	const signed = !!(contactId || conversationId);
 	const fromUrl = raw ?? u.searchParams.get("v");
 	let value = fromUrl === null || fromUrl === "" ? null : Number(fromUrl);
@@ -617,7 +622,7 @@ export async function handleSurveyPage(request: Request, now = Date.now()): Prom
 			return page(
 				s.organization_id,
 				s.question,
-				`<p>Pick an answer first.</p>${form(s, null, comment ?? null)}`,
+				`<p>${esc(w.pickFirst)}</p>${form(s, null, comment ?? null, w)}`,
 				{
 					status: 422,
 				},
@@ -630,7 +635,7 @@ export async function handleSurveyPage(request: Request, now = Date.now()): Prom
 				return page(
 					s.organization_id,
 					s.question,
-					"<h1>One moment</h1><p>Too many answers from here; try again in a minute.</p>",
+					`<h1>${esc(w.rateLimitTitle)}</h1><p>${esc(w.rateLimitBody)}</p>`,
 					{ status: 429 },
 				);
 			}
@@ -659,8 +664,8 @@ export async function handleSurveyPage(request: Request, now = Date.now()): Prom
 			return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
 		return page(
 			s.organization_id,
-			"Thank you",
-			`<h1>${esc(s.thanks)}</h1><p>${comment ? "Your comment is with the team." : "Your answer is recorded."}</p>`,
+			w.thankYou,
+			`<h1>${esc(s.thanks)}</h1><p>${esc(comment ? w.commentRecorded : w.answerRecorded)}</p>`,
 		);
 	}
 	if (signed && value !== null) {
@@ -681,11 +686,11 @@ export async function handleSurveyPage(request: Request, now = Date.now()): Prom
 		return page(
 			s.organization_id,
 			s.question,
-			`${form(s, value, had?.comment ?? null)}<p id="n" class="note">Press Send to record your answer.</p><script nonce="${nonce}">fetch(location.href,{method:"POST",headers:{"x-mailroom-survey":"auto"}}).then(function(r){if(r.ok)document.getElementById("n").textContent=${JSON.stringify(s.comment_prompt ? "Your answer is in. Add a comment if you like." : "Your answer is in. Thank you!")}})</script>`,
+			`${form(s, value, had?.comment ?? null, w)}<p id="n" class="note">${esc(w.pressSend)}</p><script nonce="${nonce}">fetch(location.href,{method:"POST",headers:{"x-mailroom-survey":"auto"}}).then(function(r){if(r.ok)document.getElementById("n").textContent=${JSON.stringify(s.comment_prompt ? w.answerInComment : w.answerInThanks)}})</script>`,
 			{ nonce },
 		);
 	}
-	return page(s.organization_id, s.question, form(s, value, null));
+	return page(s.organization_id, s.question, form(s, value, null, w));
 }
 
 /** The survey asked in a chat widget (its design's survey_id), or null. */

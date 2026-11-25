@@ -61,6 +61,7 @@ import {
 	deleteSegment,
 	deleteTopic,
 	getContact,
+	importContacts,
 	listContacts,
 	listProperties,
 	listSegments,
@@ -398,6 +399,29 @@ const contactRoutes: [string, RegExp, Handler][] = [
 				next: page.next,
 				data: page.data.map(contactView),
 			});
+		},
+	],
+	[
+		"POST",
+		/^\/contacts\/import$/,
+		async (req, auth, _p, url) => {
+			const raw = await body<Record<string, unknown>>(req);
+			const brand = await listBrand(auth, url, raw?.brand);
+			const rows = Array.isArray(raw?.rows)
+				? raw.rows
+				: Array.isArray(raw?.contacts)
+					? raw.contacts
+					: null;
+			if (!rows) throw validation("rows: give an array of contacts to import");
+			if (rows.length > 1000) throw validation("rows: at most 1,000 contacts per request");
+			const segment =
+				typeof raw?.segment_id === "string"
+					? raw.segment_id
+					: typeof raw?.segment === "string"
+						? raw.segment
+						: null;
+			const res = await importContacts(brand, rows as never, { segment });
+			return json({ object: "contact_import", ...res });
 		},
 	],
 	[

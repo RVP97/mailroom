@@ -6,6 +6,7 @@ import {
 	createProperty,
 	createSegment,
 	getContact,
+	importContacts,
 	renameSegment,
 	upsertContact,
 } from "@/server/contacts";
@@ -51,6 +52,28 @@ async function people() {
 }
 
 describe("live segments", () => {
+	it("takes in more people than one D1 insert binds (100 parameters a query)", async () => {
+		fakeOutside();
+		const org = await seedOrg();
+		await createProperty(org.id, { key: "wave", type: "string" });
+		const n = 120;
+		await importContacts(
+			org.id,
+			Array.from({ length: n }, (_, i) => ({
+				email: `w1-${i}-${uid()}@example.com`,
+				properties: { wave: "W1" },
+			})),
+		);
+		const s = await createSegment(org.id, {
+			name: "Wave 1",
+			rules: {
+				match: "all",
+				conditions: [{ type: "property", key: "wave", op: "is", value: "W1" }],
+			},
+		});
+		expect((await members(s.id)).length).toBe(n);
+	});
+
 	it("keeps members matching property rules, all or any", async () => {
 		const { org, ana, luis, eva } = await people();
 		const all = await createSegment(org.id, {

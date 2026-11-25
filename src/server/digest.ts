@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { recipients } from "./alerts";
 import { brandIds } from "./brands";
-import { db, schema } from "./db";
+import { chunk, db, schema } from "./db";
 import { baseUrl } from "./env";
 import { statsByTemplate, timeToInbox } from "./insights";
 import { appLink } from "./org-handles";
@@ -201,12 +201,16 @@ async function combinedRecipients(addresses: string[]): Promise<Set<string>> {
 	if (!addresses.length) return new Set();
 	const u = schema.user;
 	const us = schema.userSettings;
-	const rows = await db
-		.select({ email: u.email })
-		.from(us)
-		.innerJoin(u, eq(u.id, us.user_id))
-		.where(and(eq(us.combine_digests, true), inArray(sql`lower(${u.email})`, addresses)));
-	return new Set(rows.map((r) => r.email.toLowerCase()));
+	const out = new Set<string>();
+	for (const part of chunk(addresses)) {
+		const rows = await db
+			.select({ email: u.email })
+			.from(us)
+			.innerJoin(u, eq(u.id, us.user_id))
+			.where(and(eq(us.combine_digests, true), inArray(sql`lower(${u.email})`, part)));
+		for (const r of rows) out.add(r.email.toLowerCase());
+	}
+	return out;
 }
 
 async function markDigestSent(organizationId: string, now: number) {

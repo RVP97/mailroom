@@ -337,35 +337,71 @@ const commands = {
 				await api("POST", "/contact-properties", { key: c, type: "string" });
 				console.error(`Added the contact property ${c}.`);
 			}
+		const parsed = data
+			.map((r) => {
+				const contact = { email: r[at]?.trim(), properties: {} };
+				cols.forEach((c, i) => {
+					const v = r[i]?.trim();
+					if (i === at || !c || v === undefined || v === "") return;
+					if (known[c]) contact.first_name = v;
+					else if (last[c]) contact.last_name = v;
+					else if (c === "unsubscribed")
+						contact.unsubscribed = /^(1|true|yes|si|sí)$/i.test(v);
+					else if (/^[a-z]/.test(c)) contact.properties[c] = v;
+				});
+				if (!Object.keys(contact.properties).length) delete contact.properties;
+				return contact;
+			})
+			.filter((c) => c.email);
 		let created = 0;
 		let updated = 0;
+		let skipped = 0;
 		const failed = [];
-		const work = data.map((r) => () => {
-			const contact = { email: r[at]?.trim(), properties: {} };
-			cols.forEach((c, i) => {
-				const v = r[i]?.trim();
-				if (i === at || !c || v === undefined || v === "") return;
-				if (known[c]) contact.first_name = v;
-				else if (last[c]) contact.last_name = v;
-				else if (c === "unsubscribed")
-					contact.unsubscribed = /^(1|true|yes|si|sí)$/i.test(v);
-				else if (/^[a-z]/.test(c)) contact.properties[c] = v;
+		// Use batched POST /contacts/import (500 rows/request) unless --topic is specified.
+		let useBatch = !o.topic;
+		if (useBatch) {
+			for (let i = 0; i < parsed.length; i += 500) {
+				const chunk = parsed.slice(i, i + 500);
+				try {
+					const res = await api("POST", "/contacts/import", {
+						rows: chunk,
+						...(o.segment ? { segment_id: o.segment } : {}),
+					});
+					created += res.added ?? 0;
+					updated += res.updated ?? 0;
+					skipped += res.skipped ?? 0;
+					if (parsed.length > 500)
+						console.error(
+							`Imported ${Math.min(i + chunk.length, parsed.length)} / ${parsed.length}…`,
+						);
+				} catch (e) {
+					if (i === 0 && /^404\b/.test(e.message)) {
+						useBatch = false;
+						break;
+					}
+					failed.push(`rows ${i + 1}-${i + chunk.length}: ${e.message}`);
+				}
+			}
+		}
+		if (!useBatch) {
+			const work = parsed.map((contact) => () => {
+				if (o.segment) contact.segments = [o.segment];
+				if (o.topic) contact.topics = [{ id: o.topic, subscription: "opt_in" }];
+				return api("POST", "/contacts", contact)
+					.then((x) => (x.created ? created++ : updated++))
+					.catch((e) => failed.push(`${contact.email}: ${e.message}`));
 			});
-			if (!Object.keys(contact.properties).length) delete contact.properties;
-			if (o.segment) contact.segments = [o.segment];
-			if (o.topic) contact.topics = [{ id: o.topic, subscription: "opt_in" }];
-			return api("POST", "/contacts", contact)
-				.then((x) => (x.created ? created++ : updated++))
-				.catch((e) => failed.push(`${contact.email}: ${e.message}`));
-		});
-		// Five at a time: quick, and inside the API's rate limit.
-		const runners = Array.from({ length: 5 }, async () => {
-			for (let w = work.shift(); w; w = work.shift()) await w();
-		});
-		await Promise.all(runners);
-		const summary = { created, updated, failed: failed.length };
+			// Five at a time: quick, and inside the API's rate limit.
+			const runners = Array.from({ length: 5 }, async () => {
+				for (let w = work.shift(); w; w = work.shift()) await w();
+			});
+			await Promise.all(runners);
+		}
+		const summary = { created, updated, skipped, failed: failed.length };
 		print(summary, () => {
-			console.log(`${basename(file)}: ${created} added, ${updated} updated.`);
+			console.log(
+				`${basename(file)}: ${created} added, ${updated} updated${skipped ? `, ${skipped} skipped` : ""}.`,
+			);
 			for (const f of failed) console.log(`  ${f}`);
 		});
 	},

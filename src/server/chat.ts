@@ -23,7 +23,7 @@ import {
 	putFile,
 	testStorage,
 } from "./chat-storage";
-import { db, schema } from "./db";
+import { chunk, db, schema } from "./db";
 import type { ChatAttachment } from "./db/schema";
 import { baseUrl, cfg } from "./env";
 import { ApiError, notFound, validation } from "./errors";
@@ -1086,7 +1086,10 @@ export async function identifyVisitor(
 		.object({
 			identity: z.string().max(8000),
 			/** One of the person's earlier chats (from history), instead of the latest. */
-			conversation: z.string().uuid().nullish(),
+			conversation: z
+				.string()
+				.regex(/^[A-Za-z0-9_-]{1,64}$/)
+				.nullish(),
 		})
 		.parse(raw ?? {});
 	const who = await identityOf(w.widget, v.identity, now);
@@ -2505,13 +2508,13 @@ export async function emailVisitors(now = Date.now(), sender?: ChatSender) {
 	let sent = 0;
 	const send = sender ?? (await defaultSender());
 	for (const [id, waiting] of byChat) {
-		const mark = (ids: string[]) =>
-			ids.length
-				? db
-						.update(cm)
-						.set({ notified_at: iso(now) })
-						.where(inArray(cm.id, ids))
-				: Promise.resolve();
+		const mark = async (ids: string[]) => {
+			for (const part of chunk(ids))
+				await db
+					.update(cm)
+					.set({ notified_at: iso(now) })
+					.where(inArray(cm.id, part));
+		};
 		const x = await db.select().from(c).where(eq(c.id, id)).get();
 		const inbox = x?.inbox_id
 			? await db.select().from(schema.inboxes).where(eq(schema.inboxes.id, x.inbox_id)).get()
@@ -2680,13 +2683,15 @@ export async function usualReply(inboxId: string, now = Date.now()) {
 export async function deleteChatFiles(conversationIds: string[]) {
 	if (!conversationIds.length) return;
 	const store = bucket();
-	const rows = await db
-		.select({ attachments: cm.attachments, inbox: c.inbox_id })
-		.from(cm)
-		.innerJoin(c, eq(c.id, cm.conversation_id))
-		.where(
-			and(inArray(cm.conversation_id, conversationIds), sql`${cm.attachments} IS NOT NULL`),
-		);
+	const rows = [];
+	for (const part of chunk(conversationIds)) {
+		const found = await db
+			.select({ attachments: cm.attachments, inbox: c.inbox_id })
+			.from(cm)
+			.innerJoin(c, eq(c.id, cm.conversation_id))
+			.where(and(inArray(cm.conversation_id, part), sql`${cm.attachments} IS NOT NULL`));
+		rows.push(...found);
+	}
 	const all = rows.flatMap((r) => (r.attachments ?? []).map((a) => ({ a, inbox: r.inbox })));
 	// A link's file is the app's (nothing here to delete).
 	const keys = all.filter((x) => !x.a.place && !x.a.url && x.a.key).map((x) => x.a.key);

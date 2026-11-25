@@ -2252,6 +2252,74 @@ function BlockPanel({ block: b }: { block: Block }) {
 							</Button>
 						)}
 					</div>
+					<Field2 label="Save answer to property (optional)">
+						<Input
+							value={b.save_property ?? ""}
+							placeholder="e.g. interest"
+							onChange={(e) => {
+								const v = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "");
+								set({ save_property: v || undefined });
+							}}
+						/>
+					</Field2>
+					<details className="rounded-md border border-border/60 px-2.5 py-2 text-xs">
+						<summary className="cursor-pointer font-medium text-muted-foreground select-none">
+							After voting (optional message or link)
+						</summary>
+						<div className="mt-2.5 flex flex-col gap-3">
+							{b.options.map((opt, i) => {
+								const act = b.actions?.[i] ?? {};
+								const patchAct = (
+									patch: Partial<{
+										message: string;
+										cta_label: string;
+										cta_url: string;
+									}>,
+								) => {
+									const next = b.options.map((_, j) =>
+										j === i
+											? { ...(b.actions?.[j] ?? {}), ...patch }
+											: (b.actions?.[j] ?? null),
+									);
+									set({ actions: next });
+								};
+								return (
+									<div
+										key={i}
+										className="flex flex-col gap-1.5 border-t border-border/40 pt-2 first:border-t-0 first:pt-0"
+									>
+										<span className="font-medium text-foreground">
+											{opt || `Answer ${i + 1}`}
+										</span>
+										<Input
+											value={act.message ?? ""}
+											placeholder="Message on results page ({{{contact.key}}})"
+											className="h-8 text-xs"
+											onChange={(e) => patchAct({ message: e.target.value })}
+										/>
+										<div className="grid grid-cols-2 gap-1.5">
+											<Input
+												value={act.cta_label ?? ""}
+												placeholder="Button label"
+												className="h-8 text-xs"
+												onChange={(e) =>
+													patchAct({ cta_label: e.target.value })
+												}
+											/>
+											<Input
+												value={act.cta_url ?? ""}
+												placeholder="https://… ({{{contact.code}}})"
+												className="h-8 text-xs"
+												onChange={(e) =>
+													patchAct({ cta_url: e.target.value })
+												}
+											/>
+										</div>
+									</div>
+								);
+							})}
+						</div>
+					</details>
 					<AlignPick
 						value={b.align}
 						onChange={(align) => set({ align })}

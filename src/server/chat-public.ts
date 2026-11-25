@@ -551,7 +551,7 @@ export async function handleChat(request: Request, now = Date.now()): Promise<Re
  * and presence; the team's own messages still go through the server functions.
  */
 export async function handleTeamLive(request: Request): Promise<Response> {
-	const id = /^\/chat-live\/([0-9a-f-]{36})$/.exec(new URL(request.url).pathname)?.[1];
+	const id = /^\/chat-live\/([A-Za-z0-9_-]{1,64})$/.exec(new URL(request.url).pathname)?.[1];
 	if (!id) return new Response("Not found", { status: 404 });
 	if (request.headers.get("upgrade")?.toLowerCase() !== "websocket")
 		return new Response("Expected a WebSocket", { status: 426 });

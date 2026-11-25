@@ -14,6 +14,13 @@ type Statement = { toSQL(): { sql: string; params: unknown[] } } | D1PreparedSta
 /** A raw statement for `batch` (raw SQL drizzle can't put in its own batch). */
 export const raw = (query: string, ...params: unknown[]) => d1.prepare(query).bind(...params);
 
+/** Splits a list into D1-safe slices (default 90, leaving room for extra WHERE/LIMIT params under D1's 100 limit). */
+export function chunk<T>(items: readonly T[], size = 90): T[][] {
+	const out: T[][] = [];
+	for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+	return out;
+}
+
 /**
  * Drizzle queries and raw statements in one D1 batch: one transaction, and one query against the
  * per-request limit.

@@ -2016,7 +2016,7 @@ export async function recordCsat(
 
 /** /rate/<conversation>/<signature>/<1-5>: a GET shows the page, a POST records the rating (and a comment). */
 export async function handleRate(request: Request, now = Date.now()) {
-	const m = /^\/rate\/([0-9a-f-]{36})\/([A-Za-z0-9_-]{10,40})\/([1-5])$/.exec(
+	const m = /^\/rate\/([A-Za-z0-9_-]{1,64})\/([A-Za-z0-9_-]{10,40})\/([1-5])$/.exec(
 		new URL(request.url).pathname,
 	);
 	const { dressOf, dressPage } = await import("./newsletters");

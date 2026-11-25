@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
-import { db, schema } from "./db";
+import { chunk, db, schema } from "./db";
 import { iso } from "./time";
 
 /**
@@ -295,19 +295,23 @@ export async function revenueReport(brands: string[], days: number, now = Date.n
 	const automations = rows(byAutomation);
 	const names = new Map([...broadcasts, ...automations].map((x) => [x.id, x.name]));
 	// Names of credits outside the top ten (the latest purchases name theirs too).
-	const missing = latest
-		.filter((l) => l.credit_id && l.credit_type !== "chat" && !names.has(l.credit_id))
-		.map((l) => l.credit_id as string);
-	if (missing.length) {
+	const missing = [
+		...new Set(
+			latest
+				.filter((l) => l.credit_id && l.credit_type !== "chat" && !names.has(l.credit_id))
+				.map((l) => l.credit_id as string),
+		),
+	];
+	for (const part of chunk(missing)) {
 		const [bs, as] = await Promise.all([
 			db
 				.select({ id: schema.broadcasts.id, name: schema.broadcasts.name })
 				.from(schema.broadcasts)
-				.where(inArray(schema.broadcasts.id, missing)),
+				.where(inArray(schema.broadcasts.id, part)),
 			db
 				.select({ id: schema.automations.id, name: schema.automations.name })
 				.from(schema.automations)
-				.where(inArray(schema.automations.id, missing)),
+				.where(inArray(schema.automations.id, part)),
 		]);
 		for (const x of [...bs, ...as]) names.set(x.id, x.name);
 	}

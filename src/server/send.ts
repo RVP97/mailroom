@@ -8,7 +8,7 @@ import { sha256Hex } from "./aws/sigv4";
 import { credentialsRefused, credentialsWorked } from "./aws-health";
 import { brandIds, brandIn } from "./brands";
 import { bump } from "./counters";
-import { batch, db, schema } from "./db";
+import { batch, chunk, db, schema } from "./db";
 import type { AttachmentInfo, EmailStatus } from "./db/schema";
 import { ApiError, validation } from "./errors";
 import { firewallBlocks, getFirewall, RULE_LABEL } from "./firewall";
@@ -934,18 +934,20 @@ export async function inlineImagesOf(
 ): Promise<Record<string, string>> {
 	const wanted = attachments.filter((a) => a.content_id && a.image);
 	if (!wanted.length) return {};
-	const rows = await db
-		.select()
-		.from(schema.inlineImages)
-		.where(
-			and(
-				eq(schema.inlineImages.organization_id, organizationId),
-				inArray(
-					schema.inlineImages.hash,
-					wanted.map((a) => a.image as string),
+	const hashes = [...new Set(wanted.map((a) => a.image as string))];
+	const rows = [];
+	for (const part of chunk(hashes)) {
+		const found = await db
+			.select()
+			.from(schema.inlineImages)
+			.where(
+				and(
+					eq(schema.inlineImages.organization_id, organizationId),
+					inArray(schema.inlineImages.hash, part),
 				),
-			),
-		);
+			);
+		rows.push(...found);
+	}
 	const byHash = new Map(
 		rows.map((r) => [
 			r.hash,
@@ -964,14 +966,16 @@ export async function inlineImagesOf(
 export async function storedContents(emailIds: string[]) {
 	const out = new Map<string, NonNullable<Awaited<ReturnType<typeof storedContent>>>>();
 	if (!emailIds.length) return out;
-	const rows = await db
-		.select()
-		.from(schema.emailBodies)
-		.where(inArray(schema.emailBodies.email_id, emailIds));
-	for (const row of rows)
-		out.set(row.email_id, {
-			content: await gunzipJson<StoredContent>(row.content as unknown as ArrayBuffer),
-			attachments: row.attachments ?? [],
-		});
+	for (const part of chunk(emailIds)) {
+		const rows = await db
+			.select()
+			.from(schema.emailBodies)
+			.where(inArray(schema.emailBodies.email_id, part));
+		for (const row of rows)
+			out.set(row.email_id, {
+				content: await gunzipJson<StoredContent>(row.content as unknown as ArrayBuffer),
+				attachments: row.attachments ?? [],
+			});
+	}
 	return out;
 }

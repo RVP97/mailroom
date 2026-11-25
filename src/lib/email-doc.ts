@@ -7,6 +7,11 @@
 import { scaleLinks } from "./survey-scale";
 
 export type Align = "left" | "center" | "right";
+export interface PollAction {
+	message?: string;
+	cta_label?: string;
+	cta_url?: string;
+}
 
 export type ConditionOp = "eq" | "neq" | "contains" | "exists" | "not_exists";
 
@@ -71,7 +76,18 @@ export type LeafBlock = Base &
 		| { type: "footer"; html: string; unsubscribe: string }
 		| { type: "html"; html: string }
 		/** One-click answers (broadcasts only): each button links to {{{POLL_URL}}}/<id>/<answer>. */
-		| { type: "poll"; question: string; options: string[]; align: Align }
+		/** One-question poll: each answer is a link to {{{POLL_URL}}}/<id>/<index>.
+		 * Optional `save_property` stores the chosen label onto contacts.properties; optional
+		 * per-option `actions` show a message / CTA button (with {{{contact.*}}} placeholders)
+		 * on the results page after voting. */
+		| {
+				type: "poll";
+				question: string;
+				options: string[];
+				align: Align;
+				save_property?: string;
+				actions?: (PollAction | null)[];
+		  }
 		/** A survey's question (a copy, for the email) with its answers, each linking to
 		 * {{{SURVEY_URL}}}/<survey>/<answer>. */
 		| {
@@ -359,12 +375,35 @@ function leaf(raw: Record<string, unknown>): LeafBlock | null {
 				.slice(0, 6)
 				.map((o) => str(o, 120).trim())
 				.filter(Boolean);
+			const saveProp =
+				typeof raw.save_property === "string" &&
+				/^[a-z][a-z0-9_]{0,63}$/.test(raw.save_property.trim())
+					? raw.save_property.trim()
+					: undefined;
+			const rawActions = Array.isArray(raw.actions) ? raw.actions.slice(0, 6) : null;
+			const actions = rawActions?.map((a) => {
+				if (!a || typeof a !== "object") return null;
+				const r = a as Record<string, unknown>;
+				const message = str(r.message, 500).trim() || undefined;
+				const cta_label = str(r.cta_label, 80).trim() || undefined;
+				const rawUrl = str(r.cta_url, 1000).trim();
+				const cta_url = /^https?:\/\//i.test(rawUrl) ? rawUrl : undefined;
+				if (!message && !cta_url) return null;
+				return {
+					...(message ? { message } : {}),
+					...(cta_label ? { cta_label } : {}),
+					...(cta_url ? { cta_url } : {}),
+				};
+			});
+			const hasActions = actions?.some(Boolean);
 			return {
 				id,
 				type: "poll",
 				question: str(raw.question, 300),
 				options: options.length ? options : ["Yes", "No"],
 				align: align(raw.align),
+				...(saveProp ? { save_property: saveProp } : {}),
+				...(hasActions ? { actions } : {}),
 			};
 		}
 		case "survey": {

@@ -118,6 +118,14 @@ const conditionStep = z.object({
 	property: z.string().nullish(),
 	equals: z.union([z.string(), z.number()]).nullish(),
 	engaged: z.enum(["opened", "clicked"]).nullish(),
+	poll_broadcast_id: z.string().nullish(),
+	poll_id: z.string().nullish(),
+	poll_answer: z.number().int().min(0).max(20).nullish(),
+	survey_id: z.string().nullish(),
+	survey_answer: z
+		.enum(["any", "promoter", "passive", "detractor", "at_least", "at_most", "choice"])
+		.nullish(),
+	survey_value: z.number().int().min(0).max(10).nullish(),
 });
 
 const leaf = z.discriminatedUnion("type", [
@@ -289,14 +297,33 @@ function normalize(s: StepIn, depth: number): AutomationStep {
 	if (s.type === "segment")
 		return { type: "segment", action: s.action, segment_id: s.segment_id };
 	if (s.type === "property") return { type: "property", key: s.key, value: s.value };
-	if (!s.segment_id && !s.property && !s.engaged)
-		throw validation("A condition step needs segment_id, property or engaged");
+	if (
+		!s.segment_id &&
+		!s.property &&
+		!s.engaged &&
+		!s.poll_broadcast_id &&
+		!s.poll_id &&
+		!s.survey_id
+	)
+		throw validation(
+			"A condition step needs segment_id, property, engaged, poll_broadcast_id/poll_id or survey_id",
+		);
 	return {
 		type: "condition",
 		segment_id: s.segment_id || null,
 		property: s.property || null,
 		equals: s.equals ?? null,
 		engaged: s.engaged ?? null,
+		...(s.poll_broadcast_id ? { poll_broadcast_id: s.poll_broadcast_id } : {}),
+		...(s.poll_id ? { poll_id: s.poll_id } : {}),
+		...(s.poll_answer !== null && s.poll_answer !== undefined
+			? { poll_answer: s.poll_answer }
+			: {}),
+		...(s.survey_id ? { survey_id: s.survey_id } : {}),
+		...(s.survey_answer ? { survey_answer: s.survey_answer } : {}),
+		...(s.survey_value !== null && s.survey_value !== undefined
+			? { survey_value: s.survey_value }
+			: {}),
 		...no(s.no),
 	};
 }
@@ -331,6 +358,8 @@ async function check(brand: string, t: AutomationTrigger, steps: AutomationStep[
 				throw validation(`steps[${i}]: give a from (the template has no default From)`);
 		}
 		if (s.type === "condition" && s.segment_id) await segmentOf(brand, s.segment_id);
+		if (s.type === "condition" && s.survey_id)
+			await owned(schema.surveys, brand, s.survey_id, `steps[${i}].survey_id`);
 		if (s.type === "segment" && s.segment_id) await listSegmentOf(brand, s.segment_id);
 		if (s.type === "topic")
 			await owned(schema.topics, brand, s.topic_id, `steps[${i}].topic_id`);
@@ -361,7 +390,8 @@ async function owned(
 		| typeof schema.topics
 		| typeof schema.newsletters
 		| typeof schema.signupForms
-		| typeof schema.inboxes,
+		| typeof schema.inboxes
+		| typeof schema.surveys,
 	brand: string,
 	id: string,
 	field: string,
@@ -1147,6 +1177,53 @@ async function holds(
 			.where(eq(schema.emails.id, run.last_email_id))
 			.get();
 		if (!(s.engaged === "clicked" ? e?.clicked : e?.opened || e?.clicked)) return false;
+	}
+	if (s.poll_broadcast_id || s.poll_id) {
+		const vote = await db
+			.select({ answer: schema.pollVotes.answer })
+			.from(schema.pollVotes)
+			.where(
+				and(
+					eq(schema.pollVotes.contact_id, contact.id),
+					s.poll_broadcast_id
+						? eq(schema.pollVotes.broadcast_id, s.poll_broadcast_id)
+						: undefined,
+					s.poll_id ? eq(schema.pollVotes.poll_id, s.poll_id) : undefined,
+				),
+			)
+			.orderBy(desc(schema.pollVotes.created_at))
+			.limit(1)
+			.get();
+		if (!vote) return false;
+		if (s.poll_answer !== null && s.poll_answer !== undefined && vote.answer !== s.poll_answer)
+			return false;
+	}
+	if (s.survey_id) {
+		const latest = await db
+			.select({ score: schema.surveyResponses.score })
+			.from(schema.surveyResponses)
+			.where(
+				and(
+					eq(schema.surveyResponses.contact_id, contact.id),
+					eq(schema.surveyResponses.survey_id, s.survey_id),
+				),
+			)
+			.orderBy(desc(schema.surveyResponses.updated_at))
+			.limit(1)
+			.get();
+		if (!latest) return false;
+		const ans = s.survey_answer ?? "any";
+		const v = s.survey_value ?? 0;
+		const score = latest.score;
+		if (ans !== "any" && score === null) return false;
+		if (score !== null) {
+			if (ans === "promoter" && score < 9) return false;
+			if (ans === "passive" && (score < 7 || score > 8)) return false;
+			if (ans === "detractor" && score > 6) return false;
+			if (ans === "at_least" && score < v) return false;
+			if (ans === "at_most" && score > v) return false;
+			if (ans === "choice" && score !== v) return false;
+		}
 	}
 	return true;
 }
@@ -1960,7 +2037,11 @@ export async function simulateAutomation(
 					? `property ${s.property}${s.equals !== undefined ? ` = ${s.equals}` : ""}`
 					: s.engaged
 						? `engaged (${s.engaged})`
-						: "condition";
+						: s.poll_broadcast_id || s.poll_id
+							? `poll ${s.poll_id ?? s.poll_broadcast_id}${s.poll_answer !== null && s.poll_answer !== undefined ? ` = #${s.poll_answer}` : ""}`
+							: s.survey_id
+								? `survey ${s.survey_id} (${s.survey_answer ?? "any"})`
+								: "condition";
 			trace.push({
 				step: n + 1,
 				type: s.type,

@@ -1,7 +1,9 @@
 import { and, eq, sql } from "drizzle-orm";
-import type { Block, EmailDoc } from "../lib/email-doc";
+import type { Block, EmailDoc, PollAction } from "../lib/email-doc";
 import { lookOf } from "../lib/newsletter-look";
+import { type PollWords, pollWords, resolvePublicLocale } from "../lib/public-locale";
 import { esc } from "../lib/signup-form-render";
+import { fill } from "../lib/template-fill";
 import { db, schema } from "./db";
 import type { Dress } from "./newsletters";
 import { dressBar, dressPage } from "./newsletters";
@@ -91,7 +93,10 @@ li a:hover{border-color:var(--mute)}
 .row{position:relative;z-index:1;display:flex;gap:12px;align-items:center}.row span:first-child{flex:1}
 .row span:last-child{color:var(--soft);font-variant-numeric:tabular-nums;font-size:14px}
 .mine{border-color:var(--accent)!important;font-weight:600}
-.mine .row span:first-child::after{content:"Your answer";margin-left:8px;font:500 11px/1 var(--font);color:var(--on-accent);background:var(--accent);padding:3px 7px;border-radius:999px;vertical-align:2px}
+.mine .row span:first-child::after{content:attr(data-yours);margin-left:8px;font:500 11px/1 var(--font);color:var(--on-accent);background:var(--accent);padding:3px 7px;border-radius:999px;vertical-align:2px}
+.action-card{margin:0 0 20px;padding:18px;border-radius:var(--r-sm);background:color-mix(in srgb,var(--accent) 8%,transparent);border:1px solid color-mix(in srgb,var(--accent) 28%,transparent);text-align:center}
+.action-card p{margin:0 0 12px;color:inherit;font-size:15px;line-height:1.5;font-weight:500}
+.action-card p:last-child{margin-bottom:0}
 .box>p.note{margin:18px 0 0;font-size:13px;color:var(--mute)}
 .back{display:block;margin-top:20px;text-align:center;font-size:14px;color:var(--soft)}`;
 
@@ -139,25 +144,81 @@ const plain = (): Dress => ({
 	subscribe: false,
 });
 
+const isPrefetch = (request: Request) => {
+	const purpose = (
+		request.headers.get("sec-purpose") ??
+		request.headers.get("purpose") ??
+		request.headers.get("x-purpose") ??
+		request.headers.get("x-moz") ??
+		""
+	).toLowerCase();
+	return purpose.includes("prefetch") || purpose.includes("preview");
+};
+
+function pollPlaceholders(
+	contact: {
+		email: string;
+		first_name: string | null;
+		last_name: string | null;
+		properties: Record<string, string | number> | null;
+	},
+	encode = false,
+): Record<string, string> {
+	const enc = (v: string) => (encode ? encodeURIComponent(v) : v);
+	const values: Record<string, string> = {
+		EMAIL: enc(contact.email),
+		FIRST_NAME: enc(contact.first_name ?? ""),
+		LAST_NAME: enc(contact.last_name ?? ""),
+	};
+	for (const [k, val] of Object.entries(contact.properties ?? {}))
+		values[`contact.${k}`] = enc(String(val ?? ""));
+	return values;
+}
+
+function renderActionCard(
+	action: PollAction | null | undefined,
+	contact: {
+		email: string;
+		first_name: string | null;
+		last_name: string | null;
+		properties: Record<string, string | number> | null;
+	},
+	w: PollWords,
+): string {
+	if (!action) return "";
+	const msg = action.message ? fill(action.message, pollPlaceholders(contact, false)).trim() : "";
+	const rawUrl = action.cta_url
+		? fill(action.cta_url, pollPlaceholders(contact, true)).trim()
+		: "";
+	const safeUrl = /^https?:\/\//i.test(rawUrl) ? rawUrl : "";
+	const label = action.cta_label
+		? fill(action.cta_label, pollPlaceholders(contact, false)).trim()
+		: w.openLink;
+	if (!msg && !safeUrl) return "";
+	return `<div class="action-card">${msg ? `<p>${esc(msg)}</p>` : ""}${safeUrl ? `<a class="mrw-btn" href="${esc(safeUrl)}">${esc(label || w.openLink)}</a>` : ""}</div>`;
+}
+
 const results = (
 	p: { question: string; options: { label: string; votes: number }[]; total: number },
 	mine: number | null,
 	link: (i: number) => string | null,
+	w: PollWords = pollWords("en"),
+	actionCard = "",
 ) =>
-	`<h1>${esc(p.question)}</h1><p>${mine === null ? "Pick an answer." : "Thanks, your answer is in. Here's how everyone answered so far."}</p><ol>${p.options
+	`${actionCard}<h1>${esc(p.question)}</h1><p>${esc(mine === null ? w.pick : w.thanks)}</p><ol>${p.options
 		.map((o, i) => {
 			const pct = p.total ? Math.round((o.votes / p.total) * 100) : 0;
-			const inner = `<span class="bar" style="width:${mine === null ? 0 : pct}%"></span><span class="row"><span>${esc(o.label)}</span>${mine === null ? "" : `<span>${pct}%</span>`}</span>`;
+			const inner = `<span class="bar" style="width:${mine === null ? 0 : pct}%"></span><span class="row"><span data-yours="${esc(w.yourAnswer)}">${esc(o.label)}</span>${mine === null ? "" : `<span>${pct}%</span>`}</span>`;
 			const href = link(i);
 			return `<li>${href ? `<a href="${esc(href)}" class="${i === mine ? "mine" : ""}">${inner}</a>` : `<div class="${i === mine ? "mine" : ""}">${inner}</div>`}</li>`;
 		})
-		.join(
-			"",
-		)}</ol>${mine !== null ? '<p class="note">Changed your mind? Pick another answer.</p>' : ""}`;
+		.join("")}</ol>${mine !== null ? `<p class="note">${esc(w.changed)}</p>` : ""}`;
 
 /** /poll/<broadcast>/<contact>/<signature>/<poll>/<answer>, and /poll/web/<broadcast> (the web version's). */
 export async function handlePoll(request: Request, now = Date.now()): Promise<Response> {
 	const u = new URL(request.url);
+	const acceptLang = request.headers.get("accept-language");
+	const defaultWords = pollWords(resolvePublicLocale(null, acceptLang));
 	const web = /^\/poll\/web\/([0-9a-f-]{36})(?:\/|$)/.exec(u.pathname);
 	if (web) {
 		const x = await db
@@ -171,19 +232,19 @@ export async function handlePoll(request: Request, now = Date.now()): Promise<Re
 		const d = await dressFor(x ?? null);
 		return page(
 			d,
-			"Answer from your email",
-			`<h1>Answer from your email</h1><p>This poll counts answers from the email it came in: open it there and pick your answer.</p>${d.subscribe && d.home ? `<a class="mrw-btn" href="${esc(d.home)}#subscribe">Subscribe to ${esc(d.name)}</a>` : ""}`,
+			defaultWords.fromEmailTitle,
+			`<h1>${esc(defaultWords.fromEmailTitle)}</h1><p>${esc(defaultWords.fromEmailBody)}</p>${d.subscribe && d.home ? `<a class="mrw-btn" href="${esc(d.home)}#subscribe">Subscribe to ${esc(d.name)}</a>` : ""}`,
 		);
 	}
 	const m =
-		/^\/poll\/([0-9a-f-]{36})\/([0-9a-f-]{36})\/([A-Za-z0-9_-]{10,40})\/([\w-]{1,40})(?:\/(\d{1,2}))?$/.exec(
+		/^\/poll\/([0-9a-f-]{36})\/([A-Za-z0-9_-]{1,64})\/([A-Za-z0-9_-]{10,40})\/([\w-]{1,40})(?:\/(\d{1,2}))?$/.exec(
 			u.pathname,
 		);
 	const bad = () =>
 		page(
 			plain(),
-			"Poll not found",
-			"<h1>This poll isn't available</h1><p>The link may be incomplete.</p>",
+			defaultWords.notFoundTitle,
+			`<h1>${esc(defaultWords.notFoundTitle)}</h1><p>${esc(defaultWords.notFoundBody)}</p>`,
 			404,
 		);
 	if (!m) return bad();
@@ -209,7 +270,13 @@ export async function handlePoll(request: Request, now = Date.now()): Promise<Re
 	const poll = pollsIn(x?.design).find((p) => p.id === pollId);
 	if (!x || !poll) return bad();
 	const contact = await db
-		.select({ id: schema.contacts.id })
+		.select({
+			id: schema.contacts.id,
+			email: schema.contacts.email,
+			first_name: schema.contacts.first_name,
+			last_name: schema.contacts.last_name,
+			properties: schema.contacts.properties,
+		})
 		.from(schema.contacts)
 		.where(
 			and(
@@ -219,6 +286,9 @@ export async function handlePoll(request: Request, now = Date.now()): Promise<Re
 		)
 		.get();
 	if (!contact) return bad();
+	const w = pollWords(
+		resolvePublicLocale(contact.properties?.lang ?? contact.properties?.locale, acceptLang),
+	);
 	const base = `${publicUrl()}/poll/${broadcastId}/${contactId}/${signature}/${pollId}`;
 	let mine: number | null = null;
 	const answer = raw === undefined ? null : Number(raw);
@@ -226,7 +296,8 @@ export async function handlePoll(request: Request, now = Date.now()): Promise<Re
 		answer !== null &&
 		answer >= 0 &&
 		answer < poll.options.length &&
-		request.method === "GET"
+		request.method === "GET" &&
+		!isPrefetch(request)
 	) {
 		const before = await db
 			.select({ answer: v.answer })
@@ -249,6 +320,32 @@ export async function handlePoll(request: Request, now = Date.now()): Promise<Re
 				set: { answer, created_at: iso(now) },
 			});
 		mine = answer;
+		// Optional explicit contact property mapping (quoted JSON path so keys stay safe).
+		if (poll.save_property && /^[a-z][a-z0-9_]{0,63}$/.test(poll.save_property)) {
+			const label = poll.options[answer] ?? String(answer);
+			const path = `$."${poll.save_property}"`;
+			await db
+				.insert(schema.contactProperties)
+				.values({
+					id: crypto.randomUUID(),
+					organization_id: x.organization_id,
+					key: poll.save_property,
+					type: "string",
+					fallback_value: null,
+					created_at: iso(now),
+				})
+				.onConflictDoNothing()
+				.catch(() => {});
+			await db
+				.update(schema.contacts)
+				.set({
+					properties: sql`json_set(coalesce(${schema.contacts.properties}, '{}'), ${path}, ${label})`,
+					updated_at: iso(now),
+				})
+				.where(eq(schema.contacts.id, contact.id))
+				.catch((e) => console.error("polls: property update failed", e));
+			contact.properties = { ...(contact.properties ?? {}), [poll.save_property]: label };
+		}
 		if (before?.answer !== answer) {
 			const { recordEvent } = await import("./automations");
 			await recordEvent(
@@ -286,11 +383,12 @@ export async function handlePoll(request: Request, now = Date.now()): Promise<Re
 	const d = await dressFor(x);
 	const { webUrl } = await import("./newsletters");
 	const issue = webUrl(x, d.home ? { slug: d.home.split("/n/")[1] ?? "", public: true } : null);
+	const actionCard = mine !== null ? renderActionCard(poll.actions?.[mine], contact, w) : "";
 	return page(
 		d,
 		poll.question,
-		results(counted, mine, (i) => `${base}/${i}`),
+		results(counted, mine, (i) => `${base}/${i}`, w, actionCard),
 		200,
-		`<a class="back" href="${esc(issue)}">Read the issue online</a>`,
+		`<a class="back" href="${esc(issue)}">${esc(w.readOnline)}</a>`,
 	);
 }

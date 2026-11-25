@@ -22,7 +22,7 @@ import { callerAccount, createTopic, subscribeHttps } from "./aws/sns";
 import { db, schema } from "./db";
 import { retrying } from "./db/retry";
 import { withReportsAddress } from "./dmarc-address";
-import { aws, awsConfigured, baseUrl, inboundDomain, region } from "./env";
+import { aws, awsConfigured, awsMocked, baseUrl, inboundDomain, region } from "./env";
 import { ApiError, validation } from "./errors";
 import { forgetOrg } from "./org";
 import { awsFor, moveFor, ownAccount } from "./org-aws";
@@ -95,12 +95,14 @@ export async function sesTarget(brandId: string): Promise<SesTarget> {
 /** The deployment's AWS side: account, topic, subscription. */
 export async function setUpAccount() {
 	if (!awsConfigured()) throw validation("Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY first");
-	if (!/^https:\/\//.test(baseUrl()))
+	if (!awsMocked() && !/^https:\/\//.test(baseUrl()))
 		throw validation("BETTER_AUTH_URL must be this deployment's public https URL");
 	await accountId();
 	const topicArn = await createTopic(aws(), SNS_TOPIC);
 	await setSetting("sns_topic_arn", topicArn);
 	await subscribeHttps(aws(), topicArn, snsEndpoint());
+	// The mock posts events straight in (src/server/aws/mock.ts): nothing to confirm.
+	if (awsMocked()) await setSetting("sns_subscription_confirmed_at", new Date().toISOString());
 	return { topicArn };
 }
 
