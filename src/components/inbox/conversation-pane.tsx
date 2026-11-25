@@ -147,7 +147,7 @@ export function ConversationPane({
 	const me = useMe();
 	const canReply = allows(me.active?.access, "inbox:reply");
 	const { conversation: c, inbox, brand, people, workflow } = data;
-	const isChat = c.channel === "chat";
+	const isChat = c.channel === "chat" || c.channel === "whatsapp" || c.channel === "telegram";
 
 	const [busy, setBusy] = useState<string | null>(null);
 	const [showPanel, setShowPanel] = useState(true);
@@ -957,6 +957,7 @@ export function ConversationPane({
 										: (data.contact?.email ?? c.contact)
 								}
 								conversationId={c.id}
+								visitorContext={c.visitor?.context ?? null}
 								canEdit={canReply}
 							/>
 

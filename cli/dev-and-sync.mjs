@@ -46,15 +46,46 @@ export async function pullTemplates(api, dir) {
 }
 
 export async function pushTemplates(api, dir, { publish = false } = {}) {
-	const files = (await readdir(dir)).filter((f) => f.endsWith(".json")).sort();
+	const entries = (await readdir(dir)).sort();
+	const jsonFiles = new Set(
+		entries.filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5)),
+	);
+	// Also support standalone compiled .html files (e.g. React Email / MJML output) without a .json sidecar.
+	const bases = [
+		...new Set([
+			...jsonFiles,
+			...entries.filter((f) => f.endsWith(".html")).map((f) => f.slice(0, -5)),
+		]),
+	].sort();
 	const existing = (await api("GET", "/templates")).data ?? [];
 	const byId = new Map(existing.map((t) => [t.id, t]));
 	const byAlias = new Map(existing.filter((t) => t.alias).map((t) => [t.alias, t]));
 	const results = [];
-	for (const file of files) {
-		const base = file.slice(0, -5);
-		const meta = JSON.parse(await readFile(join(dir, file), "utf8"));
+	for (const base of bases) {
+		const jsonFile = `${base}.json`;
+		const hasJson = jsonFiles.has(base);
 		const html = await readFile(join(dir, `${base}.html`), "utf8").catch(() => "");
+		let meta = {};
+		if (hasJson) {
+			meta = JSON.parse(await readFile(join(dir, jsonFile), "utf8"));
+		} else {
+			// Parse optional <!-- mailroom: {...} --> frontmatter comment (supports nested JSON) or <title> tag
+			const comment = /<!--\s*mailroom:\s*([\s\S]*?)\s*-->/i.exec(html);
+			if (comment?.[1]) {
+				try {
+					meta = JSON.parse(comment[1].trim());
+				} catch (err) {
+					throw new Error(
+						`Invalid JSON in <!-- mailroom: ... --> comment in ${base}.html: ${err.message}`,
+					);
+				}
+			}
+			const titleMatch = /<title[^>]*>([^<]+)<\/title>/i.exec(html);
+			meta.name =
+				meta.name || base.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+			meta.alias = meta.alias || slug(base);
+			if (!meta.subject && titleMatch?.[1]) meta.subject = titleMatch[1].trim();
+		}
 		const payload = {
 			name: meta.name || base,
 			...(meta.alias ? { alias: meta.alias } : {}),
@@ -77,7 +108,9 @@ export async function pushTemplates(api, dir, { publish = false } = {}) {
 			id = created.id;
 			action = "created";
 			meta.id = id;
-			await writeFile(join(dir, file), `${JSON.stringify(meta, null, 2)}\n`, "utf8");
+			if (hasJson) {
+				await writeFile(join(dir, jsonFile), `${JSON.stringify(meta, null, 2)}\n`, "utf8");
+			}
 		}
 		if (publish && action === "updated") {
 			await api("POST", `/templates/${encodeURIComponent(id)}/publish`);

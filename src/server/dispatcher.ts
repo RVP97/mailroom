@@ -55,6 +55,7 @@ export class Dispatcher extends DurableObject {
 		const claimed = await claimDue(now, PER_RUN);
 		const bodies = await storedContents(claimed.map((r) => r.id));
 		const stopped = await stoppedBroadcasts(claimed);
+		const warmupCounts = new Map<string, { sent: number; bounced: number }>();
 		for (const row of claimed) {
 			try {
 				// A broadcast canceled (or deleted) after this email was queued: it doesn't go.
@@ -63,10 +64,37 @@ export class Dispatcher extends DurableObject {
 					continue;
 				}
 				const ctx = await orgContext(row.organization_id);
+				const senderDomain = domainFor(ctx, bareAddress(row.from));
 				// A paused brand or domain: its queue waits, looked at again every 15 minutes.
-				if (ctx.paused || domainFor(ctx, bareAddress(row.from))?.paused) {
+				if (ctx.paused || senderDomain?.paused) {
 					await hold(row.id, now + HOLD_MS);
 					continue;
+				}
+				// Automated domain warm-up ramp: hold queued mail when today's cap or bounce ceiling is hit.
+				let warmupKey: string | null = null;
+				if (senderDomain?.warmup?.enabled) {
+					const { checkDomainWarmup, countDomainSentToday } = await import("./warmup");
+					warmupKey = `${row.organization_id}:${senderDomain.name.toLowerCase()}`;
+					let counts = warmupCounts.get(warmupKey);
+					if (!counts) {
+						counts = await countDomainSentToday(
+							row.organization_id,
+							senderDomain.name,
+							now,
+						);
+						warmupCounts.set(warmupKey, counts);
+					}
+					const check = await checkDomainWarmup(
+						row.organization_id,
+						senderDomain.name,
+						senderDomain.warmup,
+						now,
+						counts,
+					);
+					if (!check.allowed) {
+						await hold(row.id, now + 60 * 60_000);
+						continue;
+					}
 				}
 				// A broadcast's emails have no body of their own: it's the broadcast's, filled per contact.
 				const fromBroadcast = bodies.has(row.id) ? null : await broadcastContent(row);
@@ -82,6 +110,10 @@ export class Dispatcher extends DurableObject {
 					},
 				});
 				await markSent(row.id, messageId);
+				if (warmupKey) {
+					const c = warmupCounts.get(warmupKey);
+					if (c) c.sent += 1;
+				}
 				// Attachments were only kept to send: the dashboard needs the rest.
 				if (stored.content.attachments?.length)
 					await dropAttachments(row.id, stored.content);

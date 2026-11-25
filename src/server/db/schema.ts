@@ -216,6 +216,8 @@ export const domains = sqliteTable(
 		move_dkim_tokens: text("move_dkim_tokens", { mode: "json" }).$type<string[]>(),
 		move_status: text("move_status"),
 		move_ses_owned: integer("move_ses_owned", { mode: "boolean" }),
+		/** Automated domain warm-up schedule (src/server/warmup.ts). */
+		warmup: text("warmup", { mode: "json" }).$type<DomainWarmupConfig>(),
 	},
 	(t) => [index("domains_org_idx").on(t.organization_id)],
 );
@@ -346,6 +348,7 @@ export const emails = sqliteTable(
 		index("emails_queue_idx").on(t.send_at).where(sql`status IN ('queued', 'scheduled')`),
 		index("emails_broadcast_idx").on(t.broadcast_id).where(sql`broadcast_id IS NOT NULL`),
 		index("emails_recipient_idx").on(t.organization_id, t.recipient, t.created_at),
+		index("emails_org_sent_idx").on(t.organization_id, t.sent_at),
 	],
 );
 
@@ -559,6 +562,8 @@ export const conversations = sqliteTable(
 		visitor_attributes: text("visitor_attributes", { mode: "json" }).$type<
 			Record<string, string | number | boolean>
 		>(),
+		/** Live visitor session & omnichannel context (page trail, browser/OS, WhatsApp/Telegram IDs). */
+		visitor_context: text("visitor_context", { mode: "json" }).$type<VisitorSessionContext>(),
 		/** Who has it (src/server/inbox-workflow.ts): "user:<id>" | "cred:<id>"; null: nobody. */
 		assignee: text("assignee"),
 		assignee_name: text("assignee_name"),
@@ -2742,3 +2747,173 @@ export const brandTransports = sqliteTable("brand_transports", {
 	updated_by: text("updated_by"),
 	updated_at: text("updated_at").notNull(),
 });
+
+// ── Mailroom 3.0 types & tables ──────────────────────────────────────────────
+
+export type VisitorTrailPoint = { path: string; title?: string; at: string };
+export type VisitorSessionContext = {
+	page?: string;
+	title?: string;
+	trail?: VisitorTrailPoint[];
+	browser?: string;
+	os?: string;
+	timezone?: string;
+	viewport?: string;
+	updated_at?: string;
+	/** Omnichannel routing metadata (WhatsApp phone / Telegram chat id). */
+	external_channel?: "whatsapp" | "telegram";
+	external_chat_id?: string;
+	external_phone?: string;
+	external_username?: string;
+};
+
+export type DomainWarmupConfig = {
+	enabled: boolean;
+	start_date: string;
+	daily_start: number;
+	daily_max: number;
+	ramp_days: number;
+	pause_bounce_rate?: number;
+};
+
+/** External AI knowledge sources (docs URL, sitemap, or Markdown) grounded into AI Copilot & Auto-Responder. */
+export const aiKnowledgeSources = sqliteTable(
+	"ai_knowledge_sources",
+	{
+		id: text("id").primaryKey(),
+		organization_id: orgId(),
+		/** "url" | "sitemap" | "markdown" */
+		kind: text("kind").notNull().default("url"),
+		title: text("title").notNull(),
+		url: text("url"),
+		content: text("content"),
+		chunks_count: integer("chunks_count").notNull().default(0),
+		/** "ready" | "error" */
+		status: text("status").notNull().default("ready"),
+		last_error: text("last_error"),
+		last_synced_at: text("last_synced_at"),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [index("ai_knowledge_sources_org_idx").on(t.organization_id, t.updated_at)],
+);
+
+/** Indexed text chunks extracted from aiKnowledgeSources. */
+export const aiKnowledgeChunks = sqliteTable(
+	"ai_knowledge_chunks",
+	{
+		id: text("id").primaryKey(),
+		source_id: text("source_id")
+			.notNull()
+			.references(() => aiKnowledgeSources.id, { onDelete: "cascade" }),
+		organization_id: orgId(),
+		title: text("title").notNull(),
+		url: text("url"),
+		content: text("content").notNull(),
+		created_at: text("created_at").notNull(),
+	},
+	(t) => [index("ai_knowledge_chunks_org_idx").on(t.organization_id, t.source_id)],
+);
+
+/** Custom HTTP tools the AI Agent can invoke during support conversations (e.g. look up order). */
+export const aiActions = sqliteTable(
+	"ai_actions",
+	{
+		id: text("id").primaryKey(),
+		organization_id: orgId(),
+		/** Tool slug, e.g. "lookup_order" */
+		name: text("name").notNull(),
+		description: text("description").notNull(),
+		/** "GET" | "POST" */
+		method: text("method").notNull().default("GET"),
+		/** HTTPS URL template with {{param}} placeholders */
+		url: text("url").notNull(),
+		/** Encrypted JSON Record<string,string> headers */
+		headers_encrypted: text("headers_encrypted"),
+		body_template: text("body_template"),
+		enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [index("ai_actions_org_idx").on(t.organization_id)],
+);
+
+/** Public Status Page components (API, Dashboard, Webhooks, etc.). */
+export const statusComponents = sqliteTable(
+	"status_components",
+	{
+		id: text("id").primaryKey(),
+		organization_id: orgId(),
+		name: text("name").notNull(),
+		description: text("description"),
+		/** "operational" | "degraded" | "partial_outage" | "major_outage" */
+		status: text("status").notNull().default("operational"),
+		position: integer("position").notNull().default(0),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [index("status_components_org_idx").on(t.organization_id, t.position)],
+);
+
+/** Public Status Page incidents (also surfaced as live outage banners in Chat Widget & Help Center). */
+export const statusIncidents = sqliteTable(
+	"status_incidents",
+	{
+		id: text("id").primaryKey(),
+		organization_id: orgId(),
+		title: text("title").notNull(),
+		/** "none" | "minor" | "major" | "critical" */
+		impact: text("impact").notNull().default("minor"),
+		/** "investigating" | "identified" | "monitoring" | "resolved" */
+		status: text("status").notNull().default("investigating"),
+		component_ids: text("component_ids", { mode: "json" }).$type<string[]>(),
+		resolved_at: text("resolved_at"),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [index("status_incidents_org_idx").on(t.organization_id, t.created_at)],
+);
+
+/** Timeline updates posted on a status incident. */
+export const statusIncidentUpdates = sqliteTable(
+	"status_incident_updates",
+	{
+		id: text("id").primaryKey(),
+		incident_id: text("incident_id")
+			.notNull()
+			.references(() => statusIncidents.id, { onDelete: "cascade" }),
+		status: text("status").notNull(),
+		message: text("message").notNull(),
+		created_by: text("created_by"),
+		created_at: text("created_at").notNull(),
+	},
+	(t) => [index("status_incident_updates_inc_idx").on(t.incident_id, t.created_at)],
+);
+
+/** Per-organization opt-in settings for public Status Page (/status/<slug>) & B2B Support Portal (/portal/<slug>). */
+export const orgPublicPages = sqliteTable("org_public_pages", {
+	organization_id: text("organization_id")
+		.primaryKey()
+		.references(() => organization.id, { onDelete: "cascade" }),
+	status_page_enabled: integer("status_page_enabled", { mode: "boolean" })
+		.notNull()
+		.default(false),
+	portal_enabled: integer("portal_enabled", { mode: "boolean" }).notNull().default(false),
+	updated_at: text("updated_at").notNull(),
+});
+
+/** Passwordless magic-link login tokens (single-use) and session tokens for the B2B Customer Support Portal (/portal/<slug>). */
+export const portalTokens = sqliteTable(
+	"portal_tokens",
+	{
+		token_hash: text("token_hash").primaryKey(),
+		organization_id: orgId(),
+		/** "login" (single-use email link) | "session" (HttpOnly browser cookie). */
+		kind: text("kind").notNull().default("login"),
+		email: text("email").notNull(),
+		company_id: text("company_id"),
+		expires_at: text("expires_at").notNull(),
+		created_at: text("created_at").notNull(),
+	},
+	(t) => [index("portal_tokens_org_email_idx").on(t.organization_id, t.email)],
+);

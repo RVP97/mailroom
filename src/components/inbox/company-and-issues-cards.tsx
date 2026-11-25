@@ -24,23 +24,29 @@ import {
 } from "@/functions/issue-links";
 import { errorMessage } from "@/lib/errors";
 
+import type { VisitorSessionContext } from "@/server/db/schema";
+
 type CompanySummary = Awaited<ReturnType<typeof companyForEmailFn>>;
 type IssueRow = Awaited<ReturnType<typeof listConversationIssuesFn>>[number];
 
 /**
  * Right-rail cards inside the Inbox conversation sidebar:
- *  1. B2B Company / Account summary (plan, MRR, seats, team size)
- *  2. Linked GitHub / Linear issues (auto-reopens conversation when closed)
+ *  1. Live Visitor Session & Page Trail (when present)
+ *  2. B2B Company / Account summary (plan, MRR, seats, team size)
+ *  3. Linked GitHub / Linear issues (auto-reopens conversation when closed)
+ *  4. AI Auto-Triage trigger
  */
 export function CompanyAndIssuesCards({
 	brandId,
 	contactEmail,
 	conversationId,
+	visitorContext,
 	canEdit,
 }: {
 	brandId: string;
 	contactEmail: string | null | undefined;
 	conversationId: string;
+	visitorContext?: VisitorSessionContext | null;
 	canEdit: boolean;
 }) {
 	const [company, setCompany] = useState<CompanySummary>(null);
@@ -110,6 +116,50 @@ export function CompanyAndIssuesCards({
 
 	return (
 		<>
+			{/* Live Visitor Session & Page Trail */}
+			{visitorContext &&
+				(visitorContext.page ||
+					visitorContext.browser ||
+					(visitorContext.trail && visitorContext.trail.length > 0)) && (
+					<div className="flex flex-col gap-1.5 border-t border-border pt-4">
+						<h3 className="eyebrow">Live Visitor Session</h3>
+						<div className="space-y-1 rounded-md border border-border/60 bg-background p-2 text-xs">
+							{(visitorContext.browser ||
+								visitorContext.os ||
+								visitorContext.timezone) && (
+								<div className="text-muted-foreground">
+									{[
+										visitorContext.browser,
+										visitorContext.os,
+										visitorContext.timezone,
+									]
+										.filter(Boolean)
+										.join(" · ")}
+								</div>
+							)}
+							{visitorContext.page && (
+								<div
+									className="truncate font-medium text-foreground"
+									title={visitorContext.page}
+								>
+									Viewing: {visitorContext.title || visitorContext.page}
+								</div>
+							)}
+							{visitorContext.trail && visitorContext.trail.length > 1 && (
+								<div className="mt-1 space-y-0.5 border-t border-border/50 pt-1 text-[11px] text-muted-foreground">
+									{visitorContext.trail.slice(-4).map((pt) => (
+										<div
+											key={`${pt.at}-${pt.path}`}
+											className="truncate"
+										>
+											{pt.title || pt.path}
+										</div>
+									))}
+								</div>
+							)}
+						</div>
+					</div>
+				)}
 			{/* B2B Company Card */}
 			{company && (
 				<div className="flex flex-col gap-2 border-t border-border pt-4">

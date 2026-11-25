@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { BrandFilter } from "@/components/brand-filter";
+import { DatePicker } from "@/components/date-picker";
 import { Page, PageHeader } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -282,11 +283,10 @@ function PlanDialog({
 						</Field>
 						<Field>
 							<FieldLabel htmlFor="plan-day">Day</FieldLabel>
-							<Input
+							<DatePicker
 								id="plan-day"
-								type="date"
 								value={on}
-								onChange={(e) => setOn(e.target.value)}
+								onChange={setOn}
 							/>
 						</Field>
 						{data.brands.length > 1 && (

@@ -35,6 +35,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+	AiKnowledgeAndActionsCard,
+	OmnichannelCard,
+	StatusPageAndPortalCard,
+} from "@/components/v3-platform-cards";
 import { accessLogFn, firewallsFn } from "@/functions/recipients";
 import { renameOrganizationFn, teamFn } from "@/functions/team";
 import { errorMessage } from "@/lib/errors";
@@ -183,6 +188,9 @@ function Settings() {
 					<Organization canManage={canManage} />
 					<OrgLogoCard canManage={canManage} />
 					<AiSettingsCard canEdit={canManage} />
+					<AiKnowledgeAndActionsCard canEdit={canManage} />
+					<OmnichannelCard canEdit={canManage} />
+					<StatusPageAndPortalCard canEdit={canManage} />
 					<TeamAlertsCard canEdit={canManage} />
 					<BillingConnectorsCard canEdit={canManage} />
 					<IssueAndSlackSyncCard canEdit={canManage} />

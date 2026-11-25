@@ -215,7 +215,7 @@ export function UnifiedComposer({
 	const { conversation: c, compose, people, saved, articles, workflow, ai } = data;
 	const me = useMe();
 	const canManageMacros = allows(me.active?.access, "inbox:rules");
-	const isChat = c.channel === "chat";
+	const isChat = c.channel === "chat" || c.channel === "whatsapp" || c.channel === "telegram";
 	const [mode, setMode] = useState<"reply" | "note">("reply");
 	const [previewHtml, setPreviewHtml] = useState(false);
 	const [from, setFrom] = useState(draft?.from ?? compose.from ?? "");

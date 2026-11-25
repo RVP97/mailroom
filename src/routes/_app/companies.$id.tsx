@@ -3,6 +3,7 @@ import { Building2, MessageSquare, Trash2, Users } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Confirm } from "@/components/confirm";
+import { DatePicker } from "@/components/date-picker";
 import { Page } from "@/components/page";
 import { Fact, Facts, IdChip, RecordHeader } from "@/components/record";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +39,7 @@ function CompanyDetailPage() {
 	const [plan, setPlan] = useState(c.plan ?? "");
 	const [mrr, setMrr] = useState(c.mrr != null ? String(c.mrr) : "");
 	const [seats, setSeats] = useState(c.seats != null ? String(c.seats) : "");
+	const [renewalAt, setRenewalAt] = useState(c.renewal_at ?? "");
 	const [notes, setNotes] = useState(c.notes ?? "");
 	const [busy, setBusy] = useState(false);
 	const [deleting, setDeleting] = useState(false);
@@ -56,6 +58,7 @@ function CompanyDetailPage() {
 						plan: plan.trim() || null,
 						mrr: mrr.trim() ? Number(mrr) : null,
 						seats: seats.trim() ? Number(seats) : null,
+						renewal_at: renewalAt.trim() || null,
 						notes: notes.trim() || null,
 					},
 				},
@@ -176,6 +179,17 @@ function CompanyDetailPage() {
 								/>
 							</Field>
 						</div>
+						<Field>
+							<FieldLabel htmlFor="cd-renewal">Renewal date</FieldLabel>
+							<DatePicker
+								id="cd-renewal"
+								value={renewalAt}
+								onChange={setRenewalAt}
+								placeholder="No renewal date"
+								clearable
+								disabled={!canEdit}
+							/>
+						</Field>
 						<Field>
 							<FieldLabel htmlFor="cd-notes">Account notes</FieldLabel>
 							<Textarea

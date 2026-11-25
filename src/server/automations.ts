@@ -1426,25 +1426,75 @@ async function conversationStep(
 			.where(eq(cv.id, x.id));
 }
 
-/** Blocks private/loopback/link-local hosts from outbound automation webhooks (SSRF guard). */
+function isPrivateIpv4Octets(a: number, b: number, c: number, d: number): boolean {
+	if (a < 0 || a > 255 || b < 0 || b > 255 || c < 0 || c > 255 || d < 0 || d > 255) return true;
+	if (a === 0) return true; // 0.0.0.0/8
+	if (a === 10) return true; // 10.0.0.0/8
+	if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 (CGNAT / Tailscale)
+	if (a === 127) return true; // 127.0.0.0/8
+	if (a === 169 && b === 254) return true; // 169.254.0.0/16 (link-local / cloud metadata)
+	if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+	if (a === 192 && b === 0 && c === 0) return true; // 192.0.0.0/24
+	if (a === 192 && b === 168) return true; // 192.168.0.0/16
+	if (a === 198 && (b === 18 || b === 19)) return true; // 198.18.0.0/15
+	if (a >= 224) return true; // multicast & reserved
+	return false;
+}
+
+/** Blocks private/loopback/link-local/CGNAT hosts from outbound webhooks & crawlers (SSRF guard). */
 export function isPrivateWebhookHost(rawUrl: string): boolean {
 	try {
-		const { hostname } = new URL(rawUrl);
-		const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+		const u = new URL(rawUrl);
+		if (u.protocol !== "http:" && u.protocol !== "https:") return true;
+		const h = u.hostname
+			.toLowerCase()
+			.replace(/^\[|\]$/g, "")
+			.replace(/\.$/, "");
 		if (
+			!h ||
 			h === "localhost" ||
-			h === "::1" ||
-			h === "0.0.0.0" ||
+			h.endsWith(".localhost") ||
 			h.endsWith(".local") ||
 			h.endsWith(".internal") ||
-			/^127\./.test(h) ||
-			/^10\./.test(h) ||
-			/^192\.168\./.test(h) ||
-			/^169\.254\./.test(h) ||
-			/^172\.(1[6-9]|2\d|3[0-1])\./.test(h) ||
-			/^(fc|fd|fe80)/i.test(h)
+			h === "metadata" ||
+			h === "::" ||
+			h === "::1" ||
+			/^\d+$/.test(h) ||
+			/^0x[0-9a-f]+$/i.test(h)
 		)
 			return true;
+
+		// Dotted IPv4 (including octal/hex octet attempts)
+		const v4 = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(h);
+		if (v4) {
+			return isPrivateIpv4Octets(Number(v4[1]), Number(v4[2]), Number(v4[3]), Number(v4[4]));
+		}
+
+		// IPv6 checks (including IPv4-mapped ::ffff:a.b.c.d and URL-normalized ::ffff:xxxx:xxxx)
+		if (h.includes(":")) {
+			const mappedDotted = /^::ffff:(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(h);
+			if (mappedDotted) {
+				return isPrivateIpv4Octets(
+					Number(mappedDotted[1]),
+					Number(mappedDotted[2]),
+					Number(mappedDotted[3]),
+					Number(mappedDotted[4]),
+				);
+			}
+			const mappedHex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(h);
+			if (mappedHex) {
+				const hi = Number.parseInt(mappedHex[1] ?? "0", 16);
+				const lo = Number.parseInt(mappedHex[2] ?? "0", 16);
+				return isPrivateIpv4Octets(hi >> 8, hi & 255, lo >> 8, lo & 255);
+			}
+			if (
+				/^(fc|fd|ff)/i.test(h) ||
+				/^fe[89ab][0-9a-f]/i.test(h) ||
+				/^0*:0*:0*:0*:0*:0*:0*:[01]$/.test(h)
+			) {
+				return true;
+			}
+		}
 		return false;
 	} catch {
 		return true;

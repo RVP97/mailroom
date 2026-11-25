@@ -138,6 +138,16 @@ async function publicPage(request: Request, url: URL): Promise<Response | null> 
 		const { handleChangelogPage } = await import("./server/changelog-public");
 		return secured(await handleChangelogPage(request));
 	}
+	// Public Status Page, JSON API & RSS feed (src/server/status-page.ts).
+	if (url.pathname.startsWith("/status/")) {
+		const { handleStatusPage } = await import("./server/status-page");
+		return secured(await handleStatusPage(request));
+	}
+	// B2B Customer Support Portal (src/server/portal.ts).
+	if (url.pathname.startsWith("/portal/")) {
+		const { handlePortalPage } = await import("./server/portal");
+		return secured(await handlePortalPage(request));
+	}
 	// Surveys: a website's link, an email's answer links (src/server/surveys.ts).
 	if (url.pathname.startsWith("/s/") && (request.method === "GET" || request.method === "POST")) {
 		const { handleSurveyPage } = await import("./server/surveys");
@@ -258,6 +268,17 @@ export default withSentry(sentryOptions, {
 		if (slackHook?.[1]) {
 			const { handleSlackInboundWebhook } = await import("./server/issue-links");
 			return secured(await handleSlackInboundWebhook(slackHook[1], request));
+		}
+		// Inbound WhatsApp Business Cloud API & Telegram Bot omnichannel webhooks.
+		const waHook = /^\/hooks\/whatsapp\/([A-Za-z0-9_-]{4,64})$/.exec(url.pathname);
+		if (waHook?.[1]) {
+			const { handleWhatsAppWebhook } = await import("./server/omnichannel");
+			return secured(await handleWhatsAppWebhook(waHook[1], request));
+		}
+		const tgHook = /^\/hooks\/telegram\/([A-Za-z0-9_-]{4,64})$/.exec(url.pathname);
+		if (tgHook?.[1]) {
+			const { handleTelegramWebhook } = await import("./server/omnichannel");
+			return secured(await handleTelegramWebhook(tgHook[1], request));
 		}
 		const page = await publicPage(request, url);
 		if (page) return page;

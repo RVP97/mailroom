@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "./db";
+import type { DomainWarmupConfig } from "./db/schema";
 
 /** What sending needs to know of a brand: its SES tenants and its domains. */
 export interface OrgContext {
@@ -22,6 +23,7 @@ export interface OrgContext {
 		purpose: string;
 		paused: boolean;
 		paused_reason: string | null;
+		warmup: DomainWarmupConfig | null;
 	}[];
 }
 
@@ -48,6 +50,7 @@ export async function orgContext(organizationId: string): Promise<OrgContext> {
 				purpose: schema.domains.purpose,
 				paused_at: schema.domains.paused_at,
 				paused_reason: schema.domains.paused_reason,
+				warmup: schema.domains.warmup,
 			})
 			.from(schema.domains)
 			// A domain only for receiving can't be sent from.

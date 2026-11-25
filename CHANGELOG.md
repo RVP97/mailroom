@@ -2,6 +2,20 @@
 
 All notable changes to Mailroom are documented here.
 
+## [3.0.0] - 2026-11-25
+
+Mailroom 3.0 completes the open-source customer communication suite with omnichannel messaging, AI Agent 2.0 knowledge & HTTP tools, a built-in Status Page with live outage banners, a B2B Customer Support Portal, live visitor breadcrumbs, and automated domain warm-up ramps.
+
+### Added
+- **Omnichannel Shared Inbox (WhatsApp Business Cloud API & Telegram Bot)**: verified `/hooks/whatsapp/:orgId` and `/hooks/telegram/:orgId` webhooks ingest messages straight into the 3-pane Inbox and deliver replies back via Graph API & Telegram Bot API.
+- **AI Agent 2.0 (Knowledge Sources & Custom HTTP Actions)**: crawl docs URLs, `sitemap.xml` feeds, or paste Markdown guides into chunked knowledge automatically grounded into AI Copilot & Auto-Responder, plus configure SSRF-guarded HTTPS actions (`GET`/`POST`) for live customer lookups.
+- **Built-in Public Status Page & Live Outage Banners**: `/status/<slug>`, `/status/<slug>/status.json`, and `/status/<slug>/feed.xml` with component health, incident timeline updates, and an automatic warning banner inside the Website Chat Widget whenever an incident is active.
+- **B2B Customer Support Portal (`/portal/<slug>`)**: passwordless magic-link sign-in for customers and B2B companies to view all company tickets, track linked GitHub/Linear issues, open new tickets, and reply.
+- **Live Visitor Session & Page Trail**: website chat streams browser, OS, timezone, viewport, and visited page breadcrumbs into a live **Visitor Session** card in the Inbox right rail.
+- **Automated Domain Warm-Up Ramp**: per-domain exponential daily send ramp in the Dispatcher (`daily_start → daily_max` over `ramp_days`) with automatic bounce-rate protection and custom `<DatePicker />` start date selection.
+- **CLI Standalone HTML / React Email Template Push**: `mailroom templates push` now accepts compiled standalone `.html` files (extracting `<title>` and `<!-- mailroom: {...} -->` metadata) with zero `.json` sidecar required.
+- **12 New MCP Tools & Custom DatePicker Everywhere**: exposed AI knowledge, AI actions, Status Page, omnichannel, and domain warm-up over MCP, and replaced remaining native date inputs with Mailroom's custom `<DatePicker />`.
+
 ## [2.0.0] - 2026-11-25
 
 Mailroom 2.0 expands from a Resend-style email platform into a complete open-source customer communication suite on your own Cloudflare Workers and Amazon SES — uniting transactional email, marketing, newsletters, B2B accounts, billing-driven automations, Intercom-style shared inbox, BYO AI copilot, live chat, changelog, and help center in one install.

@@ -24,7 +24,8 @@ export async function sendSystemEmail(m: {
 	if (await sendThroughCloudflare(m)) return;
 	const from = (cfg().SYSTEM_FROM_SES || cfg().SYSTEM_FROM)?.trim();
 	if (!from || !awsConfigured()) {
-		console.log(`[email to ${m.to}] ${m.subject}\n${m.text}`);
+		const safeText = m.text.replace(/([?&](?:token|code|secret)=)[^\s&]+/gi, "$1[REDACTED]");
+		console.log(`[email to ${m.to}] ${m.subject}\n${safeText}`);
 		return;
 	}
 	const host = bareAddress(from).split("@")[1]?.toLowerCase() ?? "";

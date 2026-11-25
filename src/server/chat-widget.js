@@ -2077,6 +2077,21 @@ function mailroomChat(c) {
 		if (cfg.preview) return;
 		api("GET", "/updates")
 			.then((r) => {
+				if (r && r.active_incident) {
+					var inc = r.active_incident;
+					var banner = h(
+						"a",
+						{
+							href: inc.url,
+							target: "_blank",
+							rel: "noopener noreferrer",
+							style: "display:block;padding:8px 14px;background:#f59e0b;color:#111;font-size:12.5px;font-weight:600;text-decoration:none;border-bottom:1px solid rgba(0,0,0,.08)",
+						},
+						["⚠ " + inc.title + " (" + inc.status + ") ↗"],
+					);
+					if (head && head.parentNode)
+						head.parentNode.insertBefore(banner, head.nextSibling);
+				}
 				var rows = (r && r.updates) || [];
 				if (!rows.length) return;
 				newsCache = rows;
@@ -2090,6 +2105,46 @@ function mailroomChat(c) {
 				}
 			})
 			.catch(() => {});
+	}
+	var lastCtxPath = "";
+	function sendVisitorContext() {
+		if (cfg.preview || !stored.token) return;
+		var curPath = location.pathname;
+		if (curPath === lastCtxPath) return;
+		lastCtxPath = curPath;
+		var ua = navigator.userAgent || "";
+		var browser = /Edg\//.test(ua)
+			? "Edge"
+			: /Chrome\//.test(ua)
+				? "Chrome"
+				: /Firefox\//.test(ua)
+					? "Firefox"
+					: /Safari\//.test(ua)
+						? "Safari"
+						: "Browser";
+		var os = /Mac OS/.test(ua)
+			? "macOS"
+			: /Windows/.test(ua)
+				? "Windows"
+				: /iPhone|iPad/.test(ua)
+					? "iOS"
+					: /Android/.test(ua)
+						? "Android"
+						: /Linux/.test(ua)
+							? "Linux"
+							: "";
+		var tz = "";
+		try {
+			tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+		} catch (_) {}
+		api("POST", "/context", {
+			page: (location.origin + location.pathname).slice(0, 500),
+			title: (document.title || "").slice(0, 160),
+			browser: browser,
+			os: os,
+			timezone: tz,
+			viewport: window.innerWidth + "x" + window.innerHeight,
+		}).catch(() => {});
 	}
 	function renderNewsList() {
 		helpEl.textContent = "";
@@ -3492,6 +3547,8 @@ function mailroomChat(c) {
 			connect();
 		}
 		loadUpdates();
+		sendVisitorContext();
+		setInterval(sendVisitorContext, 5000);
 		if (location.hash === "#mailroom-chat") openPanel();
 		else greetLater();
 		if ((cfg.popups || []).length) {

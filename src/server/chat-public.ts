@@ -401,8 +401,13 @@ export async function handleChat(request: Request, now = Date.now()): Promise<Re
 					bag[r.emoji] = r.count;
 					reactMap.set(r.broadcast_id, bag);
 				}
+				const { activeOutageBanner } = await import("./status-page");
+				const activeIncident = await activeOutageBanner(w.inbox.organization_id).catch(
+					() => null,
+				);
 				return json(
 					{
+						active_incident: activeIncident,
 						updates: rows.map((r) => ({
 							id: r.id,
 							title: r.subject,
@@ -414,6 +419,50 @@ export async function handleChat(request: Request, now = Date.now()): Promise<Re
 					},
 					{ headers },
 				);
+			}
+			case "POST context": {
+				const chat = await need(key, request);
+				const body = (await readJson(request)) as {
+					page?: string;
+					title?: string;
+					browser?: string;
+					os?: string;
+					timezone?: string;
+					viewport?: string;
+				};
+				const at = new Date(now).toISOString();
+				const prev = chat.conversation.visitor_context ?? {};
+				const prevTrail = Array.isArray(prev.trail) ? prev.trail : [];
+				const page =
+					typeof body.page === "string" ? body.page.trim().slice(0, 500) : prev.page;
+				const title =
+					typeof body.title === "string" ? body.title.trim().slice(0, 160) : prev.title;
+				const nextTrail =
+					page && prevTrail[prevTrail.length - 1]?.path !== page
+						? [...prevTrail, { path: page, title, at }].slice(-12)
+						: prevTrail;
+				const nextCtx = {
+					...prev,
+					...(page ? { page } : {}),
+					...(title ? { title } : {}),
+					trail: nextTrail,
+					...(typeof body.browser === "string"
+						? { browser: body.browser.slice(0, 60) }
+						: {}),
+					...(typeof body.os === "string" ? { os: body.os.slice(0, 60) } : {}),
+					...(typeof body.timezone === "string"
+						? { timezone: body.timezone.slice(0, 60) }
+						: {}),
+					...(typeof body.viewport === "string"
+						? { viewport: body.viewport.slice(0, 40) }
+						: {}),
+					updated_at: at,
+				};
+				await db
+					.update(schema.conversations)
+					.set({ visitor_context: nextCtx, ...(page ? { page_url: page } : {}) })
+					.where(eq(schema.conversations.id, chat.conversation.id));
+				return json({ ok: true }, { headers });
 			}
 			case "POST react": {
 				const body = (await readJson(request)) as { id?: string; emoji?: string };

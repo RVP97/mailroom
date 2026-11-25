@@ -1768,6 +1768,16 @@ export async function teamSays(
 	// (a retry would then find no draft). Failures are reported instead.
 	try {
 		await afterTeamLine(actor, x, line, m, draft, now);
+		if ((x.channel === "whatsapp" || x.channel === "telegram") && text) {
+			const { sendOmnichannelReply } = await import("./omnichannel");
+			await sendOmnichannelReply(
+				x.organization_id,
+				x.channel,
+				x.visitor_context,
+				x.contact_address ?? "",
+				text,
+			);
+		}
 	} catch (error) {
 		console.error("chat: after a team line", error);
 		const { reportError } = await import("./sentry");

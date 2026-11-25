@@ -48,7 +48,13 @@
 		},
 		{ "name": "API_IP_LIMIT", "namespace_id": "1002", "simple": { "limit": 20, "period": 10 } },
 		// Public sign-up forms: per IP.
-		{ "name": "SIGNUP_LIMIT", "namespace_id": "1003", "simple": { "limit": 5, "period": 60 } }
+		{ "name": "SIGNUP_LIMIT", "namespace_id": "1003", "simple": { "limit": 5, "period": 60 } },
+		// Public B2B support portal magic-link sign-in: per IP and per email.
+		{
+			"name": "PORTAL_LOGIN_LIMIT",
+			"namespace_id": "1004",
+			"simple": { "limit": 5, "period": 60 }
+		}
 	],
 	// Received emails, whole (src/server/inbound.ts): SES drops each in S3, Mailroom moves it here.
 	"r2_buckets": [{ "binding": "INBOUND", "bucket_name": "mailroom-inbound" }],

@@ -61,6 +61,7 @@ import {
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DomainWarmupCard } from "@/components/v3-platform-cards";
 import {
 	bimiFn,
 	dmarcFn,
@@ -890,6 +891,18 @@ function DomainPage() {
 
 						<BrandLogo
 							domain={d}
+							canManage={canManage}
+						/>
+
+						<DomainWarmupCard
+							domainId={d.id}
+							initial={
+								(
+									d as {
+										warmup?: Parameters<typeof DomainWarmupCard>[0]["initial"];
+									}
+								).warmup ?? null
+							}
 							canManage={canManage}
 						/>
 					</TabsContent>

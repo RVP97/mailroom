@@ -835,7 +835,10 @@ export async function savedReplyText(
 	if (r.inbox_id && r.inbox_id !== x.inbox_id) throw notFound("Saved reply");
 	const inbox = await inboxOf(x.inbox_id);
 	const text = fillVariables(r.text, {
-		contact: x.channel === "chat" ? (x.visitor_name ?? x.visitor_email ?? "") : x.contact,
+		contact:
+			x.channel === "chat" || x.channel === "whatsapp" || x.channel === "telegram"
+				? (x.visitor_name ?? x.visitor_email ?? "")
+				: x.contact,
 		agent: actor.name,
 		inbox: inbox?.name ?? null,
 		subject: x.subject,

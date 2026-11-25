@@ -1,6 +1,14 @@
 import { z } from "zod";
 import { AccessError } from "../access";
 import { aiAssistEmailCopy, triageConversationWithAi } from "../ai";
+import {
+	addKnowledgeSource,
+	deleteAiAction,
+	deleteKnowledgeSource,
+	listAiActions,
+	listKnowledgeSources,
+	saveAiAction,
+} from "../ai-knowledge";
 import { listBillingConnectors } from "../billing-connectors";
 import { brandIds, brandIn } from "../brands";
 import { deleteCompany, getCompany, listCompanies, upsertCompany } from "../companies";
@@ -10,7 +18,20 @@ import {
 	listConversationIssues,
 	unlinkConversationIssue,
 } from "../issue-links";
+import { listOmnichannelSettings } from "../omnichannel";
+import {
+	COMPONENT_STATUSES,
+	createStatusIncident,
+	deleteStatusComponent,
+	getStatusPageData,
+	INCIDENT_IMPACTS,
+	INCIDENT_STATUSES,
+	postIncidentUpdate,
+	savePublicPagesSettings,
+	saveStatusComponent,
+} from "../status-page";
 import { getBrandTransport, transportView } from "../transports";
+import { saveDomainWarmup } from "../warmup";
 import { personActor } from "./inbox-tools";
 import { oneBrand, organization, type Tool } from "./kit";
 import type { McpContext, Membership } from "./tools";
@@ -284,6 +305,216 @@ export const PLATFORM_TOOLS: Tool[] = [
 				body: a.body as string,
 				instruction: a.instruction as string | undefined,
 			});
+		},
+	},
+	{
+		name: "list_knowledge_sources",
+		title: "List AI knowledge sources",
+		description:
+			"List crawled docs URLs, sitemaps, and Markdown knowledge sources indexed for AI Copilot and Auto-Responder.",
+		input: { organization },
+		readOnly: true,
+		run: async (a, ctx) => {
+			const org = orgFor(ctx, a.organization as string | undefined);
+			return listKnowledgeSources(org.id);
+		},
+	},
+	{
+		name: "add_knowledge_source",
+		title: "Add an AI knowledge source",
+		description:
+			"Crawl a docs URL, sitemap.xml, or index Markdown text for AI support grounding.",
+		input: {
+			organization,
+			kind: z.enum(["url", "sitemap", "markdown"]),
+			title: z.string().min(1).max(160),
+			url: z.string().url().optional(),
+			content: z.string().optional(),
+		},
+		openWorld: true,
+		run: async (a, ctx) => {
+			const org = orgFor(ctx, a.organization as string | undefined, "settings:manage");
+			const { organization: _o, ...rest } = a;
+			return addKnowledgeSource(org.id, rest);
+		},
+	},
+	{
+		name: "delete_knowledge_source",
+		title: "Delete an AI knowledge source",
+		description: "Remove an AI knowledge source and all of its indexed chunks.",
+		input: { organization, id: z.string() },
+		destructive: true,
+		run: async (a, ctx) => {
+			const org = orgFor(ctx, a.organization as string | undefined, "settings:manage");
+			return deleteKnowledgeSource(org.id, a.id as string);
+		},
+	},
+	{
+		name: "list_ai_actions",
+		title: "List custom AI HTTP actions",
+		description: "List custom HTTPS tools configured for the AI support agent.",
+		input: { organization },
+		readOnly: true,
+		run: async (a, ctx) => {
+			const org = orgFor(ctx, a.organization as string | undefined);
+			return listAiActions(org.id);
+		},
+	},
+	{
+		name: "save_ai_action",
+		title: "Save a custom AI HTTP action",
+		description: "Create or update an SSRF-guarded HTTPS tool for the AI support agent.",
+		input: {
+			organization,
+			id: z.string().optional(),
+			name: z.string().min(2).max(48),
+			description: z.string().min(4).max(300),
+			method: z.enum(["GET", "POST"]).default("GET"),
+			url: z.string().url(),
+			headers: z.record(z.string(), z.string()).optional(),
+			body_template: z.string().nullable().optional(),
+			enabled: z.boolean().optional(),
+		},
+		run: async (a, ctx) => {
+			const org = orgFor(ctx, a.organization as string | undefined, "settings:manage");
+			const { organization: _o, ...rest } = a;
+			return saveAiAction(org.id, rest);
+		},
+	},
+	{
+		name: "delete_ai_action",
+		title: "Delete a custom AI HTTP action",
+		description: "Delete a custom AI HTTP action.",
+		input: { organization, id: z.string() },
+		destructive: true,
+		run: async (a, ctx) => {
+			const org = orgFor(ctx, a.organization as string | undefined, "settings:manage");
+			return deleteAiAction(org.id, a.id as string);
+		},
+	},
+	{
+		name: "get_status_page",
+		title: "Read public Status Page state",
+		description: "List status page components, overall status, and active/recent incidents.",
+		input: { organization },
+		readOnly: true,
+		run: async (a, ctx) => {
+			const org = orgFor(ctx, a.organization as string | undefined);
+			return getStatusPageData(org.id);
+		},
+	},
+	{
+		name: "save_public_pages_settings",
+		title: "Enable or disable public Status Page & B2B Support Portal",
+		description:
+			"Opt in or out of hosting /status/<slug> and /portal/<slug> for this organization.",
+		input: {
+			organization,
+			status_page_enabled: z.boolean().optional(),
+			portal_enabled: z.boolean().optional(),
+		},
+		run: async (a, ctx) => {
+			const org = orgFor(ctx, a.organization as string | undefined, "settings:manage");
+			const { organization: _o, ...rest } = a;
+			return savePublicPagesSettings(org.id, rest);
+		},
+	},
+	{
+		name: "save_status_component",
+		title: "Create or update a Status Page component",
+		description: "Add or update a Status Page component and its operational status.",
+		input: {
+			organization,
+			id: z.string().optional(),
+			name: z.string().min(1).max(80),
+			description: z.string().max(240).nullable().optional(),
+			status: z.enum(COMPONENT_STATUSES).default("operational"),
+		},
+		run: async (a, ctx) => {
+			const org = orgFor(ctx, a.organization as string | undefined, "settings:manage");
+			const { organization: _o, ...rest } = a;
+			return saveStatusComponent(org.id, rest);
+		},
+	},
+	{
+		name: "delete_status_component",
+		title: "Delete a Status Page component",
+		description: "Remove a Status Page component from /status/<slug>.",
+		input: { organization, id: z.string() },
+		destructive: true,
+		run: async (a, ctx) => {
+			const org = orgFor(ctx, a.organization as string | undefined, "settings:manage");
+			return deleteStatusComponent(org.id, a.id as string);
+		},
+	},
+	{
+		name: "create_status_incident",
+		title: "Post a Status Page incident",
+		description:
+			"Create an incident on /status/<slug> and activate the live outage banner in the chat widget.",
+		input: {
+			organization,
+			title: z.string().min(2).max(160),
+			impact: z.enum(INCIDENT_IMPACTS).default("minor"),
+			status: z.enum(INCIDENT_STATUSES).default("investigating"),
+			message: z.string().min(2).max(4000),
+			component_ids: z.array(z.string()).max(20).optional(),
+			component_status: z.enum(COMPONENT_STATUSES).optional(),
+		},
+		run: async (a, ctx) => {
+			const org = orgFor(ctx, a.organization as string | undefined, "settings:manage");
+			const { organization: _o, ...rest } = a;
+			return createStatusIncident(org.id, rest, ctx.userId);
+		},
+	},
+	{
+		name: "post_incident_update",
+		title: "Post an update on a Status Page incident",
+		description: "Add a timeline update or resolve an existing Status Page incident.",
+		input: {
+			organization,
+			incident_id: z.string(),
+			status: z.enum(INCIDENT_STATUSES),
+			message: z.string().min(2).max(4000),
+			component_status: z.enum(COMPONENT_STATUSES).optional(),
+		},
+		run: async (a, ctx) => {
+			const org = orgFor(ctx, a.organization as string | undefined, "settings:manage");
+			const { organization: _o, ...rest } = a;
+			return postIncidentUpdate(org.id, rest, ctx.userId);
+		},
+	},
+	{
+		name: "list_omnichannel_settings",
+		title: "List WhatsApp & Telegram omnichannel bridge status",
+		description:
+			"Read webhook URLs and connection status for WhatsApp Cloud API and Telegram Bot bridges.",
+		input: { organization },
+		readOnly: true,
+		run: async (a, ctx) => {
+			const org = orgFor(ctx, a.organization as string | undefined);
+			return listOmnichannelSettings(org.id);
+		},
+	},
+	{
+		name: "save_domain_warmup",
+		title: "Configure automated domain warm-up ramp",
+		description:
+			"Enable or update a domain's automated daily send ramp (daily_start -> daily_max over ramp_days with automatic bounce-rate protection).",
+		input: {
+			organization,
+			domain_id: z.string(),
+			enabled: z.boolean(),
+			start_date: z.string().optional(),
+			daily_start: z.number().int().min(10).max(50_000).default(100),
+			daily_max: z.number().int().min(50).max(5_000_000).default(25_000),
+			ramp_days: z.number().int().min(3).max(90).default(14),
+			pause_bounce_rate: z.number().min(0.005).max(0.2).optional(),
+		},
+		run: async (a, ctx) => {
+			const org = orgFor(ctx, a.organization as string | undefined, "domains:manage");
+			const { organization: _o, domain_id, ...rest } = a;
+			return saveDomainWarmup(org.id, domain_id as string, rest);
 		},
 	},
 ];

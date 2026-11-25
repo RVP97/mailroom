@@ -1120,7 +1120,9 @@ function InboxWorkspace() {
 														priority={r.priority}
 														label={false}
 													/>
-													{r.channel === "chat" && (
+													{(r.channel === "chat" ||
+														r.channel === "whatsapp" ||
+														r.channel === "telegram") && (
 														<MessageCircle className="size-3 shrink-0 text-emerald-600 dark:text-emerald-400" />
 													)}
 													<span

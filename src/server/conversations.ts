@@ -531,8 +531,12 @@ export function conversationView(
 		held: actor?.type === "agent" ? false : !!x.held_at,
 		/** When mail was last held (people only): releasing passes it back, so later mail stays held. */
 		held_at: actor?.type === "agent" ? null : x.held_at,
-		channel: (x.channel === "chat" ? "chat" : "email") as "chat" | "email",
-		...(x.channel === "chat"
+		channel: (isChatLikeChannel(x.channel) ? x.channel : "email") as
+			| "chat"
+			| "whatsapp"
+			| "telegram"
+			| "email",
+		...(isChatLikeChannel(x.channel)
 			? {
 					visitor: {
 						name: x.visitor_name,
@@ -543,10 +547,16 @@ export function conversationView(
 						verified: !!x.visitor_user_id,
 						user_id: x.visitor_user_id,
 						attributes: x.visitor_attributes ?? null,
+						context: x.visitor_context ?? null,
 					},
 				}
 			: {}),
 	};
+}
+
+/** True for real-time chat channels (website chat, WhatsApp, Telegram) whose messages live in chat_messages. */
+export function isChatLikeChannel(channel: string | null | undefined): boolean {
+	return channel === "chat" || channel === "whatsapp" || channel === "telegram";
 }
 
 /** One conversation the actor may see; not found otherwise. */
@@ -764,15 +774,16 @@ export async function getConversation(
 		};
 	});
 	const origin = firstAnswers ? emails.find((e) => e.id === firstAnswers) : null;
-	// A website chat's lines (src/server/chat.ts), the newest MAX_CHAT.
-	const chat =
-		row.c.channel === "chat"
-			? await (async () => {
-					const { chatLines, teamLines } = await import("./chat");
-					const lines = await teamLines(await chatLines(id, { limit: MAX_CHAT }), o.now);
-					return lines.map((l) => ({ ...l, text: dots(l.text) ?? "" }));
-				})()
-			: [];
+	// Chat/omnichannel/portal lines (src/server/chat.ts), the newest MAX_CHAT.
+	// Always queried (indexed by conversation_id) so WhatsApp, Telegram, website chat, and B2B portal
+	// replies on email tickets all appear inline in the inbox timeline.
+	const chat = await (async () => {
+		const { chatLines, teamLines } = await import("./chat");
+		const raw = await chatLines(id, { limit: MAX_CHAT });
+		if (!raw.length) return [];
+		const lines = await teamLines(raw, o.now);
+		return lines.map((l) => ({ ...l, text: dots(l.text) ?? "" }));
+	})();
 	const timeline = [
 		...(origin
 			? [
@@ -1693,8 +1704,8 @@ async function participants(conversationId: string, own: string[]) {
 
 /** What a reply would be, filled in where the caller left it out. */
 async function replyDefaults(x: Conversation, inbox: Inbox | null) {
-	// A website chat's reply goes to the chat (and to the visitor's email only if they left).
-	if (x.channel === "chat")
+	// A chat/WhatsApp/Telegram reply goes to the chat channel (and to visitor_email only if left).
+	if (isChatLikeChannel(x.channel))
 		return {
 			last: undefined,
 			to: x.visitor_email ? [x.visitor_email] : [],
@@ -1741,7 +1752,7 @@ export async function saveDraft(
 	if (v.saved_reply_id && v.text === undefined)
 		v.text = (await savedReplyText(actor, x, v.saved_reply_id)).text;
 	// A chat line has a cap (src/server/chat.ts): say so now, not when the draft is sent.
-	if (x.channel === "chat" && v.text !== undefined)
+	if (isChatLikeChannel(x.channel) && v.text !== undefined)
 		(await import("./chat")).assertTeamText(v.text);
 	const inbox = await inboxOfConversation(x);
 	const d = await replyDefaults(x, inbox);
@@ -1948,15 +1959,15 @@ export async function sendReply(
 	if (!o.automatic) assertFree(actor, x, now);
 	// A chat line from a draft carries the draft's id as its client id: a second Send of the
 	// same draft (a retry after a lost answer, a double click) finds the line instead of failing.
-	const clientId =
-		x.channel === "chat" && o.draftId ? `draft:${o.draftId}` : (o.clientId ?? null);
-	if (x.channel === "chat" && clientId) {
+	const chatLike = isChatLikeChannel(x.channel);
+	const clientId = chatLike && o.draftId ? `draft:${o.draftId}` : (o.clientId ?? null);
+	if (chatLike && clientId) {
 		const { lineAsReply, lineByClientId } = await import("./chat");
 		const again = await lineByClientId(x.id, clientId);
 		if (again) return lineAsReply(again, x);
 	}
 	// An email draft that already went: the same reply again, not "Draft not found".
-	if (o.draftId && x.channel !== "chat") {
+	if (o.draftId && !chatLike) {
 		const sent = await db
 			.select()
 			.from(rp)
@@ -1982,8 +1993,8 @@ export async function sendReply(
 				`A new message came in (${newest.id}) since the one this reply answers: read it first`,
 			);
 	}
-	// A website chat: the line goes to the chat (src/server/chat.ts).
-	if (x.channel === "chat") {
+	// A website chat, WhatsApp, or Telegram conversation: the line goes through teamSays (src/server/chat.ts).
+	if (chatLike) {
 		const { lineAsReply, teamSays } = await import("./chat");
 		if (draft) await lockDraft(draft.id, now);
 		try {
@@ -2437,7 +2448,7 @@ async function purgeWhere(where: ReturnType<typeof and>, rounds: number) {
 				),
 			);
 		await dropFiles(drafts.flatMap((d) => d.a ?? []));
-		const chats = rows.filter((r) => r.channel === "chat");
+		const chats = rows.filter((r) => isChatLikeChannel(r.channel));
 		if (chats.length) {
 			const bucket = archiveBucket();
 			if (bucket) {
