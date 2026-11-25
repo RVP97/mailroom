@@ -298,7 +298,9 @@ describe("website chat: the visitor", () => {
 		const file = await handleChat(new Request(message.files[0].url));
 		expect(file.status).toBe(200);
 		expect(file.headers.get("content-type")).toBe("image/png");
-		const forged = await handleChat(new Request(message.files[0].url.replace(/.$/, "x")));
+		const forged = await handleChat(
+			new Request(message.files[0].url.replace(/.$/, (c: string) => (c === "x" ? "y" : "x"))),
+		);
 		expect(forged.status).toBe(404);
 		// A script isn't a file it takes.
 		const bad = new FormData();

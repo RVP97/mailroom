@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
-import { Megaphone, Plus } from "lucide-react";
+import { ArrowUpRight, Megaphone, Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -149,6 +149,21 @@ function Broadcasts() {
 				description="One email to a segment of your contacts, now or at a time you pick. Unsubscribed contacts, those who left its topic and suppressed addresses are left out."
 				actions={
 					<>
+						{me.active?.slug && (
+							<Button
+								variant="outline"
+								asChild
+							>
+								<a
+									href={`/changelog/${encodeURIComponent(me.active.slug)}`}
+									target="_blank"
+									rel="noreferrer"
+								>
+									Public changelog
+									<ArrowUpRight className="size-3.5" />
+								</a>
+							</Button>
+						)}
 						<ApiDrawer
 							title="Broadcasts in the API"
 							description="Resend's Broadcasts API. Needs a full-access key."

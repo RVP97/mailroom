@@ -1887,24 +1887,97 @@ function StepFields({
 				)}
 			</>
 		);
-	if (s.type === "webhook")
+	if (s.type === "webhook") {
+		const headersText = Object.entries(s.webhook_headers ?? {})
+			.map(([k, v]) => `${k}: ${v}`)
+			.join("\n");
 		return (
-			<Field>
-				<FieldLabel htmlFor={`${s.key}-url`}>URL</FieldLabel>
-				<Input
-					id={`${s.key}-url`}
-					spellCheck={false}
-					disabled={disabled}
-					placeholder="https://example.com/hooks/mailroom"
-					value={s.url}
-					onChange={(e) => setStep({ url: e.target.value })}
-				/>
-				<FieldDescription>
-					Mailroom posts JSON with the contact, their properties and the event's data. An
-					answer other than 2xx stops the run as failed.
-				</FieldDescription>
-			</Field>
+			<>
+				<Field>
+					<FieldLabel htmlFor={`${s.key}-url`}>Endpoint</FieldLabel>
+					<div className="grid grid-cols-[6rem_minmax(0,1fr)] gap-2">
+						<Select
+							disabled={disabled}
+							value={s.webhook_method ?? "POST"}
+							onValueChange={(v) => setStep({ webhook_method: v as "POST" | "PUT" })}
+						>
+							<SelectTrigger aria-label="HTTP method">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="POST">POST</SelectItem>
+								<SelectItem value="PUT">PUT</SelectItem>
+							</SelectContent>
+						</Select>
+						<Input
+							id={`${s.key}-url`}
+							spellCheck={false}
+							disabled={disabled}
+							placeholder="https://example.com/hooks/mailroom"
+							value={s.url}
+							onChange={(e) => setStep({ url: e.target.value })}
+						/>
+					</div>
+					<FieldDescription>
+						HTTPS only (private/localhost hosts blocked). A non-2xx response fails the
+						run.
+					</FieldDescription>
+				</Field>
+				<Field>
+					<FieldLabel htmlFor={`${s.key}-headers`}>Custom headers (optional)</FieldLabel>
+					<Textarea
+						id={`${s.key}-headers`}
+						rows={2}
+						spellCheck={false}
+						disabled={disabled}
+						placeholder={
+							"Authorization: Bearer your_token\nX-Customer: {{{contact.email}}}"
+						}
+						value={headersText}
+						onChange={(e) => {
+							const parsed: Record<string, string> = {};
+							for (const line of e.target.value.split("\n")) {
+								const idx = line.indexOf(":");
+								if (idx > 0) {
+									const k = line.slice(0, idx).trim();
+									const v = line.slice(idx + 1).trim();
+									if (k) parsed[k] = v;
+								}
+							}
+							setStep({
+								webhook_headers: Object.keys(parsed).length ? parsed : undefined,
+							});
+						}}
+						className="font-mono text-xs"
+					/>
+					<FieldDescription>
+						One <code className="text-[11px]">Header: Value</code> per line. Supports{" "}
+						<code className="text-[11px]">{"{{{contact.*}}}"}</code> and{" "}
+						<code className="text-[11px]">{"{{{event.*}}}"}</code> tags.
+					</FieldDescription>
+				</Field>
+				<Field>
+					<FieldLabel htmlFor={`${s.key}-body`}>Custom JSON body (optional)</FieldLabel>
+					<Textarea
+						id={`${s.key}-body`}
+						rows={3}
+						spellCheck={false}
+						disabled={disabled}
+						placeholder={
+							'{"text": "New signup: {{{FIRST_NAME}}} ({{{contact.email}}})"}'
+						}
+						value={s.webhook_body ?? ""}
+						onChange={(e) => setStep({ webhook_body: e.target.value || null })}
+						className="font-mono text-xs"
+					/>
+					<FieldDescription>
+						Leave blank to send Mailroom's default JSON envelope with contact and event
+						data.
+					</FieldDescription>
+				</Field>
+			</>
 		);
+	}
 	if (s.type === "wait")
 		return (
 			<Field>

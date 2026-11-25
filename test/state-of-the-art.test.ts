@@ -9,11 +9,13 @@ import {
 	runAutomations,
 } from "../src/server/automations";
 import { handleChangelogPage } from "../src/server/changelog-public";
+import { upsertCompany } from "../src/server/companies";
 import { upsertContact } from "../src/server/contacts";
 import { db, schema } from "../src/server/db";
 import { inboxReport } from "../src/server/inbox-reports";
 import type { InboxActor } from "../src/server/inboxes";
 import { PLATFORM_TOOLS } from "../src/server/mcp/tools-platform";
+import { searchEverything } from "../src/server/search";
 import { iso } from "../src/server/time";
 import { seedOrg, uid } from "./helpers";
 
@@ -346,6 +348,40 @@ describe("state-of-the-art upgrades", () => {
 			expect(manifest.display).toBe("standalone");
 			expect(manifest.start_url).toBe("/today");
 			expect(manifest.shortcuts.length).toBeGreaterThanOrEqual(2);
+		});
+
+		it("indexes B2B companies in ⌘K global search", async () => {
+			const org = await seedOrg();
+			const cmp = await upsertCompany(org.id, {
+				name: "Quantum Dynamics",
+				domain: "quantum.example",
+				plan: "Enterprise",
+				mrr: 3500,
+			});
+			const actor: InboxActor = {
+				organizationId: org.id,
+				brands: [org.id],
+				inboxIds: null,
+				permissions: new Set(["read"]),
+				sendScope: "replies",
+				type: "person",
+				id: "user_1",
+				name: "Admin",
+				reader: "user:user_1",
+				masked: false,
+			};
+			const res = await searchEverything({
+				organizationId: org.id,
+				brands: [org.id],
+				actor,
+				q: "quantum",
+				names: new Map([[org.id, "Test"]]),
+				masked: false,
+				kinds: ["company"],
+			});
+			expect(res.hits).toHaveLength(1);
+			expect(res.hits[0]?.id).toBe(cmp.id);
+			expect(res.hits[0]?.path).toBe(`/companies/${cmp.id}`);
 		});
 	});
 });

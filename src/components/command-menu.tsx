@@ -1,6 +1,7 @@
 import { useRouter } from "@tanstack/react-router";
 import { Command } from "cmdk";
 import {
+	Building2,
 	ClipboardCheck,
 	Contact as ContactIcon,
 	CornerDownLeft,
@@ -34,6 +35,7 @@ type Hit = Awaited<ReturnType<typeof searchEverythingFn>>["hits"][number];
 
 const KIND: Record<Hit["kind"], { label: string; icon: LucideIcon }> = {
 	contact: { label: "Contacts", icon: ContactIcon },
+	company: { label: "Companies", icon: Building2 },
 	conversation: { label: "Conversations", icon: MessageSquare },
 	broadcast: { label: "Broadcasts", icon: Megaphone },
 	template: { label: "Templates", icon: LayoutTemplate },

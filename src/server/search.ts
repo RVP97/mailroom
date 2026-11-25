@@ -12,6 +12,7 @@ import type { InboxActor } from "./inboxes";
 
 export type SearchKind =
 	| "contact"
+	| "company"
 	| "conversation"
 	| "broadcast"
 	| "template"
@@ -36,6 +37,7 @@ export type SearchHit = {
 
 export const SEARCH_KINDS: SearchKind[] = [
 	"contact",
+	"company",
 	"conversation",
 	"broadcast",
 	"template",
@@ -311,8 +313,46 @@ export async function searchEverything(o: {
 		(id) => `/domains/${id}`,
 	);
 
+	const cm = s.companies;
+	const companies = want.has("company")
+		? db
+				.select({
+					id: cm.id,
+					organization_id: cm.organization_id,
+					name: cm.name,
+					domain: cm.domain,
+					plan: cm.plan,
+				})
+				.from(cm)
+				.where(
+					and(
+						inArray(cm.organization_id, brands),
+						or(
+							like(lower(cm.name), p),
+							like(lower(cm.domain), p),
+							like(lower(cm.plan), p),
+						),
+					),
+				)
+				.orderBy(desc(cm.mrr), desc(cm.updated_at))
+				.limit(per)
+				.then((rows) =>
+					rows.map(
+						(r): SearchHit => ({
+							kind: "company",
+							id: r.id,
+							title: r.name,
+							detail: [r.domain, r.plan].filter(Boolean).join(" · ") || null,
+							brand: brandName(r.organization_id),
+							path: `/companies/${r.id}`,
+						}),
+					),
+				)
+		: none;
+
 	const groups = await Promise.all([
 		contacts,
+		companies,
 		conversations,
 		broadcasts,
 		templates,
