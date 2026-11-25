@@ -7,9 +7,12 @@ import { readFileSync } from "node:fs";
 import { and, eq } from "drizzle-orm";
 import { logActivity } from "@/server/activity";
 import { addComment } from "@/server/comments";
+import { upsertCompany } from "@/server/companies";
+import { upsertContact } from "@/server/contacts";
 import { db, schema } from "@/server/db";
 import { checkDomainHealth } from "@/server/deliverability";
 import { parseAggregateReport, storeReport } from "@/server/dmarc-reports";
+import { linkConversationIssue } from "@/server/issue-links";
 import { saveKit, saveSection } from "@/server/library";
 import { setOrgLogo } from "@/server/org-logos";
 import { setSetting } from "@/server/settings";
@@ -325,6 +328,143 @@ export async function extras(ctx: Ctx) {
 		"November product update",
 		draft?.id,
 	);
+
+	// B2B Companies / Accounts with linked contacts, plans, MRR & seats.
+	const demoCompanies = [
+		{
+			name: "Northstar Labs",
+			domain: "northstar.example",
+			plan: "Enterprise",
+			mrr: 4800,
+			seats: 42,
+			renewal_at: new Date(ctx.ago(-45, 12)).toISOString().slice(0, 10),
+			website: "https://northstar.example",
+			notes: "Annual enterprise contract; dedicated Slack channel and SSO enabled.",
+			members: [
+				{ email: "elena@northstar.example", first_name: "Elena", last_name: "Vance" },
+				{ email: "marcus@northstar.example", first_name: "Marcus", last_name: "Chen" },
+			],
+		},
+		{
+			name: "Hyperion AI",
+			domain: "hyperion.example",
+			plan: "Scale",
+			mrr: 1950,
+			seats: 18,
+			renewal_at: new Date(ctx.ago(-20, 12)).toISOString().slice(0, 10),
+			website: "https://hyperion.example",
+			notes: "High API volume customer; uses webhook automation sync.",
+			members: [{ email: "devon@hyperion.example", first_name: "Devon", last_name: "Patel" }],
+		},
+		{
+			name: "Solstice Health",
+			domain: "solstice.example",
+			plan: "Pro",
+			mrr: 690,
+			seats: 9,
+			renewal_at: new Date(ctx.ago(-60, 12)).toISOString().slice(0, 10),
+			website: "https://solstice.example",
+			members: [
+				{ email: "clara@solstice.example", first_name: "Clara", last_name: "Morales" },
+			],
+		},
+		{
+			name: "Kestrel Cloud",
+			domain: "kestrel.example",
+			plan: "Enterprise",
+			mrr: 3200,
+			seats: 26,
+			renewal_at: new Date(ctx.ago(-12, 12)).toISOString().slice(0, 10),
+			website: "https://kestrel.example",
+			members: [{ email: "liam@kestrel.example", first_name: "Liam", last_name: "O'Connor" }],
+		},
+	];
+	for (const dc of demoCompanies) {
+		for (const m of dc.members) {
+			await step(ctx.ago(40, 10), () => upsertContact(ORG, { ...m, source: "import" }));
+		}
+		await step(ctx.ago(39, 10), () =>
+			upsertCompany(ORG, {
+				name: dc.name,
+				domain: dc.domain,
+				plan: dc.plan,
+				mrr: dc.mrr,
+				seats: dc.seats,
+				renewal_at: dc.renewal_at,
+				website: dc.website,
+				notes: dc.notes,
+			}),
+		);
+	}
+
+	// Link sample GitHub & Linear issues to open inbox conversations.
+	const openConvs = await db
+		.select({ id: schema.conversations.id })
+		.from(schema.conversations)
+		.where(
+			and(
+				eq(schema.conversations.organization_id, ORG),
+				eq(schema.conversations.status, "open"),
+			),
+		)
+		.limit(2);
+	const [firstConv, secondConv] = openConvs;
+	if (firstConv) {
+		await step(ctx.ago(2, 11), () =>
+			linkConversationIssue(
+				ORG,
+				firstConv.id,
+				{
+					url: "https://github.com/acme/platform/issues/418",
+					title: "Export invoice PDF with VAT line",
+				},
+				"user_leo",
+			),
+		);
+	}
+	if (secondConv) {
+		await step(ctx.ago(1, 14), () =>
+			linkConversationIssue(
+				ORG,
+				secondConv.id,
+				{
+					url: "https://linear.app/acme/issue/ENG-204/saml-clock-skew",
+					title: "ENG-204: Handle SAML clock skew",
+				},
+				"user_sam",
+			),
+		);
+	}
+
+	// Seed emoji reactions on sent public web broadcasts (changelog).
+	const webBroadcasts = await db
+		.select({ id: schema.broadcasts.id })
+		.from(schema.broadcasts)
+		.where(
+			and(
+				eq(schema.broadcasts.organization_id, ORG),
+				eq(schema.broadcasts.status, "sent"),
+				eq(schema.broadcasts.web, true),
+			),
+		)
+		.limit(4);
+	for (const wb of webBroadcasts) {
+		await db
+			.insert(schema.changelogReactions)
+			.values([
+				{
+					broadcast_id: wb.id,
+					emoji: "🎉",
+					count: 12 + Math.floor(r() * 35),
+				},
+				{
+					broadcast_id: wb.id,
+					emoji: "🔥",
+					count: 5 + Math.floor(r() * 18),
+				},
+			])
+			.onConflictDoNothing();
+	}
 }
 
 function record(ip: string, count: number, from: string, pass: boolean) {

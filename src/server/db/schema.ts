@@ -1913,8 +1913,14 @@ export type AutomationStep =
 	| { type: "topic"; topic_id: string; value: "opt_in" | "opt_out" }
 	/** Subscribes the contact to a newsletter (its segment and topic), or takes them off it. */
 	| { type: "newsletter"; newsletter_id: string; action: "subscribe" | "remove" }
-	/** Posts the contact (and the event's data) to a URL. */
-	| { type: "webhook"; url: string }
+	/** Posts the contact (and the event's data) or a custom JSON payload to an HTTPS URL. */
+	| {
+			type: "webhook";
+			url: string;
+			method?: "POST" | "PUT";
+			headers?: Record<string, string>;
+			body?: string | null;
+	  }
 	/** Sends a short email written right here, without a template. */
 	| { type: "email"; from: string; subject: string; body: string }
 	/** Adds to (or takes from) a number property: a score. */

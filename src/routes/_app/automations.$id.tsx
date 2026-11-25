@@ -228,6 +228,12 @@ const TRIGGERS: { type: TriggerType; label: string; hint: string; group: string 
 const OWN_EVENTS = [
 	{ name: "poll.answered", hint: "Someone answered a poll in a broadcast" },
 	{ name: "referral.milestone", hint: "Someone reached a referral reward" },
+	{ name: "billing.subscription_started", hint: "A customer started a paid subscription" },
+	{ name: "billing.payment_succeeded", hint: "An invoice or order payment succeeded" },
+	{ name: "billing.payment_failed", hint: "An invoice payment failed (dunning)" },
+	{ name: "billing.trial_ending", hint: "A customer's trial is about to end" },
+	{ name: "billing.subscription_canceled", hint: "A subscription was canceled (win-back)" },
+	{ name: "billing.checkout_completed", hint: "A billing checkout session completed" },
 ];
 
 /** The triggers that may start again for the same contact (as the server allows). */

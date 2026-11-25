@@ -123,6 +123,7 @@ export async function inboxReport(actor: InboxActor, o: ReportInput = {}) {
 	);
 	const replies = await db
 		.select({
+			conversation_id: rp.conversation_id,
 			at: rp.sent_at,
 			author_type: rp.author_type,
 			author_name: rp.author_name,
@@ -227,6 +228,16 @@ export async function inboxReport(actor: InboxActor, o: ReportInput = {}) {
 		const discardedAgent = dis.filter(
 			(d) => (d.detail as { author_type?: string } | null)?.author_type === "agent",
 		).length;
+		const agentOnlyConvIds = new Set<string>();
+		const humanConvIds = new Set<string>();
+		for (const r of reps) {
+			if (r.author_type === "agent" && !r.sent_by) agentOnlyConvIds.add(r.conversation_id);
+			else if (r.author_type === "person" || r.sent_by) humanConvIds.add(r.conversation_id);
+		}
+		let deflected = 0;
+		for (const id of agentOnlyConvIds) {
+			if (!humanConvIds.has(id)) deflected++;
+		}
 		return {
 			conversations: rows.length,
 			resolved: res.length,
@@ -236,6 +247,12 @@ export async function inboxReport(actor: InboxActor, o: ReportInput = {}) {
 				agent_approved: agentDrafts.length,
 				person: reps.filter((r) => r.author_type === "person").length,
 				api: reps.filter((r) => r.author_type === "api").length,
+			},
+			ai_resolution: {
+				deflected,
+				deflection_rate: rows.length ? deflected / rows.length : null,
+				/** Estimated monthly savings vs Intercom Fin ($0.99 per AI resolution). */
+				estimated_fin_savings_usd: Math.round(deflected * 0.99 * 100) / 100,
 			},
 			first_response_minutes: {
 				median: quantile(frt, 0.5),

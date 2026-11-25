@@ -520,7 +520,12 @@ function Docs() {
 									code: `curl -X POST ${base}/emails \\\n  -H "Authorization: Bearer $MAILROOM_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -H "Idempotency-Key: order-1234-receipt" \\\n  -d '{\n    "from": "${SEND.from}",\n    "to": ${SEND.to},\n    "subject": "${SEND.subject}",\n    "html": "${SEND.html}"\n  }'`,
 								},
 								{
-									label: "Node.js",
+									label: "Mailroom TS SDK",
+									lang: "js",
+									code: `import { Mailroom } from "./sdk";\n\nconst mr = new Mailroom({\n  url: "${base.replace(/\/api$/, "")}",\n  apiKey: process.env.MAILROOM_API_KEY!,\n});\n\nawait mr.emails.send({\n  from: "${SEND.from}",\n  to: ${SEND.to},\n  subject: "${SEND.subject}",\n  html: "${SEND.html}",\n  idempotencyKey: "order-1234-receipt",\n});`,
+								},
+								{
+									label: "Node.js (Resend)",
 									lang: "js",
 									code: `// npm install resend\n// RESEND_BASE_URL=${base} (the SDK reads it)\nimport { Resend } from "resend";\n\nconst resend = new Resend(process.env.MAILROOM_API_KEY);\n\nconst { data, error } = await resend.emails.send({\n  from: "${SEND.from}",\n  to: ${SEND.to},\n  subject: "${SEND.subject}",\n  html: "${SEND.html}",\n  tags: [{ name: "kind", value: "receipt" }],\n});`,
 								},
@@ -528,6 +533,10 @@ function Docs() {
 									label: "Python",
 									lang: "python",
 									code: `import os, requests\n\nr = requests.post(\n    "${base}/emails",\n    headers={"Authorization": f"Bearer {os.environ['MAILROOM_API_KEY']}"},\n    json={\n        "from": "${SEND.from}",\n        "to": ${SEND.to},\n        "subject": "${SEND.subject}",\n        "html": "${SEND.html}",\n    },\n)\nprint(r.json())  # {"id": "..."}`,
+								},
+								{
+									label: "Go",
+									code: `req, _ := http.NewRequest("POST", "${base}/emails", strings.NewReader(\`{"from":"${SEND.from}","to":${SEND.to},"subject":"${SEND.subject}","html":"${SEND.html}"}\`))\nreq.Header.Set("Authorization", "Bearer "+os.Getenv("MAILROOM_API_KEY"))\nreq.Header.Set("Content-Type", "application/json")\nresp, err := http.DefaultClient.Do(req)`,
 								},
 								{
 									label: "PHP",

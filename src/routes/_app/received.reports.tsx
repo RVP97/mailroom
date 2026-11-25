@@ -88,6 +88,7 @@ function ReportsSketch() {
 		resolved: 0,
 		replies: 0,
 		replies_by: { agent: 0, agent_approved: 0, person: 0, api: 0 },
+		ai_resolution: { deflected: 0, deflection_rate: null, estimated_fin_savings_usd: 0 },
 		first_response_minutes: { median: null, p90: null, count: 0 },
 		resolution_minutes: { median: null, p90: null, count: 0 },
 		unanswered: 0,
@@ -422,6 +423,21 @@ function Reports() {
 					label="Handled by agents alone"
 					value={formatNumber(t.replies_by.agent)}
 					sub="replies sent without a person's approval"
+				/>
+				<Kpi
+					label="AI deflection rate"
+					value={pct(t.ai_resolution.deflection_rate)}
+					delta={
+						t.ai_resolution.deflection_rate !== null &&
+						p.ai_resolution.deflection_rate !== null ? (
+							<Delta
+								now={t.ai_resolution.deflection_rate}
+								before={p.ai_resolution.deflection_rate}
+								kind="rate"
+							/>
+						) : null
+					}
+					sub={`${formatNumber(t.ai_resolution.deflected)} deflected · ~$${t.ai_resolution.estimated_fin_savings_usd.toFixed(2)} saved vs $0.99/res`}
 				/>
 			</div>
 		),

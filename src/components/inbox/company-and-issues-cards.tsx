@@ -6,6 +6,7 @@ import {
 	CircleDot,
 	Link2,
 	Plus,
+	Sparkles,
 	Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -14,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { aiTriageConversationFn } from "@/functions/ai";
 import { companyForEmailFn } from "@/functions/companies";
 import {
 	linkConversationIssueFn,
@@ -47,6 +49,21 @@ export function CompanyAndIssuesCards({
 	const [url, setUrl] = useState("");
 	const [title, setTitle] = useState("");
 	const [busy, setBusy] = useState(false);
+	const [triaging, setTriaging] = useState(false);
+
+	const runAiTriage = async () => {
+		setTriaging(true);
+		try {
+			const res = await aiTriageConversationFn({ data: { conversation: conversationId } });
+			toast.success(
+				`AI Triage: ${res.priority} priority · ${res.sentiment} · ${res.tags.length ? res.tags.join(", ") : "no tags"}`,
+			);
+		} catch (error) {
+			toast.error(await errorMessage(error));
+		} finally {
+			setTriaging(false);
+		}
+	};
 
 	const load = useCallback(async () => {
 		if (!conversationId || conversationId.startsWith("sketch-")) return;
@@ -250,6 +267,26 @@ export function CompanyAndIssuesCards({
 					</ul>
 				)}
 			</div>
+
+			{canEdit && (
+				<div className="border-t border-border/60 pt-3">
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="h-7 w-full justify-center gap-1.5 text-xs"
+						disabled={triaging}
+						onClick={runAiTriage}
+					>
+						{triaging ? (
+							<Spinner className="size-3" />
+						) : (
+							<Sparkles className="size-3" />
+						)}
+						AI Auto-Triage (tags &amp; priority)
+					</Button>
+				</div>
+			)}
 		</>
 	);
 }

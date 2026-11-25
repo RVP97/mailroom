@@ -153,6 +153,7 @@ import { HELP_TOOLS } from "./tools-help";
 import { LEAD_TOOLS } from "./tools-leads";
 import { NOTE_TOOLS } from "./tools-notes";
 import { PERSON_TOOLS } from "./tools-person";
+import { PLATFORM_TOOLS } from "./tools-platform";
 import { SEARCH_TOOLS } from "./tools-search";
 import { SETTINGS_TOOLS } from "./tools-settings";
 import { SURVEY_TOOLS } from "./tools-surveys";
@@ -2211,4 +2212,5 @@ export const TOOLS: Tool[] = [
 	...PERSON_TOOLS,
 	...ANSWER_TOOLS,
 	...AI_TOOLS,
+	...PLATFORM_TOOLS,
 ];

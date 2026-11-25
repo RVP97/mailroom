@@ -14,6 +14,7 @@ import {
 	polishReplyWithAi,
 	saveAiSettings,
 	summarizeConversationWithAi,
+	triageConversationWithAi,
 } from "@/server/ai";
 import { personOf } from "@/server/inboxes";
 import { can, orgMiddleware } from "@/server/middleware";
@@ -66,6 +67,13 @@ export const aiSummarizeFn = createServerFn({ method: "POST" })
 	.validator(z.object({ conversation: z.string() }))
 	.handler(({ data, context }) =>
 		call(async () => summarizeConversationWithAi(await personOf(context), data.conversation)),
+	);
+
+export const aiTriageConversationFn = createServerFn({ method: "POST" })
+	.middleware([can("inbox:reply")])
+	.validator(z.object({ conversation: z.string() }))
+	.handler(({ data, context }) =>
+		call(async () => triageConversationWithAi(await personOf(context), data.conversation)),
 	);
 
 export const aiPolishFn = createServerFn({ method: "POST" })

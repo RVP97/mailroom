@@ -41,3 +41,25 @@ Every Mailroom deployment serves a live OpenAPI 3.1 JSON spec at:
 ```
 GET https://<your-mailroom-host>/api/openapi.json
 ```
+
+### React / Next.js Website Chat Component (`sdk/react.tsx`)
+
+Drop `<MailroomChat />` into your layout to embed live chat, Help Center search, and the "What's new" changelog tab:
+
+```tsx
+import { MailroomChat, useMailroomChat } from "./sdk/react";
+
+export function Layout({ user }: { user?: { email: string; name: string } }) {
+  const chat = useMailroomChat();
+  return (
+    <>
+      <button onClick={chat.open}>Need help?</button>
+      <MailroomChat
+        url="https://mail.yourapp.com"
+        publicKey="mrc_xxxxxxxxxxxxxxxxxxxxxxxx"
+        identity={user ? { email: user.email, name: user.name } : null}
+      />
+    </>
+  );
+}
+```

@@ -60,6 +60,9 @@ export type Step = {
 	conversation_action: ConversationAction;
 	/** webhook */
 	url: string;
+	webhook_method?: "POST" | "PUT";
+	webhook_headers?: Record<string, string>;
+	webhook_body?: string | null;
 	no: Step[];
 };
 
@@ -125,7 +128,13 @@ export type SavedStep =
 	| { type: "newsletter"; newsletter_id: string; action: "subscribe" | "remove" }
 	| { type: "notify"; to: string[]; message: string }
 	| { type: "conversation"; action: ConversationAction; value?: string | null }
-	| { type: "webhook"; url: string }
+	| {
+			type: "webhook";
+			url: string;
+			method?: "POST" | "PUT";
+			headers?: Record<string, string>;
+			body?: string | null;
+	  }
 	| { type: "email"; from: string; subject: string; body: string };
 
 export type SavedTrigger =
@@ -211,7 +220,13 @@ function stepOf(s: SavedStep): Step {
 		case "conversation":
 			return { ...b, conversation_action: s.action, value: s.value ?? "" };
 		case "webhook":
-			return { ...b, url: s.url };
+			return {
+				...b,
+				url: s.url,
+				webhook_method: s.method,
+				webhook_headers: s.headers,
+				webhook_body: s.body ?? null,
+			};
 		case "wait_event":
 			return { ...b, event: s.event, ...waitOf(s.minutes), no: (s.no ?? []).map(stepOf) };
 		case "split":
@@ -306,7 +321,15 @@ function savedOf(s: Step): SavedStep {
 				value: s.conversation_action === "resolve" ? null : s.value.trim() || null,
 			};
 		case "webhook":
-			return { type: "webhook", url: s.url.trim() };
+			return {
+				type: "webhook",
+				url: s.url.trim(),
+				...(s.webhook_method ? { method: s.webhook_method } : {}),
+				...(s.webhook_headers && Object.keys(s.webhook_headers).length
+					? { headers: s.webhook_headers }
+					: {}),
+				...(s.webhook_body?.trim() ? { body: s.webhook_body } : {}),
+			};
 		case "wait_event":
 			return { type: "wait_event", event: s.event.trim(), minutes: minutes(s), ...no(s) };
 		case "split":

@@ -1,0 +1,34 @@
+{
+	"name": "Mailroom",
+	"short_name": "Mailroom",
+	"description": "Open-source customer communication platform: transactional email, newsletters, automations, shared inbox, live chat & help center.",
+	"start_url": "/today",
+	"display": "standalone",
+	"background_color": "#0c0c0d",
+	"theme_color": "#0c0c0d",
+	"icons": [
+		{
+			"src": "/favicon.svg",
+			"sizes": "any",
+			"type": "image/svg+xml",
+			"purpose": "any maskable"
+		}
+	],
+	"shortcuts": [
+		{
+			"name": "Shared Inbox",
+			"short_name": "Inbox",
+			"url": "/received"
+		},
+		{
+			"name": "Companies",
+			"short_name": "Companies",
+			"url": "/companies"
+		},
+		{
+			"name": "Broadcasts",
+			"short_name": "Broadcasts",
+			"url": "/broadcasts"
+		}
+	]
+}

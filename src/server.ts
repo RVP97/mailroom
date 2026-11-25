@@ -133,6 +133,11 @@ async function publicPage(request: Request, url: URL): Promise<Response | null> 
 		const { handleHelpPage } = await import("./server/help-center");
 		return secured(await handleHelpPage(request));
 	}
+	// Standalone public changelog timeline, RSS feed & reactions (src/server/changelog-public.ts).
+	if (url.pathname.startsWith("/changelog/")) {
+		const { handleChangelogPage } = await import("./server/changelog-public");
+		return secured(await handleChangelogPage(request));
+	}
 	// Surveys: a website's link, an email's answer links (src/server/surveys.ts).
 	if (url.pathname.startsWith("/s/") && (request.method === "GET" || request.method === "POST")) {
 		const { handleSurveyPage } = await import("./server/surveys");

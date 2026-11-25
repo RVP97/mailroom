@@ -176,6 +176,12 @@ const leaf = z.discriminatedUnion("type", [
 			.url()
 			.max(2000)
 			.refine((u) => u.startsWith("https://"), "the URL must use https"),
+		method: z.enum(["POST", "PUT"]).optional(),
+		headers: z
+			.record(z.string().trim().min(1).max(64), z.string().max(1000))
+			.refine((h) => Object.keys(h).length <= 10, "up to 10 custom headers")
+			.optional(),
+		body: z.string().max(16_000).nullish(),
 	}),
 	z.object({
 		type: z.literal("email"),
@@ -1293,7 +1299,7 @@ async function actStep(
 			await conversationStep(brand, contact, s, now);
 			return;
 		case "webhook":
-			await callWebhook(x, run, contact, s.url, now);
+			await callWebhook(x, run, contact, s, now);
 			return;
 	}
 }
@@ -1420,31 +1426,71 @@ async function conversationStep(
 			.where(eq(cv.id, x.id));
 }
 
-/** Posts the contact and the run's event data to the step's URL; a refusal fails the run. */
+/** Blocks private/loopback/link-local hosts from outbound automation webhooks (SSRF guard). */
+export function isPrivateWebhookHost(rawUrl: string): boolean {
+	try {
+		const { hostname } = new URL(rawUrl);
+		const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+		if (
+			h === "localhost" ||
+			h === "::1" ||
+			h === "0.0.0.0" ||
+			h.endsWith(".local") ||
+			h.endsWith(".internal") ||
+			/^127\./.test(h) ||
+			/^10\./.test(h) ||
+			/^192\.168\./.test(h) ||
+			/^169\.254\./.test(h) ||
+			/^172\.(1[6-9]|2\d|3[0-1])\./.test(h) ||
+			/^(fc|fd|fe80)/i.test(h)
+		)
+			return true;
+		return false;
+	} catch {
+		return true;
+	}
+}
+
+/** Posts the contact and the run's event data (or custom template payload) to the step's URL. */
 async function callWebhook(
 	x: Automation,
 	run: AutomationRun,
 	contact: Contact,
-	url: string,
+	s: Extract<AutomationStep, { type: "webhook" }>,
 	now: number,
 ) {
-	const res = await fetch(url, {
-		method: "POST",
-		headers: { "content-type": "application/json", "user-agent": "Mailroom-Automations" },
-		body: JSON.stringify({
-			type: "automation.step",
-			created_at: iso(now),
-			automation: { id: x.id, name: x.name },
-			run_id: run.id,
-			contact: {
-				id: contact.id,
-				email: contact.email,
-				first_name: contact.first_name,
-				last_name: contact.last_name,
-				properties: contact.properties ?? {},
-			},
-			data: run.data ?? null,
-		}),
+	if (isPrivateWebhookHost(s.url))
+		throw new Error("Refused to call a private or localhost webhook URL");
+	const values = await runValues(x, run, contact);
+	const headers: Record<string, string> = {
+		"content-type": "application/json",
+		"user-agent": "Mailroom-Automations",
+	};
+	for (const [k, v] of Object.entries(s.headers ?? {})) {
+		const lk = k.toLowerCase();
+		if (lk === "host" || lk === "content-length") continue;
+		headers[k] = fill(v, values);
+	}
+	const payload = s.body?.trim()
+		? fill(s.body, values)
+		: JSON.stringify({
+				type: "automation.step",
+				created_at: iso(now),
+				automation: { id: x.id, name: x.name },
+				run_id: run.id,
+				contact: {
+					id: contact.id,
+					email: contact.email,
+					first_name: contact.first_name,
+					last_name: contact.last_name,
+					properties: contact.properties ?? {},
+				},
+				data: run.data ?? null,
+			});
+	const res = await fetch(s.url, {
+		method: s.method ?? "POST",
+		headers,
+		body: payload,
 		redirect: "manual",
 		signal: AbortSignal.timeout(10_000),
 	});

@@ -27,6 +27,8 @@ export const Route = createRootRoute({
 			{ title: "Mailroom" },
 			{ name: "robots", content: "noindex" },
 			{ name: "theme-color", content: "#0c0c0d" },
+			{ name: "apple-mobile-web-app-capable", content: "yes" },
+			{ name: "apple-mobile-web-app-title", content: "Mailroom" },
 		],
 		links: [
 			{
@@ -38,6 +40,7 @@ export const Route = createRootRoute({
 			},
 			{ rel: "stylesheet", href: appCss },
 			{ rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+			{ rel: "manifest", href: "/manifest.webmanifest" },
 		],
 	}),
 	shellComponent: RootDocument,
