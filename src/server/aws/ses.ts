@@ -55,11 +55,21 @@ export class SesError extends Error {
 const THROTTLE_WAITS_MS = [300, 1000, 2500];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+function isTransientNetworkError(error: unknown): boolean {
+	const name = (error as { name?: string } | null)?.name;
+	return (
+		name === "TimeoutError" ||
+		name === "AbortError" ||
+		/Network connection lost|fetch failed/i.test(String((error as Error)?.message))
+	);
+}
+
 export async function sesCall<T = Record<string, unknown>>(
 	aws: AwsConfig,
 	method: "GET" | "POST" | "PUT" | "DELETE",
 	path: string,
 	body?: unknown,
+	timeoutMs = 30_000,
 ): Promise<T> {
 	const url = new URL(`https://email.${aws.region}.amazonaws.com${path}`);
 	const payload = body === undefined ? "" : JSON.stringify(body);
@@ -73,12 +83,23 @@ export async function sesCall<T = Record<string, unknown>>(
 			service: "ses",
 			credentials: aws.credentials,
 		});
-		const res = await doFetch(url, {
-			method,
-			headers,
-			body: payload || undefined,
-			signal: AbortSignal.timeout(30_000),
-		});
+		const wait = THROTTLE_WAITS_MS[attempt];
+		let res: Response;
+		try {
+			res = await doFetch(url, {
+				method,
+				headers,
+				body: payload || undefined,
+				signal: AbortSignal.timeout(timeoutMs),
+			});
+		} catch (error) {
+			// Idempotent reads retry transient socket drops / timeouts automatically.
+			if (method === "GET" && isTransientNetworkError(error) && wait !== undefined) {
+				await sleep(wait + Math.random() * 200);
+				continue;
+			}
+			throw error;
+		}
 		const text = await res.text();
 		if (res.ok) return (text ? JSON.parse(text) : {}) as T;
 		let message = text;
@@ -87,7 +108,6 @@ export async function sesCall<T = Record<string, unknown>>(
 			message = parsed.message ?? parsed.Message ?? text;
 		} catch {}
 		const type = (res.headers.get("x-amzn-errortype") ?? "").split(":")[0] ?? "";
-		const wait = THROTTLE_WAITS_MS[attempt];
 		// The rate per second: wait and go again. The day's quota: no use waiting.
 		if (
 			(res.status === 429 || type === "TooManyRequestsException") &&
@@ -122,22 +142,28 @@ export interface RawSend {
 	tags?: { name: string; value: string }[];
 }
 
-/** Sends one raw message; SES's message id. */
+/** Sends one raw message; SES's message id. Fails fast at 20s so callers get a queued retry before typical 30s client timeouts. */
 export async function sendRaw(aws: AwsConfig, m: RawSend): Promise<string> {
-	const res = await sesCall<{ MessageId?: string }>(aws, "POST", "/v2/email/outbound-emails", {
-		FromEmailAddress: m.from,
-		Destination: {
-			ToAddresses: m.to,
-			...(m.cc?.length ? { CcAddresses: m.cc } : {}),
-			...(m.bcc?.length ? { BccAddresses: m.bcc } : {}),
+	const res = await sesCall<{ MessageId?: string }>(
+		aws,
+		"POST",
+		"/v2/email/outbound-emails",
+		{
+			FromEmailAddress: m.from,
+			Destination: {
+				ToAddresses: m.to,
+				...(m.cc?.length ? { CcAddresses: m.cc } : {}),
+				...(m.bcc?.length ? { BccAddresses: m.bcc } : {}),
+			},
+			Content: { Raw: { Data: m.raw } },
+			...(m.configurationSet ? { ConfigurationSetName: m.configurationSet } : {}),
+			...(m.tenant ? { TenantName: m.tenant } : {}),
+			...(m.tags?.length
+				? { EmailTags: m.tags.map((t) => ({ Name: t.name, Value: t.value })) }
+				: {}),
 		},
-		Content: { Raw: { Data: m.raw } },
-		...(m.configurationSet ? { ConfigurationSetName: m.configurationSet } : {}),
-		...(m.tenant ? { TenantName: m.tenant } : {}),
-		...(m.tags?.length
-			? { EmailTags: m.tags.map((t) => ({ Name: t.name, Value: t.value })) }
-			: {}),
-	});
+		20_000,
+	);
 	if (!res.MessageId) throw new SesError(500, "NoMessageId", "SES returned no message id");
 	return res.MessageId;
 }

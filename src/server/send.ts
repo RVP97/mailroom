@@ -870,16 +870,18 @@ export async function createEmails(
 			await markSent(row.id, messageId, Date.now());
 			results.push({ id: row.id, status: "sent" });
 		} catch (error) {
-			console.error("send: SES refused", row.id, error);
 			const outcome = await markRefused(
 				{ id: row.id, organization_id: organizationId, attempts: 0 },
 				error,
 				now,
 			);
 			if (outcome === "retry") {
+				// Transient SES blip (timeout, 5xx, throttling): queued for Dispatcher retry, not a Sentry error.
+				console.warn("send: SES transient refusal, queued for retry", row.id, error);
 				queued = true;
 				results.push({ id: row.id, status: "queued" });
 			} else {
+				console.error("send: SES refused", row.id, error);
 				const message = error instanceof Error ? error.message : String(error);
 				results.push({
 					id: row.id,

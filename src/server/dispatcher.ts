@@ -118,8 +118,12 @@ export class Dispatcher extends DurableObject {
 				if (stored.content.attachments?.length)
 					await dropAttachments(row.id, stored.content);
 			} catch (error) {
-				console.error("dispatcher: send failed", row.id, error);
-				await markRefused(row, error);
+				const outcome = await markRefused(row, error, now);
+				if (outcome === "retry") {
+					console.warn("dispatcher: transient send failure, retrying", row.id, error);
+				} else {
+					console.error("dispatcher: send failed", row.id, error);
+				}
 			}
 		}
 		const next = claimed.length === PER_RUN ? Date.now() : await nextDue();
