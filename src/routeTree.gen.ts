@@ -37,6 +37,8 @@ import { Route as AppBroadcastsIndexRouteImport } from './routes/_app/broadcasts
 import { Route as AppBroadcastsIdRouteImport } from './routes/_app/broadcasts.$id'
 import { Route as AppCampaignsIndexRouteImport } from './routes/_app/campaigns.index'
 import { Route as AppCampaignsIdRouteImport } from './routes/_app/campaigns.$id'
+import { Route as AppCompaniesIndexRouteImport } from './routes/_app/companies.index'
+import { Route as AppCompaniesIdRouteImport } from './routes/_app/companies.$id'
 import { Route as AppContactsIndexRouteImport } from './routes/_app/contacts.index'
 import { Route as AppContactsIdRouteImport } from './routes/_app/contacts.$id'
 import { Route as AppContactsEngagementRouteImport } from './routes/_app/contacts.engagement'
@@ -213,6 +215,16 @@ const AppCampaignsIndexRoute = AppCampaignsIndexRouteImport.update({
 const AppCampaignsIdRoute = AppCampaignsIdRouteImport.update({
   id: '/campaigns/$id',
   path: '/campaigns/$id',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCompaniesIndexRoute = AppCompaniesIndexRouteImport.update({
+  id: '/companies/',
+  path: '/companies/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCompaniesIdRoute = AppCompaniesIdRouteImport.update({
+  id: '/companies/$id',
+  path: '/companies/$id',
   getParentRoute: () => AppRoute,
 } as any)
 const AppContactsIndexRoute = AppContactsIndexRouteImport.update({
@@ -429,6 +441,7 @@ export interface FileRoutesByFullPath {
   '/brands/$id': typeof AppBrandsIdRoute
   '/broadcasts/$id': typeof AppBroadcastsIdRoute
   '/campaigns/$id': typeof AppCampaignsIdRoute
+  '/companies/$id': typeof AppCompaniesIdRoute
   '/contacts/$id': typeof AppContactsIdRoute
   '/contacts/engagement': typeof AppContactsEngagementRoute
   '/contacts/growth': typeof AppContactsGrowthRoute
@@ -452,6 +465,7 @@ export interface FileRoutesByFullPath {
   '/brands/': typeof AppBrandsIndexRoute
   '/broadcasts/': typeof AppBroadcastsIndexRoute
   '/campaigns/': typeof AppCampaignsIndexRoute
+  '/companies/': typeof AppCompaniesIndexRoute
   '/contacts/': typeof AppContactsIndexRoute
   '/domains/': typeof AppDomainsIndexRoute
   '/emails/': typeof AppEmailsIndexRoute
@@ -496,6 +510,7 @@ export interface FileRoutesByTo {
   '/brands/$id': typeof AppBrandsIdRoute
   '/broadcasts/$id': typeof AppBroadcastsIdRoute
   '/campaigns/$id': typeof AppCampaignsIdRoute
+  '/companies/$id': typeof AppCompaniesIdRoute
   '/contacts/$id': typeof AppContactsIdRoute
   '/contacts/engagement': typeof AppContactsEngagementRoute
   '/contacts/growth': typeof AppContactsGrowthRoute
@@ -519,6 +534,7 @@ export interface FileRoutesByTo {
   '/brands': typeof AppBrandsIndexRoute
   '/broadcasts': typeof AppBroadcastsIndexRoute
   '/campaigns': typeof AppCampaignsIndexRoute
+  '/companies': typeof AppCompaniesIndexRoute
   '/contacts': typeof AppContactsIndexRoute
   '/domains': typeof AppDomainsIndexRoute
   '/emails': typeof AppEmailsIndexRoute
@@ -565,6 +581,7 @@ export interface FileRoutesById {
   '/_app/brands/$id': typeof AppBrandsIdRoute
   '/_app/broadcasts/$id': typeof AppBroadcastsIdRoute
   '/_app/campaigns/$id': typeof AppCampaignsIdRoute
+  '/_app/companies/$id': typeof AppCompaniesIdRoute
   '/_app/contacts/$id': typeof AppContactsIdRoute
   '/_app/contacts/engagement': typeof AppContactsEngagementRoute
   '/_app/contacts/growth': typeof AppContactsGrowthRoute
@@ -588,6 +605,7 @@ export interface FileRoutesById {
   '/_app/brands/': typeof AppBrandsIndexRoute
   '/_app/broadcasts/': typeof AppBroadcastsIndexRoute
   '/_app/campaigns/': typeof AppCampaignsIndexRoute
+  '/_app/companies/': typeof AppCompaniesIndexRoute
   '/_app/contacts/': typeof AppContactsIndexRoute
   '/_app/domains/': typeof AppDomainsIndexRoute
   '/_app/emails/': typeof AppEmailsIndexRoute
@@ -634,6 +652,7 @@ export interface FileRouteTypes {
     | '/brands/$id'
     | '/broadcasts/$id'
     | '/campaigns/$id'
+    | '/companies/$id'
     | '/contacts/$id'
     | '/contacts/engagement'
     | '/contacts/growth'
@@ -657,6 +676,7 @@ export interface FileRouteTypes {
     | '/brands/'
     | '/broadcasts/'
     | '/campaigns/'
+    | '/companies/'
     | '/contacts/'
     | '/domains/'
     | '/emails/'
@@ -701,6 +721,7 @@ export interface FileRouteTypes {
     | '/brands/$id'
     | '/broadcasts/$id'
     | '/campaigns/$id'
+    | '/companies/$id'
     | '/contacts/$id'
     | '/contacts/engagement'
     | '/contacts/growth'
@@ -724,6 +745,7 @@ export interface FileRouteTypes {
     | '/brands'
     | '/broadcasts'
     | '/campaigns'
+    | '/companies'
     | '/contacts'
     | '/domains'
     | '/emails'
@@ -769,6 +791,7 @@ export interface FileRouteTypes {
     | '/_app/brands/$id'
     | '/_app/broadcasts/$id'
     | '/_app/campaigns/$id'
+    | '/_app/companies/$id'
     | '/_app/contacts/$id'
     | '/_app/contacts/engagement'
     | '/_app/contacts/growth'
@@ -792,6 +815,7 @@ export interface FileRouteTypes {
     | '/_app/brands/'
     | '/_app/broadcasts/'
     | '/_app/campaigns/'
+    | '/_app/companies/'
     | '/_app/contacts/'
     | '/_app/domains/'
     | '/_app/emails/'
@@ -1022,6 +1046,20 @@ declare module '@tanstack/react-router' {
       path: '/campaigns/$id'
       fullPath: '/campaigns/$id'
       preLoaderRoute: typeof AppCampaignsIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/companies/': {
+      id: '/_app/companies/'
+      path: '/companies'
+      fullPath: '/companies/'
+      preLoaderRoute: typeof AppCompaniesIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/companies/$id': {
+      id: '/_app/companies/$id'
+      path: '/companies/$id'
+      fullPath: '/companies/$id'
+      preLoaderRoute: typeof AppCompaniesIdRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/contacts/': {
@@ -1309,6 +1347,7 @@ interface AppRouteChildren {
   AppBrandsIdRoute: typeof AppBrandsIdRoute
   AppBroadcastsIdRoute: typeof AppBroadcastsIdRoute
   AppCampaignsIdRoute: typeof AppCampaignsIdRoute
+  AppCompaniesIdRoute: typeof AppCompaniesIdRoute
   AppContactsIdRoute: typeof AppContactsIdRoute
   AppContactsEngagementRoute: typeof AppContactsEngagementRoute
   AppContactsGrowthRoute: typeof AppContactsGrowthRoute
@@ -1331,6 +1370,7 @@ interface AppRouteChildren {
   AppBrandsIndexRoute: typeof AppBrandsIndexRoute
   AppBroadcastsIndexRoute: typeof AppBroadcastsIndexRoute
   AppCampaignsIndexRoute: typeof AppCampaignsIndexRoute
+  AppCompaniesIndexRoute: typeof AppCompaniesIndexRoute
   AppContactsIndexRoute: typeof AppContactsIndexRoute
   AppDomainsIndexRoute: typeof AppDomainsIndexRoute
   AppEmailsIndexRoute: typeof AppEmailsIndexRoute
@@ -1369,6 +1409,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppBrandsIdRoute: AppBrandsIdRoute,
   AppBroadcastsIdRoute: AppBroadcastsIdRoute,
   AppCampaignsIdRoute: AppCampaignsIdRoute,
+  AppCompaniesIdRoute: AppCompaniesIdRoute,
   AppContactsIdRoute: AppContactsIdRoute,
   AppContactsEngagementRoute: AppContactsEngagementRoute,
   AppContactsGrowthRoute: AppContactsGrowthRoute,
@@ -1391,6 +1432,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppBrandsIndexRoute: AppBrandsIndexRoute,
   AppBroadcastsIndexRoute: AppBroadcastsIndexRoute,
   AppCampaignsIndexRoute: AppCampaignsIndexRoute,
+  AppCompaniesIndexRoute: AppCompaniesIndexRoute,
   AppContactsIndexRoute: AppContactsIndexRoute,
   AppDomainsIndexRoute: AppDomainsIndexRoute,
   AppEmailsIndexRoute: AppEmailsIndexRoute,

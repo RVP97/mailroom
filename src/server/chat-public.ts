@@ -360,6 +360,102 @@ export async function handleChat(request: Request, now = Date.now()): Promise<Re
 					{ headers },
 				);
 			}
+			case "GET updates": {
+				// Published web newsletter/broadcast updates for the widget's "News / Changelog" tab.
+				const { and, desc, eq, inArray } = await import("drizzle-orm");
+				const { db, schema } = await import("./db");
+				const { webUrl } = await import("./newsletters");
+				const rows = await db
+					.select({
+						id: schema.broadcasts.id,
+						subject: schema.broadcasts.subject,
+						preview_text: schema.broadcasts.preview_text,
+						slug: schema.broadcasts.slug,
+						newsletter_id: schema.broadcasts.newsletter_id,
+						completed_at: schema.broadcasts.completed_at,
+						created_at: schema.broadcasts.created_at,
+					})
+					.from(schema.broadcasts)
+					.where(
+						and(
+							eq(schema.broadcasts.organization_id, w.inbox.organization_id),
+							eq(schema.broadcasts.status, "sent"),
+							eq(schema.broadcasts.web, true),
+						),
+					)
+					.orderBy(
+						desc(schema.broadcasts.completed_at),
+						desc(schema.broadcasts.created_at),
+					)
+					.limit(10);
+				const ids = rows.map((r) => r.id);
+				const reacts = ids.length
+					? await db
+							.select()
+							.from(schema.changelogReactions)
+							.where(inArray(schema.changelogReactions.broadcast_id, ids))
+					: [];
+				const reactMap = new Map<string, Record<string, number>>();
+				for (const r of reacts) {
+					const bag = reactMap.get(r.broadcast_id) ?? {};
+					bag[r.emoji] = r.count;
+					reactMap.set(r.broadcast_id, bag);
+				}
+				return json(
+					{
+						updates: rows.map((r) => ({
+							id: r.id,
+							title: r.subject,
+							summary: r.preview_text,
+							published_at: r.completed_at ?? r.created_at,
+							url: webUrl({ id: r.id, slug: r.slug, web: true }, null),
+							reactions: reactMap.get(r.id) ?? {},
+						})),
+					},
+					{ headers },
+				);
+			}
+			case "POST react": {
+				const body = (await readJson(request)) as { id?: string; emoji?: string };
+				const ALLOWED = new Set(["🎉", "❤️", "🔥", "👍"]);
+				if (!body.id || !body.emoji || !ALLOWED.has(body.emoji))
+					return fail(422, "invalid_reaction", "Pick a valid reaction", headers);
+				const { and, eq, sql } = await import("drizzle-orm");
+				const { db, schema } = await import("./db");
+				const exists = await db
+					.select({ id: schema.broadcasts.id })
+					.from(schema.broadcasts)
+					.where(
+						and(
+							eq(schema.broadcasts.id, body.id),
+							eq(schema.broadcasts.organization_id, w.inbox.organization_id),
+							eq(schema.broadcasts.web, true),
+						),
+					)
+					.get();
+				if (!exists) return fail(404, "not_found", "Update not found", headers);
+				await db
+					.insert(schema.changelogReactions)
+					.values({ broadcast_id: body.id, emoji: body.emoji, count: 1 })
+					.onConflictDoUpdate({
+						target: [
+							schema.changelogReactions.broadcast_id,
+							schema.changelogReactions.emoji,
+						],
+						set: { count: sql`${schema.changelogReactions.count} + 1` },
+					});
+				const rows = await db
+					.select()
+					.from(schema.changelogReactions)
+					.where(eq(schema.changelogReactions.broadcast_id, body.id));
+				return json(
+					{
+						id: body.id,
+						reactions: Object.fromEntries(rows.map((r) => [r.emoji, r.count])),
+					},
+					{ headers },
+				);
+			}
 			case "POST audience": {
 				const { visitorAudience } = await import("./chat-marketing");
 				return json(await visitorAudience(w, await readJson(request), now), { headers });

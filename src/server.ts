@@ -228,6 +228,32 @@ export default withSentry(sentryOptions, {
 			const { handleInboxLive } = await import("./server/inbox-live");
 			return secured(await handleInboxLive(request));
 		}
+		// Inbound billing webhooks (Stripe, Polar, Lemon Squeezy) -> sync contacts, companies & events.
+		const billingHook = /^\/hooks\/billing\/([A-Za-z0-9_-]{6,64})$/.exec(url.pathname);
+		if (billingHook?.[1]) {
+			const { handleBillingWebhook } = await import("./server/billing-connectors");
+			return secured(await handleBillingWebhook(billingHook[1], request));
+		}
+		// Inbound GitHub / Linear issue webhooks -> reopen linked conversations when issues close.
+		const issueHook = /^\/hooks\/issues\/([A-Za-z0-9_-]{4,64})\/(github|linear)$/.exec(
+			url.pathname,
+		);
+		if (issueHook?.[1] && issueHook[2]) {
+			const { handleIssueWebhook } = await import("./server/issue-links");
+			return secured(
+				await handleIssueWebhook(
+					issueHook[1],
+					issueHook[2] as "github" | "linear",
+					request,
+				),
+			);
+		}
+		// Inbound Slack Events API webhook -> two-way replies into Inbox conversations.
+		const slackHook = /^\/hooks\/slack\/([A-Za-z0-9_-]{4,64})$/.exec(url.pathname);
+		if (slackHook?.[1]) {
+			const { handleSlackInboundWebhook } = await import("./server/issue-links");
+			return secured(await handleSlackInboundWebhook(slackHook[1], request));
+		}
 		const page = await publicPage(request, url);
 		if (page) return page;
 		// A received email's attachment, from the signed link the API gives (src/server/inbound.ts).

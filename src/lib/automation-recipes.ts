@@ -252,4 +252,80 @@ export const RECIPES: Recipe[] = [
 			],
 		}),
 	},
+	{
+		id: "dunning",
+		name: "Failed payment recovery (dunning)",
+		description:
+			"Triggered automatically by Stripe, Polar, or Lemon Squeezy when a payment fails; stops once paid.",
+		group: "Sales",
+		build: (c) => ({
+			name: "Failed payment recovery",
+			trigger: { type: "event", event: "billing.payment_failed" },
+			reentry: true,
+			goal_event: "billing.payment_succeeded",
+			steps: [
+				email(
+					c,
+					"Quick heads-up: your payment didn't go through",
+					"Hi {{{FIRST_NAME|there}}},\n\nWe tried to renew your subscription, but the card on file was declined. Update your payment method so there's no interruption.\n\nReply here if you need a hand.",
+				),
+				{
+					type: "wait_event",
+					event: "billing.payment_succeeded",
+					days: 3,
+					no: [
+						email(
+							c,
+							"Action needed: keep your account active",
+							"Hi {{{FIRST_NAME|there}}},\n\nJust a quick reminder that your latest invoice is still unpaid. Update your billing details today or reply if you'd like us to extend the grace period.",
+						),
+					],
+				},
+			],
+		}),
+	},
+	{
+		id: "trial_ending",
+		name: "Trial ending reminder",
+		description:
+			"Nudges trialing customers 3 days before their trial expires (works with Stripe billing.trial_ending).",
+		group: "Sales",
+		build: (c) => ({
+			name: "Trial ending reminder",
+			trigger: { type: "event", event: "billing.trial_ending" },
+			goal_event: "billing.payment_succeeded",
+			steps: [
+				email(
+					c,
+					"Your trial wraps up in 3 days",
+					"Hi {{{FIRST_NAME|there}}},\n\nYour trial ends soon. Have you had a chance to try everything you needed? Hit reply if you want a quick walkthrough or a few extra days.",
+				),
+			],
+		}),
+	},
+	{
+		id: "churn_winback",
+		name: "Subscription churn feedback & win-back",
+		description: "Asks why someone canceled right away, then checks back in 14 days later.",
+		group: "Marketing",
+		build: (c) => ({
+			name: "Subscription churn win-back",
+			trigger: { type: "event", event: "billing.subscription_canceled" },
+			reentry: true,
+			goal_event: "billing.subscription_started",
+			steps: [
+				email(
+					c,
+					"Sorry to see you go — one quick question?",
+					"Hi {{{FIRST_NAME|there}}},\n\nWe saw you canceled your plan. If you have 10 seconds, what was the main reason? Every reply goes straight to our team.",
+				),
+				{ type: "wait", days: 14 },
+				email(
+					c,
+					"We've shipped a few updates since you left",
+					"Hi {{{FIRST_NAME|there}}},\n\nJust checking in — if anything was missing before, reply and let us know. Your workspace is still ready whenever you want to jump back in.",
+				),
+			],
+		}),
+	},
 ];

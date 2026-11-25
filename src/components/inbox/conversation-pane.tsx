@@ -37,6 +37,7 @@ import { AnswerMenu } from "@/components/answer-menu";
 import { ApiDrawer } from "@/components/api-drawer";
 import { ChatThread, type Live } from "@/components/chat-thread";
 import { Confirm } from "@/components/confirm";
+import { CompanyAndIssuesCards } from "@/components/inbox/company-and-issues-cards";
 import { EmailHtmlFrame } from "@/components/inbox/email-html-frame";
 import { MergeConversationDialog } from "@/components/inbox/inbox-dialogs";
 import { announceSend, UnifiedComposer } from "@/components/inbox/unified-composer";
@@ -947,6 +948,17 @@ export function ConversationPane({
 									brand={c.brand_id}
 								/>
 							)}
+
+							<CompanyAndIssuesCards
+								brandId={c.brand_id}
+								contactEmail={
+									isChat
+										? (c.visitor?.email ?? null)
+										: (data.contact?.email ?? c.contact)
+								}
+								conversationId={c.id}
+								canEdit={canReply}
+							/>
 
 							{/* Previous conversations by this person (Intercom-style history) */}
 							{data.contact && data.contact.others.length > 0 && (

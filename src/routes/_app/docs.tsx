@@ -338,8 +338,27 @@ const ENDPOINTS: [group: string, Endpoint[]][] = [
 		],
 	],
 	[
+		"Companies",
+		[
+			["GET", "/companies", "List B2B companies (search, plan, limit)."],
+			[
+				"POST",
+				"/companies",
+				"Create or update a company by domain (name, domain, plan, mrr, seats, renewal_at, website, notes, properties). Auto-links contacts with matching corporate domains.",
+			],
+			["GET", "/companies/:id", "A company with its members and recent conversations."],
+			["PATCH", "/companies/:id", "Update a company's plan, MRR, seats, or metadata."],
+			["DELETE", "/companies/:id", "Delete a company (its contacts stay)."],
+		],
+	],
+	[
 		"Status and stats",
 		[
+			[
+				"GET",
+				"/openapi.json",
+				"Public OpenAPI 3.1 specification for SDK generation and API clients.",
+			],
 			[
 				"GET",
 				"/status",
@@ -422,15 +441,30 @@ function Docs() {
 				title="API & SMTP"
 				description="Send from code with the API (it follows Resend's), or from any app that speaks SMTP."
 				actions={
-					<Button
-						variant="outline"
-						asChild
-					>
-						<Link to="/api-keys">
-							<KeyRound />
-							API keys
-						</Link>
-					</Button>
+					<div className="flex flex-wrap items-center gap-2">
+						<Button
+							variant="outline"
+							asChild
+						>
+							<a
+								href="/api/openapi.json"
+								target="_blank"
+								rel="noreferrer"
+							>
+								<ArrowUpRight />
+								OpenAPI 3.1 JSON
+							</a>
+						</Button>
+						<Button
+							variant="outline"
+							asChild
+						>
+							<Link to="/api-keys">
+								<KeyRound />
+								API keys
+							</Link>
+						</Button>
+					</div>
 				}
 			/>
 

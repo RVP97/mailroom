@@ -1753,6 +1753,7 @@ export async function simulateAutomation(
 		timezone: null,
 		pace: null,
 		paused_until: null,
+		company_id: null,
 		created_at: iso(now),
 		updated_at: iso(now),
 	};

@@ -884,13 +884,36 @@ function mailroomChat(c) {
 		{
 			type: "button",
 			class: "tab",
+			style: cfg.help ? "" : "display:none",
 			onclick: () => {
 				showHelpTab();
 			},
 		},
 		[h("span", { html: svg(ICON.help, 18) }), h("span", { text: T("Help") })],
 	);
-	var tabsBar = h("nav", { class: "tabs", "aria-label": "Messenger" }, [tabMsg, tabHelp]);
+	var newsDot = h("span", {
+		style: "display:none;width:6px;height:6px;border-radius:99px;background:#ef4444;margin-left:3px",
+	});
+	var tabNews = h(
+		"button",
+		{
+			type: "button",
+			class: "tab",
+			style: "display:none",
+			onclick: () => {
+				showNewsTab();
+			},
+		},
+		[
+			h("span", { html: svg(ICON.sparkle || ICON.help, 18) }),
+			h("span", {}, [T("News"), newsDot]),
+		],
+	);
+	var tabsBar = h("nav", { class: "tabs", "aria-label": "Messenger" }, [
+		tabMsg,
+		tabHelp,
+		tabNews,
+	]);
 	var panel = h(
 		"div",
 		{
@@ -2018,10 +2041,14 @@ function mailroomChat(c) {
 
 	var helpTimer = null;
 	var helpCache = null;
+	var newsCache = null;
+	var newsSeenKey = STORE + ":news_seen";
+	var REACTION_EMOJIS = ["🎉", "❤️", "🔥", "👍"];
 	function showMessagesTab() {
 		panel.classList.remove("helpm");
 		tabMsg.classList.add("on");
 		tabHelp.classList.remove("on");
+		tabNews.classList.remove("on");
 		scrollDown();
 	}
 	function showHelpTab() {
@@ -2029,7 +2056,116 @@ function mailroomChat(c) {
 		panel.classList.add("helpm");
 		tabHelp.classList.add("on");
 		tabMsg.classList.remove("on");
+		tabNews.classList.remove("on");
 		renderHelpList("");
+	}
+	function showNewsTab() {
+		hideHistory();
+		panel.classList.add("helpm");
+		tabNews.classList.add("on");
+		tabMsg.classList.remove("on");
+		tabHelp.classList.remove("on");
+		newsDot.style.display = "none";
+		if (newsCache && newsCache.length) {
+			try {
+				localStorage.setItem(newsSeenKey, newsCache[0].id);
+			} catch (_) {}
+		}
+		renderNewsList();
+	}
+	function loadUpdates() {
+		if (cfg.preview) return;
+		api("GET", "/updates")
+			.then((r) => {
+				var rows = (r && r.updates) || [];
+				if (!rows.length) return;
+				newsCache = rows;
+				tabNews.style.display = "";
+				panel.classList.add("hashelp");
+				try {
+					var seen = localStorage.getItem(newsSeenKey);
+					if (seen !== rows[0].id) newsDot.style.display = "inline-block";
+				} catch (_) {
+					newsDot.style.display = "inline-block";
+				}
+			})
+			.catch(() => {});
+	}
+	function renderNewsList() {
+		helpEl.textContent = "";
+		var listEl = h("div", { class: "hl" }, []);
+		helpEl.appendChild(h("div", { class: "hh" }, [h("b", { text: T("What’s new") })]));
+		helpEl.appendChild(listEl);
+		var rows = newsCache || [];
+		if (!rows.length) {
+			listEl.appendChild(h("div", { class: "hempty", text: T("No updates yet.") }));
+			return;
+		}
+		rows.forEach((u) => {
+			var reactedKey = STORE + ":react:" + u.id;
+			var dateStr = u.published_at
+				? new Date(u.published_at).toLocaleDateString(undefined, {
+						month: "short",
+						day: "numeric",
+					})
+				: "";
+			var reactsBar = h(
+				"div",
+				{ style: "display:flex;flex-wrap:wrap;gap:6px;margin-top:8px" },
+				REACTION_EMOJIS.map((em) => {
+					var count = (u.reactions && u.reactions[em]) || 0;
+					var btn = h(
+						"button",
+						{
+							type: "button",
+							style: "display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);background:var(--panel);color:var(--text);font-size:12px;cursor:pointer",
+							onclick: (ev) => {
+								ev.stopPropagation();
+								try {
+									if (localStorage.getItem(reactedKey + ":" + em)) return;
+									localStorage.setItem(reactedKey + ":" + em, "1");
+								} catch (_) {}
+								u.reactions = u.reactions || {};
+								u.reactions[em] = (u.reactions[em] || 0) + 1;
+								btn.textContent = em + " " + u.reactions[em];
+								btn.style.borderColor = "var(--accent)";
+								api("POST", "/react", { id: u.id, emoji: em }).catch(() => {});
+							},
+						},
+						[count > 0 ? em + " " + count : em],
+					);
+					return btn;
+				}),
+			);
+			listEl.appendChild(
+				h(
+					"div",
+					{
+						class: "hi",
+						style: "display:block;cursor:default",
+					},
+					[
+						dateStr
+							? h("div", { class: "hcat", style: "margin-bottom:2px", text: dateStr })
+							: null,
+						h("a", {
+							href: u.url,
+							target: "_blank",
+							rel: "noopener noreferrer",
+							style: "display:block;font-weight:600;color:var(--text);text-decoration:none;margin-bottom:4px",
+							text: u.title,
+						}),
+						u.summary
+							? h("div", {
+									style: "font-size:12.5px;color:var(--muted);line-height:1.45",
+									text: u.summary,
+								})
+							: null,
+						reactsBar,
+					],
+				),
+			);
+		});
 	}
 	function renderHelpList(initialQ) {
 		helpEl.textContent = "";
@@ -3355,6 +3491,7 @@ function mailroomChat(c) {
 			refresh();
 			connect();
 		}
+		loadUpdates();
 		if (location.hash === "#mailroom-chat") openPanel();
 		else greetLater();
 		if ((cfg.popups || []).length) {

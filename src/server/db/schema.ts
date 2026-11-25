@@ -1420,12 +1420,15 @@ export const contacts = sqliteTable(
 		pace: text("pace"),
 		/** No broadcasts or automation emails until then (they paused from the preferences page). */
 		paused_until: text("paused_until"),
+		/** Optional B2B Company / Account link (src/server/companies.ts). */
+		company_id: text("company_id"),
 		created_at: text("created_at").notNull(),
 		updated_at: text("updated_at").notNull(),
 	},
 	(t) => [
 		uniqueIndex("contacts_email_uidx").on(t.organization_id, t.email),
 		index("contacts_org_created_idx").on(t.organization_id, t.created_at),
+		index("contacts_company_idx").on(t.company_id),
 		uniqueIndex("contacts_referral_uidx")
 			.on(t.referral_code)
 			.where(sql`referral_code IS NOT NULL`),
@@ -2608,3 +2611,128 @@ export const inboxViews = sqliteTable(
 	},
 	(t) => [index("inbox_views_org_idx").on(t.organization_id)],
 );
+
+/** B2B Companies / Accounts (src/server/companies.ts): group contacts by domain, track plan & MRR. */
+export const companies = sqliteTable(
+	"companies",
+	{
+		id: text("id").primaryKey(),
+		/** Brand id. */
+		organization_id: orgId(),
+		name: text("name").notNull(),
+		/** Lowercase company domain (e.g. "acme.com"); auto-matches contacts with @acme.com. */
+		domain: text("domain"),
+		plan: text("plan"),
+		/** Monthly recurring revenue in major units (e.g. USD). */
+		mrr: real("mrr"),
+		seats: integer("seats"),
+		renewal_at: text("renewal_at"),
+		website: text("website"),
+		notes: text("notes"),
+		properties: text("properties", { mode: "json" }).$type<Record<string, string | number>>(),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [
+		index("companies_org_idx").on(t.organization_id, t.updated_at),
+		uniqueIndex("companies_domain_uidx")
+			.on(t.organization_id, t.domain)
+			.where(sql`domain IS NOT NULL`),
+	],
+);
+
+/** Native Stripe / Polar / LemonSqueezy webhook connectors (src/server/billing-connectors.ts). */
+export const billingConnectors = sqliteTable(
+	"billing_connectors",
+	{
+		id: text("id").primaryKey(),
+		/** Brand id. */
+		organization_id: orgId(),
+		/** "stripe" | "polar" | "lemonsqueezy" */
+		provider: text("provider").notNull(),
+		name: text("name").notNull(),
+		secret_encrypted: text("secret_encrypted").notNull(),
+		secret_hint: text("secret_hint").notNull(),
+		enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+		events_processed: integer("events_processed").notNull().default(0),
+		last_event_at: text("last_event_at"),
+		last_error: text("last_error"),
+		created_by: text("created_by"),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [index("billing_connectors_org_idx").on(t.organization_id)],
+);
+
+/** Links between Inbox conversations and external GitHub / Linear issues (src/server/issue-links.ts). */
+export const conversationIssues = sqliteTable(
+	"conversation_issues",
+	{
+		id: text("id").primaryKey(),
+		/** Brand id. */
+		organization_id: orgId(),
+		conversation_id: text("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		/** "github" | "linear" | "url" */
+		provider: text("provider").notNull().default("github"),
+		/** Normalized key: "owner/repo#123" for GitHub, "ENG-42" for Linear, or URL. */
+		external_id: text("external_id").notNull(),
+		title: text("title").notNull(),
+		url: text("url").notNull(),
+		/** "open" | "closed" */
+		status: text("status").notNull().default("open"),
+		reopen_on_close: integer("reopen_on_close", { mode: "boolean" }).notNull().default(true),
+		created_by: text("created_by"),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [
+		index("conversation_issues_conv_idx").on(t.conversation_id),
+		index("conversation_issues_ext_idx").on(t.organization_id, t.provider, t.external_id),
+	],
+);
+
+/** Inbound integration signing secrets (GitHub, Linear, two-way Slack, WhatsApp Cloud API). */
+export const orgWebhookIntegrations = sqliteTable(
+	"org_webhook_integrations",
+	{
+		organization_id: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		/** "github" | "linear" | "slack" | "whatsapp" */
+		kind: text("kind").notNull(),
+		secret_encrypted: text("secret_encrypted"),
+		secret_hint: text("secret_hint"),
+		config: text("config", { mode: "json" }).$type<Record<string, string>>(),
+		enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+		updated_by: text("updated_by"),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.organization_id, t.kind] })],
+);
+
+/** Emoji reaction counters for widget Changelog / Newsfeed items. */
+export const changelogReactions = sqliteTable(
+	"changelog_reactions",
+	{
+		broadcast_id: text("broadcast_id").notNull(),
+		emoji: text("emoji").notNull(),
+		count: integer("count").notNull().default(0),
+	},
+	(t) => [primaryKey({ columns: [t.broadcast_id, t.emoji] })],
+);
+
+/** Optional pluggable email transport per brand (Resend / Postmark alongside Amazon SES). */
+export const brandTransports = sqliteTable("brand_transports", {
+	organization_id: text("organization_id")
+		.primaryKey()
+		.references(() => organization.id, { onDelete: "cascade" }),
+	/** "ses" | "resend" | "postmark" */
+	provider: text("provider").notNull().default("ses"),
+	api_key_encrypted: text("api_key_encrypted"),
+	api_key_hint: text("api_key_hint"),
+	enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+	updated_by: text("updated_by"),
+	updated_at: text("updated_at").notNull(),
+});

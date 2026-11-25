@@ -27,6 +27,7 @@ export const APP_SECTIONS: ReadonlySet<string> = new Set([
 	"broadcasts",
 	"calendar",
 	"campaigns",
+	"companies",
 	"contacts",
 	"docs",
 	"domains",

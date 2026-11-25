@@ -133,9 +133,10 @@ const WORKSPACE: NavItem[] = [
 	},
 	{ to: "/articles", label: "Help center", icon: LifeBuoy, key: "y" },
 ];
-/** Marketing: contacts, broadcasts, newsletters, automations, surveys, templates. */
+/** Marketing: contacts, companies, broadcasts, newsletters, automations, surveys, templates. */
 const MARKETING: NavItem[] = [
 	{ to: "/contacts", label: "Contacts", icon: ContactIcon, key: "c" },
+	{ to: "/companies", label: "Companies", icon: Building2 },
 	{ to: "/broadcasts", label: "Broadcasts", icon: Megaphone, key: "n" },
 	{ to: "/newsletters", label: "Newsletters", icon: Newspaper, key: "p" },
 	{ to: "/automations", label: "Automations", icon: Workflow, key: "m" },

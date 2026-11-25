@@ -8,6 +8,12 @@ import { AiSettingsCard } from "@/components/ai-settings-card";
 import { ArchiveCard } from "@/components/archive-card";
 import { DigestCard } from "@/components/digest-card";
 import { FirewallCard, FirewallsOverview } from "@/components/firewall-card";
+import {
+	BillingConnectorsCard,
+	IssueAndSlackSyncCard,
+	MigrationImporterCard,
+	SendingTransportCard,
+} from "@/components/integrations-settings-cards";
 import { MarketingRulesCard } from "@/components/marketing-rules-card";
 import { OrgAvatar } from "@/components/org-avatar";
 import { OrgLogoCard } from "@/components/org-logo-card";
@@ -178,6 +184,8 @@ function Settings() {
 					<OrgLogoCard canManage={canManage} />
 					<AiSettingsCard canEdit={canManage} />
 					<TeamAlertsCard canEdit={canManage} />
+					<BillingConnectorsCard canEdit={canManage} />
+					<IssueAndSlackSyncCard canEdit={canManage} />
 				</TabsContent>
 				<TabsContent
 					value="team"
@@ -226,6 +234,7 @@ function Settings() {
 					)}
 					<MarketingRulesCard canManage={canManage} />
 					<OrganizationLimitsCard />
+					<SendingTransportCard canEdit={canManage} />
 					<SesAccountCard />
 				</TabsContent>
 				<TabsContent
@@ -234,6 +243,7 @@ function Settings() {
 				>
 					<DigestCard canManage={canManage} />
 					<ArchiveCard canManage={canManage} />
+					<MigrationImporterCard canEdit={canManage} />
 					<AccessLogCard rows={log} />
 				</TabsContent>
 			</Tabs>

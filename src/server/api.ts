@@ -49,6 +49,7 @@ import {
 	sendBroadcast,
 	updateBroadcast,
 } from "./broadcasts";
+import { deleteCompany, getCompany, listCompanies, upsertCompany } from "./companies";
 import {
 	addToSegment,
 	contactView,
@@ -96,6 +97,7 @@ import { createRule, deleteRule, getRule, listRules, ruleView, updateRule } from
 import { adminRoutes, agentRoutes, forbiddenForAgents, keyActor } from "./inbox-api";
 import { authenticateInbox } from "./inboxes";
 import { lookupRecipient } from "./lookup";
+import { buildOpenApiSpec } from "./openapi";
 import {
 	addDomain,
 	dnsRecords,
@@ -1849,6 +1851,69 @@ const routes: [string, RegExp, Handler][] = [
 	],
 	[
 		"GET",
+		/^\/companies$/,
+		async (_req, auth, _p, url) => {
+			full(auth);
+			const brands = auth.brandId ? [auth.brandId] : await brandIds(auth.organizationId);
+			const data = await listCompanies(brands, {
+				search: url.searchParams.get("search") ?? undefined,
+				plan: url.searchParams.get("plan") ?? undefined,
+				limit: Number(url.searchParams.get("limit")) || undefined,
+			});
+			return json({ object: "list", data });
+		},
+	],
+	[
+		"POST",
+		/^\/companies$/,
+		async (req, auth) => {
+			full(auth);
+			const raw = (await body<Record<string, unknown>>(req)) ?? {};
+			const brandId = await writeBrand(
+				auth,
+				typeof raw.brand === "string" ? raw.brand : null,
+			);
+			const company = await upsertCompany(brandId, raw);
+			return json(company, 201);
+		},
+	],
+	[
+		"GET",
+		/^\/companies\/(?<id>[^/]+)$/,
+		async (_req, auth, p) => {
+			full(auth);
+			const brands = auth.brandId ? [auth.brandId] : await brandIds(auth.organizationId);
+			const detail = await getCompany(brands, decodeURIComponent(p.id as string));
+			return json(detail);
+		},
+	],
+	[
+		"PATCH",
+		/^\/companies\/(?<id>[^/]+)$/,
+		async (req, auth, p) => {
+			full(auth);
+			const raw = (await body<Record<string, unknown>>(req)) ?? {};
+			const brandId = await writeBrand(
+				auth,
+				typeof raw.brand === "string" ? raw.brand : null,
+			);
+			const company = await upsertCompany(brandId, raw, {
+				id: decodeURIComponent(p.id as string),
+			});
+			return json(company);
+		},
+	],
+	[
+		"DELETE",
+		/^\/companies\/(?<id>[^/]+)$/,
+		async (_req, auth, p) => {
+			full(auth);
+			const brands = auth.brandId ? [auth.brandId] : await brandIds(auth.organizationId);
+			return json(await deleteCompany(brands, decodeURIComponent(p.id as string)));
+		},
+	],
+	[
+		"GET",
 		/^\/status$/,
 		async (_req, auth) => {
 			// Any key may ask: can this organization send right now, and if not, why not.
@@ -1883,6 +1948,14 @@ export async function handleApi(req: Request): Promise<Response> {
 	// first names.
 	const nested = /^\/(?:brands|organizations)\/([^/]+)(\/.+)$/.exec(requested);
 	const path = nested?.[2] ?? requested;
+	if (req.method === "GET" && path === "/openapi.json") {
+		return Response.json(buildOpenApiSpec(url.origin), {
+			headers: {
+				"access-control-allow-origin": "*",
+				"cache-control": "public, max-age=300",
+			},
+		});
+	}
 	const acting =
 		nested?.[1] ??
 		(req.headers.get("mailroom-brand") ?? req.headers.get("mailroom-organization"))?.trim() ??

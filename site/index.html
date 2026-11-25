@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mailroom: open-source email on Amazon SES and Cloudflare Workers</title>
-<meta name="description" content="A self-hosted, Resend-style email platform on Amazon SES that runs on Cloudflare Workers. Transactional email, newsletters, automations, receiving and deliverability monitoring, on your own accounts. Open source, MIT.">
+<meta name="description" content="The open-source all-in-one customer communication platform on Cloudflare Workers & Amazon SES. Replace Resend, Intercom, Beehiiv, and Customer.io with transactional email, newsletters, automations, B2B companies, Stripe/Polar billing sync, shared inbox with BYO AI, live chat, changelog & help center. Open source, MIT.">
 <meta name="theme-color" content="#151619">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="canonical" href="https://rvp97.github.io/mailroom/">
@@ -459,7 +459,7 @@ footer a:hover { color: oklch(1 0 0 / 0.9); }
 				<div>
 					<a class="eyebrow" href="https://github.com/RVP97/mailroom"><b>Open source</b> MIT licensed, self-hosted</a>
 					<h1>Every email,<br><span>accounted for.</span></h1>
-					<p class="lede">A <strong>Resend-style email platform</strong> on your own <strong>Amazon SES</strong> that runs on <strong>Cloudflare Workers</strong>. Transactional email, newsletters, automations, receiving and deliverability, for as many businesses as you like.</p>
+					<p class="lede">The open-source alternative to <strong>Resend, Intercom, Beehiiv &amp; Customer.io</strong> on your own <strong>Cloudflare Workers</strong> and <strong>Amazon SES</strong>. Transactional email, newsletters, automations, B2B companies, Stripe/Polar sync, shared inbox with BYO AI, live chat and help center — for as many businesses as you like.</p>
 					<div class="cta">
 						<a class="btn btn-cf" href="https://deploy.workers.cloudflare.com/?url=https://github.com/RVP97/mailroom"><svg><use href="#i-cf"/></svg>Deploy to Cloudflare</a>
 						<a class="btn btn-ghost" href="demo/">Try the live demo<svg><use href="#i-arrow"/></svg></a>
@@ -527,33 +527,33 @@ footer a:hover { color: oklch(1 0 0 / 0.9); }
 					<div class="group-head"><span class="ico"><svg><use href="#i-mail"/></svg></span><h3>Transactional</h3></div>
 					<p>Receipts, sign-in codes and alerts, through an API your code already knows.</p>
 					<ul>
-						<li><b>Resend-compatible API</b>: batch, scheduling, idempotency keys, tags and attachments.</li>
-						<li><b>Logs and timelines</b> for every email, from SES's signature-checked events.</li>
-						<li><b>Templates</b> with variables, fallbacks and published versions.</li>
+						<li><b>Resend-compatible API</b>, live <b>OpenAPI 3.1 spec</b> and zero-dep <b>TypeScript SDK</b>.</li>
+						<li><b>Pluggable transports</b>: Amazon SES ($0.10/1k) or start in 2 minutes with Resend / Postmark.</li>
+						<li><b>Templates</b> with variables, fallbacks, published versions and <code>mailroom dev</code> local sandbox.</li>
 						<li><b>Webhooks</b> in Resend's shape, signed the Standard Webhooks way, retried on a schedule.</li>
 						<li><b>SMTP</b>, a <b>CLI</b> and an <b>MCP server</b> for everything else.</li>
 					</ul>
 				</article>
 				<article class="card group reveal">
-					<div class="group-head"><span class="ico"><svg><use href="#i-megaphone"/></svg></span><h3>Marketing</h3></div>
-					<p>Broadcasts and newsletters with the tools usually saved for expensive plans.</p>
+					<div class="group-head"><span class="ico"><svg><use href="#i-megaphone"/></svg></span><h3>Marketing &amp; Lifecycle</h3></div>
+					<p>Broadcasts, newsletters and billing-aware automations usually locked behind enterprise plans.</p>
 					<ul>
-						<li><b>A/B tests</b> on subject lines, <b>local-time sends</b> and resends to non-openers.</li>
+						<li><b>A/B tests</b> on subject lines, <b>local-time sends</b>, resends and <b>in-app changelog</b> widget tab.</li>
 						<li><b>Newsletters</b> with a public archive, RSS feed, blog-to-issue and <b>referral programs</b>.</li>
-						<li><b>Campaigns</b>, <b>polls</b>, sign-up forms and a <b>pre-send checklist</b> that opens every link.</li>
-						<li><b>Engagement scores</b> and list growth by source, with cold contacts to clean up.</li>
-						<li><b>Roles, approvals and brand kits</b> so a team can write and an owner can sign off.</li>
+						<li><b>Native Stripe, Polar &amp; Lemon Squeezy webhooks</b> that sync contacts, companies &amp; MRR.</li>
+						<li><b>SaaS automation blueprints</b> for failed-payment dunning, trial-ending and win-back flows.</li>
+						<li><b>One-click migration importers</b> for CSV/JSON contacts, companies and help articles.</li>
 					</ul>
 				</article>
 				<article class="card group reveal">
-					<div class="group-head"><span class="ico"><svg><use href="#i-inbox"/></svg></span><h3>Receiving</h3></div>
-					<p>Mail coming in is first class too, threaded into conversations a team can answer.</p>
+					<div class="group-head"><span class="ico"><svg><use href="#i-inbox"/></svg></span><h3>Shared Inbox &amp; Support</h3></div>
+					<p>Intercom-style 3-pane workspace for email, live chat, B2B accounts and engineering sync.</p>
 					<ul>
-						<li><b>Inbound email</b> checked for spam and viruses, kept whole in R2, sent to webhooks.</li>
-						<li><b>Conversations</b> threaded by headers, never by subject, with per-person read state.</li>
-						<li><b>Agent inboxes</b> with scoped credentials, drafts to approve and an audit trail.</li>
-						<li><b>Inbound rules</b> that forward or drop, and replies in the same thread.</li>
-						<li><b>A website chat</b> answered from the same inbox, by email if the visitor leaves.</li>
+						<li><b>BYO AI Copilot &amp; auto-responder</b> using your own OpenAI, Anthropic, Gemini or Ollama key.</li>
+						<li><b>B2B Companies / Accounts</b> grouped by domain with plan, MRR, seats and shared history.</li>
+						<li><b>GitHub &amp; Linear issue sync</b> (auto-reopens tickets when closed) plus <b>two-way Slack replies</b>.</li>
+						<li><b>Agent inboxes</b> with scoped credentials, drafts to approve, snooze, SLAs and macros.</li>
+						<li><b>Live website chat</b> with in-widget Help Center search, What's New newsfeed and emoji reactions.</li>
 					</ul>
 				</article>
 				<article class="card group reveal">
@@ -621,9 +621,9 @@ footer a:hover { color: oklch(1 0 0 / 0.9); }
 				<p class="sub">Mailroom answers Resend's API, so Resend's SDKs work by pointing their base URL at your deployment.</p>
 				<ul class="checks">
 					<li><svg><use href="#i-check"/></svg><span><code>POST /api/emails</code>, <code>/batch</code>, scheduling up to 30 days and <code>Idempotency-Key</code>.</span></li>
-					<li><svg><use href="#i-check"/></svg><span>Contacts, segments, broadcasts, templates and automations, all over REST.</span></li>
-					<li><svg><use href="#i-check"/></svg><span>100 requests per 10 seconds per key, so a leaked key can't take the whole account.</span></li>
-					<li><svg><use href="#i-check"/></svg><span>Keys for full access, or only sending, from one domain.</span></li>
+					<li><svg><use href="#i-check"/></svg><span>Contacts, B2B companies, segments, broadcasts, templates and automations over REST.</span></li>
+					<li><svg><use href="#i-check"/></svg><span>Live <code>/api/openapi.json</code> (OpenAPI 3.1), zero-dep TypeScript SDK and <code>mailroom dev</code> sandbox.</span></li>
+					<li><svg><use href="#i-check"/></svg><span>100 requests per 10 seconds per key, full or sending-only scopes per domain.</span></li>
 				</ul>
 			</div>
 			<div class="code reveal">

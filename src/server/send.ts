@@ -558,6 +558,20 @@ export async function deliver(
 		})),
 	});
 	await o.gate?.(ctx.id);
+	// Optional pluggable transport (Resend / Postmark starter fallback) when enabled for this brand.
+	const { sendViaExternalTransport } = await import("./transports");
+	const externalId = await sendViaExternalTransport(ctx.id, {
+		from: row.from,
+		to,
+		cc,
+		bcc,
+		reply_to: row.reply_to ?? undefined,
+		subject: row.subject,
+		html: body.html,
+		text: body.text,
+		headers: body.headers,
+	});
+	if (externalId) return externalId;
 	const messageId = await sendRaw(await awsFor(ctx.id), {
 		raw: utf8Base64(raw),
 		from: encodeAddress(row.from),

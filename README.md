@@ -21,16 +21,14 @@ Built by [Rodrigo Valle](https://github.com/RVP97), for the love of it.
 
 ## Highlights
 
-- **A sending API compatible with Resend's**: Resend's SDKs work by changing their base URL.
-- **Newsletters and broadcasts**: a visual editor, A/B subject tests, local-time sends, a public
-  archive with RSS, RSS-to-email, referrals and polls.
-- **Automations** on a canvas: triggers, waits, if/else paths, sends.
-- **Shared inboxes** for received email, a website chat widget, a help center and surveys, with
-  agent inboxes that AI agents can work in.
-- **Deliverability watch**: DNS and blocklist checks, bounce and complaint limits under SES's
-  review levels, Gmail Postmaster data and time to inbox per provider.
-- **Many businesses, one install**: each organization is its own SES tenant, so one brand's
-  complaints never pause another's sending.
+- **Resend-compatible sending API + OpenAPI 3.1 + zero-dep TypeScript SDK**: Resend's SDKs work by changing their base URL, or use the built-in `sdk/` client and live `/api/openapi.json` spec. Includes `mailroom dev` local sandbox server for offline email testing.
+- **Pluggable sending transports**: Amazon SES by default ($0.10 / 1,000 emails), or plug in a Resend or Postmark API key per brand to start sending in 2 minutes while waiting for SES production access.
+- **Newsletters, broadcasts & in-app changelog**: visual editor, A/B subject tests, local-time sends, public archive with RSS, RSS-to-email, referrals, polls, and a "What's new" tab inside the website chat widget with emoji reactions.
+- **Automations + native Stripe / Polar / Lemon Squeezy sync**: visual canvas with triggers, waits, if/else branches, and SaaS blueprints (dunning, trial-ending, win-back) powered by HMAC-verified billing webhooks that auto-sync Contacts and B2B Companies.
+- **Intercom-style shared inbox + BYO AI Copilot**: 3-pane inbox for email & live website chat, snooze, collision detection, SLA timers, macros, multi-language Help Center, B2B **Companies / Accounts** (plan, MRR, seats, auto-grouped by domain), **GitHub / Linear issue sync** (auto-reopens conversations when issues close), **two-way Slack replies**, and BYO AI (OpenAI, Anthropic, Gemini, OpenRouter, Ollama) for drafting, tone polish, summaries, and auto-responder.
+- **One-click migration importers**: paste or upload CSV/JSON exports from Mailchimp, Beehiiv, Loops, Resend, Intercom, or Zendesk to import contacts, auto-create B2B companies, and migrate Help Center articles.
+- **Deliverability watch**: DNS and blocklist checks, bounce and complaint limits under SES's review levels, Gmail Postmaster data, and time to inbox per provider.
+- **Many businesses, one install**: each organization is its own SES tenant, so one brand's complaints never pause another's sending.
 - **An MCP server**: Claude and other assistants can do anything the dashboard does.
 
 ![The overview: emails sent, delivered, opened and clicked over 30 days, with bounce and complaint rates against SES's review lines](docs/screenshots/overview.png)
@@ -61,12 +59,12 @@ An organization that should be fully apart can optionally use its own SES accoun
 
 ### How it compares
 
-| | Mailroom | Hosted services (Resend, Beehiiv, Mailchimp) | Other self-hosted tools |
+| | Mailroom | Hosted stack (Intercom + Resend + Beehiiv + Customer.io) | Other self-hosted tools |
 | --- | --- | --- | --- |
-| Where your lists and logs live | Your Cloudflare and AWS accounts | Their servers | Your server |
-| What you pay for | Workers Paid + $0.10 per 1,000 emails | Plans that grow with contacts, emails or seats | Your server + your sending provider |
+| Where your lists and logs live | Your Cloudflare and AWS accounts | Split across 4+ vendors' servers | Your server |
+| What you pay for | Workers Paid ($5/mo) + $0.10 per 1,000 emails | $200–$1,000+/mo scaling with contacts, seats & AI resolutions | Your server + your sending provider |
 | What you maintain | Nothing to patch: Workers, D1 and R2 | Nothing | The server, its database and updates |
-| In one app | Transactional API, newsletters, automations, inboxes, chat, help center | Usually one of these per product | Usually newsletters or transactional |
+| In one app | Transactional API, newsletters, automations, B2B companies, billing sync, Intercom-style inbox, BYO AI copilot, live chat, changelog & help center | Separate subscriptions, fragmented customer history | Usually newsletters or transactional only |
 
 **Contents:** [Features](#features) · [Deploy](#deploy) ([1. Amazon SES](#1-amazon-ses) ·
 [2. Cloudflare](#2-cloudflare) · [3. First sign-in](#3-first-sign-in) ·
