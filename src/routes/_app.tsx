@@ -115,12 +115,49 @@ export const Route = createFileRoute("/_app")({
 	component: AppLayout,
 });
 
-const SENDING: NavItem[] = [
+const WORKSPACE: NavItem[] = [
 	{ to: "/today", label: "Today", icon: Sun, key: "z" },
+	{
+		to: "/received",
+		label: "Inbox",
+		icon: Inbox,
+		key: "i",
+		also: [
+			"/received/inboxes",
+			"/received/workflow",
+			"/received/chat",
+			"/received/rules",
+			"/received/replies",
+			"/received/reports",
+		],
+	},
+	{ to: "/articles", label: "Help center", icon: LifeBuoy, key: "y" },
+];
+/** Marketing: contacts, broadcasts, newsletters, automations, surveys, templates. */
+const MARKETING: NavItem[] = [
+	{ to: "/contacts", label: "Contacts", icon: ContactIcon, key: "c" },
+	{ to: "/broadcasts", label: "Broadcasts", icon: Megaphone, key: "n" },
+	{ to: "/newsletters", label: "Newsletters", icon: Newspaper, key: "p" },
+	{ to: "/automations", label: "Automations", icon: Workflow, key: "m" },
+	{ to: "/campaigns", label: "Campaigns", icon: Flag, key: "g" },
+	{ to: "/calendar", label: "Calendar", icon: CalendarDays, key: "f" },
+	{ to: "/surveys", label: "Surveys", icon: ClipboardCheck, key: "v" },
+	{ to: "/templates", label: "Templates", icon: LayoutTemplate, key: "t" },
+];
+/** Transactional sending & deliverability infrastructure. */
+const TRANSACTIONAL: NavItem[] = [
 	{ to: "/", label: "Overview", icon: Gauge, key: "o" },
 	{ to: "/emails", label: "Emails", icon: Mail, key: "e" },
 	{ to: "/insights", label: "Insights", icon: ChartColumn, key: "h" },
-	{ to: "/received", label: "Received", icon: Inbox, key: "i" },
+	{ to: "/domains", label: "Domains", icon: Globe, key: "d" },
+	{ to: "/suppressions", label: "Suppressions", icon: MailX, key: "u" },
+	{ to: "/recipients", label: "Recipients", icon: UserSearch, key: "r" },
+	{ to: "/logs", label: "Logs", icon: ScrollText, key: "l" },
+	{ to: "/api-keys", label: "API keys", icon: KeyRound, key: "k" },
+	{ to: "/webhooks", label: "Webhooks", icon: Webhook, key: "w" },
+];
+/** Inbox sub-pages kept in ⌘K and g-shortcuts so muscle memory keeps working. */
+const INBOX_SHORTCUTS: NavItem[] = [
 	{
 		to: "/received/inboxes",
 		label: "Agent inboxes",
@@ -129,24 +166,6 @@ const SENDING: NavItem[] = [
 		also: ["/received/workflow"],
 	},
 	{ to: "/received/chat", label: "Website chat", icon: MessageCircle, key: "j" },
-	{ to: "/articles", label: "Help center", icon: LifeBuoy, key: "y" },
-	{ to: "/domains", label: "Domains", icon: Globe, key: "d" },
-	{ to: "/logs", label: "Logs", icon: ScrollText, key: "l" },
-	{ to: "/api-keys", label: "API keys", icon: KeyRound, key: "k" },
-	{ to: "/webhooks", label: "Webhooks", icon: Webhook, key: "w" },
-	{ to: "/suppressions", label: "Suppressions", icon: MailX, key: "u" },
-	{ to: "/recipients", label: "Recipients", icon: UserSearch, key: "r" },
-];
-/** Email to people on a list: templates, contacts, broadcasts, automations. */
-const AUDIENCE: NavItem[] = [
-	{ to: "/contacts", label: "Contacts", icon: ContactIcon, key: "c" },
-	{ to: "/broadcasts", label: "Broadcasts", icon: Megaphone, key: "n" },
-	{ to: "/calendar", label: "Calendar", icon: CalendarDays, key: "f" },
-	{ to: "/campaigns", label: "Campaigns", icon: Flag, key: "g" },
-	{ to: "/newsletters", label: "Newsletters", icon: Newspaper, key: "p" },
-	{ to: "/automations", label: "Automations", icon: Workflow, key: "m" },
-	{ to: "/surveys", label: "Surveys", icon: ClipboardCheck, key: "v" },
-	{ to: "/templates", label: "Templates", icon: LayoutTemplate, key: "t" },
 ];
 const ORGANIZATION: NavItem[] = [
 	{ to: "/brands", label: "Brands", icon: Building2, key: "b" },
@@ -169,7 +188,13 @@ function AppLayout() {
 		if (!me.active) return;
 		const idle = window.requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 300));
 		const handle = idle(() => {
-			for (const item of [...SENDING, ...AUDIENCE, ...ORGANIZATION, ACCOUNT])
+			for (const item of [
+				...WORKSPACE,
+				...MARKETING,
+				...TRANSACTIONAL,
+				...ORGANIZATION,
+				ACCOUNT,
+			])
 				void router.preloadRoute({ to: item.to as "/" }).catch(() => {});
 			for (const id of [
 				"/_app/emails/$id",
@@ -211,8 +236,10 @@ function Shell({ me, children }: { me: Me; children: ReactNode }) {
 	const switchOrg = useSwitchOrg();
 	const nav = useMemo(
 		() => [
-			...SENDING,
-			...AUDIENCE,
+			...WORKSPACE,
+			...INBOX_SHORTCUTS,
+			...MARKETING,
+			...TRANSACTIONAL,
 			...ORGANIZATION,
 			...(me.isAdmin ? DEPLOYMENT : []),
 			ACCOUNT,
@@ -331,6 +358,21 @@ function MobileBar({ me }: { me: Me }) {
 
 function SidebarContent({ me, onPicked }: { me: Me; onPicked?: () => void }) {
 	const { open } = useCommandMenu();
+	const [unread, setUnread] = useState(me.inboxUnread ?? 0);
+	useEffect(() => setUnread(me.inboxUnread ?? 0), [me.inboxUnread]);
+	useEffect(() => {
+		const onUnread = (e: Event) => {
+			const detail = (e as CustomEvent<{ count?: number; delta?: number }>).detail;
+			if (typeof detail?.count === "number") setUnread(Math.max(0, detail.count));
+			else if (typeof detail?.delta === "number") {
+				const delta = detail.delta;
+				setUnread((n) => Math.max(0, n + delta));
+			}
+		};
+		window.addEventListener("mailroom:inbox-unread", onUnread);
+		return () => window.removeEventListener("mailroom:inbox-unread", onUnread);
+	}, []);
+	const badges = useMemo(() => (unread > 0 ? { "/received": unread } : undefined), [unread]);
 	return (
 		<div className="flex h-full w-full flex-col gap-4 px-3 pt-3 pb-3">
 			<OrgSwitcher
@@ -350,10 +392,17 @@ function SidebarContent({ me, onPicked }: { me: Me; onPicked?: () => void }) {
 				<Kbd className="hidden md:inline-flex">⌘K</Kbd>
 			</button>
 			<nav className="flex flex-col gap-5 overflow-y-auto">
-				<NavGroup items={SENDING} />
 				<NavGroup
-					label="Audience"
-					items={AUDIENCE}
+					items={WORKSPACE}
+					badges={badges}
+				/>
+				<NavGroup
+					label="Marketing"
+					items={MARKETING}
+				/>
+				<NavGroup
+					label="Transactional"
+					items={TRANSACTIONAL}
 				/>
 				<NavGroup
 					label="Organization"
@@ -374,13 +423,21 @@ function SidebarContent({ me, onPicked }: { me: Me; onPicked?: () => void }) {
 	);
 }
 
-function NavGroup({ label, items }: { label?: string; items: NavItem[] }) {
+function NavGroup({
+	label,
+	items,
+	badges,
+}: {
+	label?: string;
+	items: NavItem[];
+	badges?: Record<string, number>;
+}) {
 	const { pathname } = useLocation();
 	const under = (to: string) =>
 		to === "/" ? pathname === "/" : pathname === to || pathname.startsWith(`${to}/`);
 	const depth = (item: NavItem) =>
 		Math.max(-1, ...[item.to, ...(item.also ?? [])].filter(under).map((p) => p.length));
-	// The most specific item wins: /received/inboxes is Agent inboxes, not Received.
+	// The most specific item wins.
 	const best = Math.max(-1, ...items.map(depth));
 	return (
 		<div className="flex flex-col gap-px">
@@ -390,13 +447,14 @@ function NavGroup({ label, items }: { label?: string; items: NavItem[] }) {
 					key={item.to}
 					item={item}
 					active={best >= 0 && depth(item) === best}
+					badge={badges?.[item.to]}
 				/>
 			))}
 		</div>
 	);
 }
 
-function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+function NavLink({ item, active, badge }: { item: NavItem; active: boolean; badge?: number }) {
 	return (
 		<Link
 			to={item.to}
@@ -415,7 +473,12 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
 				)}
 				strokeWidth={1.75}
 			/>
-			<span className="truncate">{item.label}</span>
+			<span className="min-w-0 flex-1 truncate">{item.label}</span>
+			{badge !== undefined && badge > 0 && (
+				<span className="inline-flex h-4.5 min-w-4.5 shrink-0 items-center justify-center rounded-full bg-brand px-1.5 text-[11px] font-semibold text-brand-foreground tabular-nums">
+					<Ph>{badge > 99 ? "99+" : badge}</Ph>
+				</span>
+			)}
 		</Link>
 	);
 }
@@ -603,6 +666,7 @@ export function FirstPaint() {
 
 const STAND_IN_ME: Me = {
 	pausedDomains: [],
+	inboxUnread: 0,
 	user: { id: "", email: "someone@example.com", name: "Someone" },
 	isAdmin: false,
 	organizations: [

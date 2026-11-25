@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { brandIds } from "../brands";
 import {
+	bulkUpdateConversations,
 	claimConversation,
 	conversationFor,
 	deleteDraft,
@@ -9,9 +10,11 @@ import {
 	getMessage,
 	listConversations,
 	markMessage,
+	mergeConversations,
 	saveDraft,
 	searchMessages,
 	sendReply,
+	startConversation,
 	unsendReply,
 	updateConversation,
 } from "../conversations";
@@ -490,6 +493,63 @@ export const INBOX_TOOLS: InboxTool[] = [
 				since: str(a.since),
 				seconds: (a.seconds as number | undefined) ?? 20,
 			}),
+	},
+	{
+		name: "start_conversation",
+		title: "Start a new conversation",
+		description:
+			"Send a new outbound email that opens a tracked conversation in the Inbox. When the recipient replies, their answer threads back into the same conversation.",
+		input: {
+			from: z.string().describe("Verified sending address."),
+			to: z.union([z.string(), z.array(z.string())]).describe("Recipient email address(es)."),
+			cc: z.union([z.string(), z.array(z.string())]).optional(),
+			subject: z.string().describe("Subject line."),
+			text: z.string().describe("Plain-text body."),
+			html: z.string().optional().describe("Optional HTML body."),
+			inbox: z.string().optional().describe("Optional inbox id or address to attach it to."),
+			brand: z.string().optional().describe("Optional brand id."),
+		},
+		needs: "send",
+		openWorld: true,
+		run: (a, actor) => startConversation(actor, a, sender({ source: "mcp" })),
+	},
+	{
+		name: "bulk_update_conversations",
+		title: "Bulk update conversations",
+		description:
+			"Apply the same triage action (resolve, reopen, assign, priority, tags, snooze, or read state) to up to 100 conversations at once.",
+		input: {
+			ids: z.array(z.string()).min(1).max(100).describe("Conversation ids."),
+			status: z.enum(["open", "resolved"]).optional(),
+			read: z.boolean().optional(),
+			assignee: z.string().nullable().optional(),
+			priority: z.enum(PRIORITIES).optional(),
+			add_tags: z.array(z.string()).max(20).optional(),
+			remove_tags: z.array(z.string()).max(20).optional(),
+			snooze_until: z.string().nullable().optional(),
+		},
+		needs: "triage",
+		run: (a, actor) => {
+			const { ids, ...patch } = a;
+			return bulkUpdateConversations(actor, ids as string[], patch);
+		},
+	},
+	{
+		name: "merge_conversations",
+		title: "Merge conversations",
+		description:
+			"Fold one or more duplicate conversations of the same brand into keep_id, combining their messages, replies, notes, tags and threading headers.",
+		input: {
+			keep_id: z.string().describe("The conversation to keep."),
+			drop_ids: z
+				.array(z.string())
+				.min(1)
+				.max(20)
+				.describe("Conversation ids to merge into keep_id and remove."),
+		},
+		needs: "triage",
+		destructive: true,
+		run: (a, actor) => mergeConversations(actor, a.keep_id as string, a.drop_ids as string[]),
 	},
 	{
 		name: "inbox_activity",

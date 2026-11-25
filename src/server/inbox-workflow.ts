@@ -637,6 +637,8 @@ export async function addNote(actor: InboxActor, x: Conversation, raw: unknown, 
 		updated_at: iso(now),
 	};
 	await db.insert(n).values(row);
+	const { notifyInboxChange } = await import("./inbox-live");
+	await notifyInboxChange(x.organization_id, { kind: "note", conversation_id: x.id });
 	await logInbox(actor, {
 		brandId: x.organization_id,
 		inboxId: x.inbox_id,

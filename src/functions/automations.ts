@@ -11,6 +11,7 @@ import {
 	duplicateAutomation,
 	getAutomation,
 	listAutomations,
+	simulateAutomation,
 	updateAutomation,
 } from "@/server/automations";
 import { brandIn, viewScope } from "@/server/brands";
@@ -187,5 +188,15 @@ export const cancelRunFn = createServerFn({ method: "POST" })
 			const x = await getAutomation(ids, data.automation);
 			await cancelRun(x.organization_id, data.run);
 			return { ok: true };
+		}),
+	);
+
+export const simulateAutomationFn = createServerFn({ method: "POST" })
+	.middleware([orgMiddleware])
+	.validator(z.object({ automation: z.string(), email: z.string().email().max(320) }))
+	.handler(({ data, context }) =>
+		call(async () => {
+			const { ids } = await brandsOf(context.organizationId);
+			return simulateAutomation(ids, data.automation, data.email);
 		}),
 	);

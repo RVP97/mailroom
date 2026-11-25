@@ -5,6 +5,7 @@ import { maskDigits } from "@/lib/roles";
 import { brandIn, viewScope } from "@/server/brands";
 import {
 	addressOf,
+	bulkUpdateConversations,
 	claimConversation,
 	composeDefaults,
 	conversationFor,
@@ -12,8 +13,10 @@ import {
 	getConversation,
 	listConversations,
 	markMessage,
+	mergeConversations,
 	saveDraft,
 	sendReply,
+	startConversation,
 	unsendReply,
 	updateConversation,
 } from "@/server/conversations";
@@ -201,7 +204,7 @@ export const getConversationFn = createServerFn({ method: "GET" })
 					: null,
 				viewScope(context.organizationId).then((v) => v.brands),
 			]);
-			const [activity, compose, people, saved, contact] = await Promise.all([
+			const [activity, compose, people, saved, contact, articles, aiRow] = await Promise.all([
 				inboxActivity({ conversationId: id, limit: 50 }),
 				composeDefaults(actor, id),
 				assignees(context.organizationId, inbox ?? null),
@@ -221,6 +224,26 @@ export const getConversationFn = createServerFn({ method: "GET" })
 							}
 						: c,
 				),
+				import("@/server/help-center")
+					.then(async (hc) => {
+						const [center, rows] = await Promise.all([
+							hc.helpCenterOf(conversation.brand_id),
+							hc.listArticles([conversation.brand_id], { status: "published" }),
+						]);
+						return rows.slice(0, 60).map((a) => {
+							const v = hc.articleView(a, center, false);
+							return {
+								id: v.id,
+								title: v.title,
+								category: v.category,
+								url: v.url,
+							};
+						});
+					})
+					.catch(() => []),
+				import("@/server/ai")
+					.then((m) => m.getAiSettings(context.organizationId))
+					.catch(() => null),
 			]);
 			const settings = settingsOf(inbox);
 			return {
@@ -234,6 +257,12 @@ export const getConversationFn = createServerFn({ method: "GET" })
 				saved: saved
 					.filter((s) => !s.inbox_id || s.inbox_id === conversation.inbox_id)
 					.map(savedReplyView),
+				articles,
+				ai: {
+					configured: Boolean(aiRow?.api_key_encrypted),
+					copilot: Boolean(aiRow?.api_key_encrypted && aiRow.copilot_enabled),
+					auto_mode: aiRow?.auto_mode ?? "off",
+				},
 				variables: VARIABLES.map((v) => ({ ...v })),
 				workflow: {
 					tags: settings.tags,
@@ -364,6 +393,7 @@ const replyFields = z.object({
 	cc: z.string().optional(),
 	subject: z.string().optional(),
 	text: z.string().max(100_000).optional(),
+	html: z.string().max(250_000).optional(),
 	/** Checked by the server's own reply input (new files, kept ones, received ones). */
 	attachments: z.array(z.object({}).passthrough()).max(20).optional(),
 	after_message: z.string().max(80).optional(),
@@ -371,6 +401,92 @@ const replyFields = z.object({
 	saved_reply_id: z.string().max(80).optional(),
 	signature: z.boolean().optional(),
 });
+
+export const bulkUpdateConversationsFn = createServerFn({ method: "POST" })
+	.middleware([orgMiddleware])
+	.validator(
+		z.object({
+			ids: z.array(z.string()).min(1).max(100),
+			status: z.enum(["open", "resolved"]).optional(),
+			read: z.boolean().optional(),
+			add_tags: z.array(z.string()).max(20).optional(),
+			remove_tags: z.array(z.string()).max(20).optional(),
+			priority: z.enum(PRIORITIES).optional(),
+			snooze_until: z.string().nullable().optional(),
+			assignee: z.string().nullable().optional(),
+		}),
+	)
+	.handler(({ data: { ids, ...patch }, context }) =>
+		call(async () => bulkUpdateConversations(await personOf(context), ids, patch)),
+	);
+
+export const startConversationFn = createServerFn({ method: "POST" })
+	.middleware([can("inbox:reply")])
+	.validator(
+		z.object({
+			brand: z.string().optional(),
+			inbox: z.string().nullish(),
+			from: z.string().min(3).max(320),
+			to: z.string().min(3).max(2000),
+			cc: z.string().max(2000).optional(),
+			subject: z.string().min(1).max(300),
+			text: z.string().min(1).max(100_000),
+			html: z.string().max(250_000).optional(),
+		}),
+	)
+	.handler(({ data, context }) =>
+		call(async () =>
+			startConversation(await personOf(context), data, sender({ source: "dashboard" })),
+		),
+	);
+
+export const mergeConversationsFn = createServerFn({ method: "POST" })
+	.middleware([can("inbox:reply")])
+	.validator(
+		z.object({
+			keep_id: z.string(),
+			drop_ids: z.array(z.string()).min(1).max(20),
+		}),
+	)
+	.handler(({ data, context }) =>
+		call(async () => mergeConversations(await personOf(context), data.keep_id, data.drop_ids)),
+	);
+
+/** Verified sending domains and default from-addresses for starting a new conversation. */
+export const inboxSendersFn = createServerFn({ method: "GET" })
+	.middleware([orgMiddleware])
+	.handler(({ context }) =>
+		call(async () => {
+			const actor = await personOf(context);
+			const [domains, inboxes] = await Promise.all([
+				db
+					.select({
+						id: schema.domains.id,
+						name: schema.domains.name,
+						brand_id: schema.domains.organization_id,
+					})
+					.from(schema.domains)
+					.where(
+						and(
+							inArray(schema.domains.organization_id, actor.brands),
+							eq(schema.domains.status, "verified"),
+							eq(schema.domains.sending, true),
+						),
+					),
+				listInboxes(actor),
+			]);
+			return {
+				domains,
+				inboxes: inboxes.map((i) => ({
+					id: i.id,
+					name: i.name,
+					address: i.address,
+					reply_from: i.reply_from,
+					brand_id: i.organization_id,
+				})),
+			};
+		}),
+	);
 
 export const saveConversationDraftFn = createServerFn({ method: "POST" })
 	.middleware([can("inbox:reply")])

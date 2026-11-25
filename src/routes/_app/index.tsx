@@ -1,5 +1,7 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { ArrowRight, Check, ChevronRight, CircleHelp, Globe } from "lucide-react";
+import { ArrowRight, Check, ChevronRight, CircleHelp, Globe, Send } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 import { z } from "zod";
 import { BrandFilter } from "@/components/brand-filter";
 import { DayBars, Delta, type Series, TrendChart } from "@/components/metric-charts";
@@ -25,8 +27,9 @@ import {
 } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { getOverview } from "@/functions/emails";
+import { getOverview, sendEmailFn } from "@/functions/emails";
 import { type EmailFilterValue, STATUS_INFO } from "@/lib/email-status";
+import { errorMessage } from "@/lib/errors";
 import { formatNumber, formatPercent } from "@/lib/format";
 import { usePendingSearch } from "@/lib/pending";
 import { PROVIDER_LABEL, type Provider } from "@/lib/providers";
@@ -1431,7 +1434,36 @@ function ByBrand({
 	);
 }
 
-function Setup({ sending, domains }: { sending: string; domains: { status: string }[] }) {
+function Setup({
+	sending,
+	domains,
+}: {
+	sending: string;
+	domains: { status: string; name?: string }[];
+}) {
+	const router = useRouter();
+	const [smokeBusy, setSmokeBusy] = useState(false);
+	const verifiedDomain = domains.find((d) => d.status === "verified" && d.name)?.name ?? null;
+	const sendSmokeTest = async () => {
+		if (!verifiedDomain) return;
+		setSmokeBusy(true);
+		try {
+			await sendEmailFn({
+				data: {
+					from: `test@${verifiedDomain}`,
+					to: "success@simulator.amazonses.com",
+					subject: "Mailroom smoke test",
+					text: "Sent from Mailroom's setup checklist to verify Amazon SES delivery.",
+				},
+			});
+			toast.success("Smoke test sent to Amazon SES simulator");
+			await router.invalidate();
+		} catch (error) {
+			toast.error(await errorMessage(error));
+		} finally {
+			setSmokeBusy(false);
+		}
+	};
 	const steps = [
 		{
 			done: sending === "ready",
@@ -1457,9 +1489,12 @@ function Setup({ sending, domains }: { sending: string; domains: { status: strin
 		{
 			done: false,
 			label: "Send your first email",
-			hint: "Create an API key and call the API, or use SMTP.",
+			hint: verifiedDomain
+				? `Send a one-click smoke test from test@${verifiedDomain}, or create an API key.`
+				: "Create an API key and call the API, or use SMTP.",
 			to: "/api-keys" as const,
 			action: "Create key",
+			smoke: Boolean(verifiedDomain),
 		},
 	];
 	const next = steps.findIndex((s) => !s.done);
@@ -1492,7 +1527,7 @@ function Setup({ sending, domains }: { sending: string; domains: { status: strin
 					<li
 						key={s.label}
 						className={cn(
-							"flex items-center gap-3.5 border-b border-border/70 px-5 py-3 last:border-0",
+							"flex flex-wrap items-center gap-3.5 border-b border-border/70 px-5 py-3 last:border-0",
 							i === next && "bg-brand/[0.035]",
 						)}
 					>
@@ -1526,25 +1561,39 @@ function Setup({ sending, domains }: { sending: string; domains: { status: strin
 							</p>
 							{!s.done && <p className="text-sm text-muted-foreground">{s.hint}</p>}
 						</div>
-						{i === next ? (
-							<Button
-								asChild
-								size="sm"
-							>
-								<Link to={s.to}>
-									{s.action}
-									<ArrowRight />
-								</Link>
-							</Button>
-						) : !s.done ? (
-							<Button
-								asChild
-								size="sm"
-								variant="ghost"
-							>
-								<Link to={s.to}>{s.action}</Link>
-							</Button>
-						) : null}
+						<div className="flex items-center gap-2">
+							{"smoke" in s && s.smoke && !s.done && (
+								<Button
+									type="button"
+									size="sm"
+									disabled={smokeBusy}
+									onClick={() => void sendSmokeTest()}
+								>
+									<Send />
+									{smokeBusy ? "Sending…" : "Send smoke test"}
+								</Button>
+							)}
+							{i === next ? (
+								<Button
+									asChild
+									size="sm"
+									variant={"smoke" in s && s.smoke ? "outline" : "default"}
+								>
+									<Link to={s.to}>
+										{s.action}
+										<ArrowRight />
+									</Link>
+								</Button>
+							) : !s.done ? (
+								<Button
+									asChild
+									size="sm"
+									variant="ghost"
+								>
+									<Link to={s.to}>{s.action}</Link>
+								</Button>
+							) : null}
+						</div>
 					</li>
 				))}
 			</ol>

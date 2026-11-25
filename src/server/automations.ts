@@ -1706,6 +1706,200 @@ export async function cancelRun(brand: string, runId: string, now = Date.now()) 
 	return row;
 }
 
+export interface DryRunStep {
+	step: number;
+	type: string;
+	outcome: "would_run" | "would_wait" | "branch_yes" | "branch_no" | "would_skip" | "would_exit";
+	detail: string;
+}
+
+/**
+ * Simulates an automation for one contact (by email) without sending emails or changing data.
+ * Evaluates real segment membership, contact properties, quiet mode, and branch paths.
+ */
+export async function simulateAutomation(
+	brands: string | string[],
+	automationId: string,
+	email: string,
+	now = Date.now(),
+) {
+	const x = await getAutomation(brands, automationId);
+	const cleanEmail = email.trim().toLowerCase();
+	if (!cleanEmail?.includes("@")) throw validation("email: enter a contact's email address");
+	const found = await db
+		.select()
+		.from(schema.contacts)
+		.where(
+			and(
+				eq(schema.contacts.organization_id, x.organization_id),
+				eq(schema.contacts.email, cleanEmail),
+			),
+		)
+		.get();
+	const contact: Contact = found ?? {
+		id: "dry-run-contact",
+		organization_id: x.organization_id,
+		email: cleanEmail,
+		first_name: null,
+		last_name: null,
+		unsubscribed: false,
+		unsubscribed_at: null,
+		properties: {},
+		source: "dry_run",
+		source_detail: null,
+		referred_by: null,
+		referral_code: null,
+		referrals: 0,
+		timezone: null,
+		pace: null,
+		paused_until: null,
+		created_at: iso(now),
+		updated_at: iso(now),
+	};
+	const quiet = found ? await quietNow(x, contact, now) : false;
+	const fakeRun: AutomationRun = {
+		id: "dry-run",
+		organization_id: x.organization_id,
+		automation_id: x.id,
+		contact_id: contact.id,
+		status: "active",
+		step: 0,
+		path: null,
+		next_at: iso(now),
+		last_email_id: null,
+		waiting_for: null,
+		waiting_since: null,
+		data: null,
+		converted_at: null,
+		locked_until: null,
+		error: null,
+		created_at: iso(now),
+		updated_at: iso(now),
+	};
+
+	const trace: DryRunStep[] = [];
+	let path: number[] = [0];
+	let outcome: "complete" | "exited" = "complete";
+	const next = () => {
+		path = [...path.slice(0, -1), (path.at(-1) ?? 0) + 1];
+	};
+
+	for (let n = 0; n < 40; n++) {
+		const s = stepsAt(x.steps, path)?.[path.at(-1) ?? 0];
+		if (!s) break;
+		if (s.type === "wait") {
+			trace.push({
+				step: n + 1,
+				type: s.type,
+				outcome: "would_wait",
+				detail: `Wait ${s.minutes >= 1440 ? `${Math.round(s.minutes / 1440)}d` : s.minutes >= 60 ? `${Math.round(s.minutes / 60)}h` : `${s.minutes}m`}`,
+			});
+			next();
+			continue;
+		}
+		if (s.type === "send" || s.type === "email") {
+			if (contact.unsubscribed) {
+				trace.push({
+					step: n + 1,
+					type: s.type,
+					outcome: "would_exit",
+					detail: "Exits: contact is unsubscribed",
+				});
+				outcome = "exited";
+				break;
+			}
+			if (quiet) {
+				trace.push({
+					step: n + 1,
+					type: s.type,
+					outcome: "would_skip",
+					detail: "Skipped: contact is paused or in quiet mode",
+				});
+			} else {
+				trace.push({
+					step: n + 1,
+					type: s.type,
+					outcome: "would_run",
+					detail:
+						s.type === "send"
+							? `Send template ${s.template_id}`
+							: `Send email “${s.subject || "(no subject)"}”`,
+				});
+			}
+			next();
+			continue;
+		}
+		if (s.type === "wait_event") {
+			trace.push({
+				step: n + 1,
+				type: s.type,
+				outcome: "would_wait",
+				detail: `Wait up to ${s.minutes}m for event “${s.event}” (assuming yes path)`,
+			});
+			next();
+			continue;
+		}
+		if (s.type === "split") {
+			const yes = splitSide(contact.id, path, s.percent);
+			trace.push({
+				step: n + 1,
+				type: s.type,
+				outcome: yes ? "branch_yes" : "branch_no",
+				detail: `A/B split (${s.percent}% / ${100 - s.percent}%) → ${yes ? "Path A" : "Path B"}`,
+			});
+			if (yes) next();
+			else if (s.no?.length) path = [...path, 0];
+			else {
+				outcome = "exited";
+				break;
+			}
+			continue;
+		}
+		if (s.type === "condition") {
+			const yes = found ? await holds(fakeRun, contact, s) : false;
+			const condDesc = s.segment_id
+				? `in segment ${s.segment_id}`
+				: s.property
+					? `property ${s.property}${s.equals !== undefined ? ` = ${s.equals}` : ""}`
+					: s.engaged
+						? `engaged (${s.engaged})`
+						: "condition";
+			trace.push({
+				step: n + 1,
+				type: s.type,
+				outcome: yes ? "branch_yes" : "branch_no",
+				detail: `If ${condDesc} → ${yes ? "Yes branch" : "No branch"}`,
+			});
+			if (yes) next();
+			else if (s.no?.length) path = [...path, 0];
+			else {
+				outcome = "exited";
+				break;
+			}
+			continue;
+		}
+		trace.push({
+			step: n + 1,
+			type: s.type,
+			outcome: "would_run",
+			detail: `Run ${s.type} action`,
+		});
+		next();
+	}
+
+	return {
+		automation_id: x.id,
+		contact: {
+			email: cleanEmail,
+			exists: Boolean(found),
+			unsubscribed: contact.unsubscribed,
+			quiet,
+		},
+		outcome,
+		steps: trace,
+	};
+}
+
 /** How many runs are in each state, and the latest ones with their contacts. */
 export async function automationRuns(id: string, limit = 50) {
 	const [counts, latest, here] = await Promise.all([

@@ -15,6 +15,7 @@ import {
 	getAutomation,
 	listAutomations,
 	recordEvent,
+	simulateAutomation,
 	updateAutomation,
 } from "../automations";
 import {
@@ -143,6 +144,7 @@ import {
 	scopeOf,
 	type Tool,
 } from "./kit";
+import { AI_TOOLS } from "./tools-ai";
 import { ANSWER_TOOLS } from "./tools-answers";
 import { AUDIENCE_TOOLS } from "./tools-audience";
 import { CALENDAR_TOOLS } from "./tools-calendar";
@@ -2001,6 +2003,26 @@ export const TOOLS: Tool[] = [
 		},
 	},
 	{
+		name: "simulate_automation",
+		title: "Dry-run an automation for a contact",
+		description:
+			"Traces which steps, conditions, and branches an automation would take for a given contact email without sending any email or changing any data.",
+		input: {
+			organization,
+			automation: z.string().describe("Automation id."),
+			email: z.string().email().describe("Contact email address to simulate."),
+		},
+		readOnly: true,
+		run: async (a, ctx) => {
+			const org = orgFor(ctx, a.organization);
+			return simulateAutomation(
+				await brandIds(org.id),
+				a.automation as string,
+				a.email as string,
+			);
+		},
+	},
+	{
 		name: "send_event",
 		title: "Send an event about a contact",
 		description:
@@ -2188,4 +2210,5 @@ export const TOOLS: Tool[] = [
 	...NOTE_TOOLS,
 	...PERSON_TOOLS,
 	...ANSWER_TOOLS,
+	...AI_TOOLS,
 ];

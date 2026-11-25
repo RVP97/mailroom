@@ -10,6 +10,7 @@ import {
 	Paperclip,
 	PenLine,
 	RotateCcw,
+	StickyNote,
 	Trash2,
 	X,
 } from "lucide-react";
@@ -17,6 +18,7 @@ import {
 	type ClipboardEvent,
 	type DragEvent,
 	type KeyboardEvent,
+	type ReactNode,
 	useCallback,
 	useEffect,
 	useLayoutEffect,
@@ -56,6 +58,7 @@ type Item = Conversation["timeline"][number];
 export type ChatLine = Extract<Item, { type: "chat" }>;
 type Draft = Extract<Item, { type: "reply" | "draft" }>;
 type Inbound = Extract<Item, { type: "inbound" }>;
+type Note = Extract<Item, { type: "note" }>;
 
 type Pending = {
 	client_id: string;
@@ -212,10 +215,25 @@ export function ChatThread({
 	conversation: c,
 	canReply,
 	onLive,
+	embedded = false,
+	notes = [],
+	onDeleteNote,
+	renderComposer,
 }: {
 	conversation: Conversation;
 	canReply: boolean;
 	onLive?: (live: Live) => void;
+	/** Fill parent flex container (used inside the 3-pane Inbox workspace). */
+	embedded?: boolean;
+	/** Internal notes interleaved chronologically in the chat stream. */
+	notes?: Note[];
+	onDeleteNote?: (id: string) => Promise<void> | void;
+	/** Optional unified sticky composer (replaces built-in ChatComposer). */
+	renderComposer?: (api: {
+		sendText: (text: string) => void;
+		sendFile: (file: File) => void;
+		onType: (on: boolean) => void;
+	}) => ReactNode;
 }) {
 	const router = useRouter();
 	const navigate = useNavigate();
@@ -289,16 +307,18 @@ export function ChatThread({
 		const all: (
 			| { kind: "line"; at: string; line: ChatLine }
 			| { kind: "email"; at: string; email: Inbound }
+			| { kind: "note"; at: string; note: Note }
 			| { kind: "pending"; at: string; p: Pending }
 		)[] = [
 			...lines.map((line) => ({ kind: "line" as const, at: line.at, line })),
 			...inbound.map((email) => ({ kind: "email" as const, at: email.at, email })),
+			...notes.map((note) => ({ kind: "note" as const, at: note.at, note })),
 			...pending
 				.filter((p) => !p.id || !shown.has(p.id))
 				.map((p) => ({ kind: "pending" as const, at: p.at, p })),
 		];
 		return all.sort((a, b) => a.at.localeCompare(b.at));
-	}, [lines, inbound, pending]);
+	}, [lines, inbound, notes, pending]);
 
 	const deliver = useCallback(
 		(p: Omit<Pending, "state" | "retry" | "at" | "id">, run: () => Promise<{ id: string }>) => {
@@ -391,9 +411,9 @@ export function ChatThread({
 		});
 	};
 
-	return (
-		<Card className="relative gap-0 overflow-hidden p-0">
-			<div className="flex h-11 items-center gap-2 border-b border-border/70 px-4 text-sm">
+	const body = (
+		<>
+			<div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/70 px-4 text-xs">
 				<span
 					className={cn(
 						"size-2 rounded-full",
@@ -401,11 +421,11 @@ export function ChatThread({
 					)}
 				/>
 				<span className="font-medium">
-					{live.visitorOnline ? "On the website now" : "Not on the website"}
+					{live.visitorOnline ? "Visitor online now" : "Visitor offline"}
 				</span>
 				{!live.visitorOnline && c.visitor?.email && (
 					<span className="truncate text-muted-foreground">
-						· answers also reach {c.visitor.email}
+						· replies also email {c.visitor.email}
 					</span>
 				)}
 				<span className="ml-auto text-xs text-muted-foreground">
@@ -418,7 +438,10 @@ export function ChatThread({
 					const el = e.currentTarget;
 					pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
 				}}
-				className="flex h-[min(62vh,640px)] min-h-[360px] flex-col gap-1 overflow-y-auto px-4 py-5"
+				className={cn(
+					"flex flex-col gap-1 overflow-y-auto px-4 py-4",
+					embedded ? "min-h-0 flex-1" : "h-[min(62vh,640px)] min-h-[360px]",
+				)}
 				aria-live="polite"
 			>
 				{items.length === 0 && (
@@ -434,7 +457,9 @@ export function ChatThread({
 								? `${x.line.author.type}:${x.line.author.name}`
 								: x.kind === "pending"
 									? "me"
-									: "email";
+									: x.kind === "note"
+										? "note"
+										: "email";
 					const next = items[i + 1];
 					const first = newDay || who(prev) !== who(it);
 					const last = !next || who(next) !== who(it) || dayOf(next.at) !== dayOf(it.at);
@@ -445,7 +470,9 @@ export function ChatThread({
 									? it.line.id
 									: it.kind === "email"
 										? `e-${it.email.id}`
-										: `p-${it.p.client_id}`
+										: it.kind === "note"
+											? `n-${it.note.id}`
+											: `p-${it.p.client_id}`
 							}
 							className="contents"
 						>
@@ -465,6 +492,32 @@ export function ChatThread({
 								/>
 							) : it.kind === "email" ? (
 								<EmailIn email={it.email} />
+							) : it.kind === "note" ? (
+								<div className="my-2 rounded-xl border border-amber-500/30 bg-amber-500/[0.08] px-3.5 py-2.5 text-sm">
+									<div className="mb-1 flex items-center gap-1.5 text-xs text-amber-900/80 dark:text-amber-200/80">
+										<StickyNote className="size-3.5 shrink-0" />
+										<span className="font-medium">
+											{it.note.author.name ?? "Teammate"}
+										</span>
+										<span>· internal note</span>
+										<span className="ml-auto tabular-nums">
+											{formatAgo(it.note.at)}
+										</span>
+										{canReply && onDeleteNote && (
+											<button
+												type="button"
+												aria-label="Delete note"
+												onClick={() => void onDeleteNote(it.note.id)}
+												className="ml-1 rounded p-0.5 hover:bg-amber-500/15"
+											>
+												<Trash2 className="size-3" />
+											</button>
+										)}
+									</div>
+									<p className="whitespace-pre-wrap break-words text-foreground">
+										<Ph>{it.note.text}</Ph>
+									</p>
+								</div>
 							) : (
 								<PendingBubble p={it.p} />
 							)}
@@ -500,7 +553,7 @@ export function ChatThread({
 				)}
 			</div>
 			{drafts.length > 0 && (
-				<div className="flex flex-col gap-2 border-t border-border/70 bg-brand/5 px-4 py-3">
+				<div className="flex shrink-0 flex-col gap-2 border-t border-border/70 bg-brand/5 px-4 py-3">
 					{drafts.map((d) => (
 						<DraftRow
 							key={d.id}
@@ -511,17 +564,27 @@ export function ChatThread({
 					))}
 				</div>
 			)}
-			{canReply && (
-				<ChatComposer
-					disabled={sketching}
-					resolved={c.status === "resolved"}
-					onType={(on) => send({ type: "typing", on })}
-					onText={(t) => sendText(t)}
-					onFile={sendFile}
-				/>
-			)}
-		</Card>
+			{canReply &&
+				(renderComposer ? (
+					renderComposer({
+						sendText: (t) => sendText(t),
+						sendFile,
+						onType: (on) => send({ type: "typing", on }),
+					})
+				) : (
+					<ChatComposer
+						disabled={sketching}
+						resolved={c.status === "resolved"}
+						onType={(on) => send({ type: "typing", on })}
+						onText={(t) => sendText(t)}
+						onFile={sendFile}
+					/>
+				))}
+		</>
 	);
+
+	if (embedded) return <div className="flex min-h-0 flex-1 flex-col">{body}</div>;
+	return <Card className="relative gap-0 overflow-hidden p-0">{body}</Card>;
 }
 
 function Avatar({ author }: { author: ChatLine["author"] }) {

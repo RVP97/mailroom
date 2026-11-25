@@ -8,6 +8,7 @@ import type { ReplyAttachment } from "./db/schema";
 import { cfg } from "./env";
 import { ApiError, notFound, validation } from "./errors";
 import { attachmentsView, downloadUrl, parsedMessage, receivedView } from "./inbound";
+import { hasAutoAi, notifyInboxChange } from "./inbox-live";
 import {
 	afterSavedReply,
 	assertFree,
@@ -313,6 +314,18 @@ export async function threadReceived(
 				.onConflictDoNothing(),
 		),
 	] as never);
+	await notifyInboxChange(row.organization_id, {
+		kind: "inbound",
+		conversation_id: conversationId,
+		channel: "email",
+		subject: row.subject,
+		contact: row.from,
+		unread: true,
+	});
+	if (!row.held && (await hasAutoAi(row.organization_id))) {
+		const { maybeAutoRespond } = await import("./ai");
+		await maybeAutoRespond(row.organization_id, conversationId, now);
+	}
 	return { conversationId, created };
 }
 
@@ -366,7 +379,7 @@ const C_INBOUND = sql.raw(`"conversations"."last_inbound_at"`);
  */
 const unreadSql = (reader: string | null) =>
 	reader
-		? sql<number>`(${C_INBOUND} IS NOT NULL AND EXISTS (SELECT 1 FROM ${re} m WHERE m.conversation_id = ${C_ID} AND m.created_at > coalesce((SELECT r.read_at FROM ${schema.conversationReads} r WHERE r.conversation_id = ${C_ID} AND r.reader = ${reader}), '') AND NOT EXISTS (SELECT 1 FROM ${schema.messageReads} mr WHERE mr.message_id = m.id AND mr.reader = ${reader})))`
+		? sql<number>`(${C_INBOUND} IS NOT NULL AND (CASE WHEN "conversations"."channel" = 'chat' THEN ${C_INBOUND} > coalesce((SELECT r.read_at FROM ${schema.conversationReads} r WHERE r.conversation_id = ${C_ID} AND r.reader = ${reader}), '') ELSE EXISTS (SELECT 1 FROM ${re} m WHERE m.conversation_id = ${C_ID} AND m.created_at > coalesce((SELECT r.read_at FROM ${schema.conversationReads} r WHERE r.conversation_id = ${C_ID} AND r.reader = ${reader}), '') AND NOT EXISTS (SELECT 1 FROM ${schema.messageReads} mr WHERE mr.message_id = m.id AND mr.reader = ${reader})) END))`
 		: sql<number>`0`;
 
 const draftsSql = sql<number>`(SELECT count(*) FROM ${rp} d WHERE d.conversation_id = ${C_ID} AND d.status IN ('draft', 'sending'))`;
@@ -699,7 +712,10 @@ export async function getConversation(
 								: {}),
 						}
 					: {}),
-				attachments: v.attachments,
+				attachments:
+					m.attachments?.length && actor.permissions.has("attachments") && !actor.masked
+						? await attachmentsView(m, o.now)
+						: v.attachments,
 				spam: v.spam,
 				verdicts: v.verdicts,
 				/** Why it looks suspicious (people only), and whether agents wait for a person. */
@@ -1011,6 +1027,264 @@ export async function updateConversation(
 	}
 	if (v.read !== undefined) await markRead(actor, x, v.read, now);
 	const fresh = await conversationFor(actor, id);
+	await notifyInboxChange(x.organization_id, { kind: "updated", conversation_id: id });
+	return conversationView(fresh.c, fresh, actor, now);
+}
+
+/** Updates up to 100 conversations at once (resolve, reopen, assign, tag, priority, snooze, read). */
+export async function bulkUpdateConversations(
+	actor: InboxActor,
+	ids: string[],
+	raw: unknown,
+	now = Date.now(),
+) {
+	need(actor, "read");
+	const unique = [...new Set(ids.filter((x) => typeof x === "string" && x.trim()))].slice(0, 100);
+	if (!unique.length) return { updated: 0, failed: [] as { id: string; error: string }[] };
+	const v = conversationUpdate.parse(raw ?? {});
+	let updated = 0;
+	const failed: { id: string; error: string }[] = [];
+	const brands = new Set<string>();
+	for (const id of unique) {
+		try {
+			const res = await updateConversation(actor, id, v, now);
+			brands.add(res.brand_id);
+			updated++;
+		} catch (error) {
+			failed.push({
+				id,
+				error: error instanceof Error ? error.message : "Could not update",
+			});
+		}
+	}
+	for (const b of brands) await notifyInboxChange(b, { kind: "bulk" });
+	return { updated, failed };
+}
+
+const startConversationInput = z.object({
+	brand: z.string().optional(),
+	inbox: z.string().nullish(),
+	from: z.string().trim().min(3).max(320),
+	to: z.union([z.string(), z.array(z.string())]),
+	cc: z.union([z.string(), z.array(z.string())]).optional(),
+	subject: z.string().trim().min(1).max(300),
+	text: z.string().max(100_000),
+	html: z.string().max(250_000).optional(),
+	tags: z.array(z.string().max(40)).max(20).optional(),
+});
+
+const splitAddresses = (v: string | string[] | undefined) =>
+	(Array.isArray(v) ? v : (v ?? "").split(/[,\n]+/)).map((s) => s.trim()).filter(Boolean);
+
+/**
+ * Starts a brand-new 1-to-1 email conversation from the Inbox. The reply threads into the
+ * conversation automatically when the recipient writes back (via conversation_refs).
+ */
+export async function startConversation(
+	actor: InboxActor,
+	raw: unknown,
+	sender: Sender,
+	now = Date.now(),
+) {
+	need(actor, "send");
+	const v = startConversationInput.parse(raw ?? {});
+	const to = splitAddresses(v.to);
+	const cc = splitAddresses(v.cc);
+	if (!to.length) throw validation("to: enter at least one recipient");
+	if (to.length + cc.length > 50) throw validation("Up to 50 recipients");
+	if (!v.text.trim()) throw validation("text: write a message");
+	if (/[\r\n]/.test(v.from) || [...to, ...cc].some((a) => /[\r\n]/.test(a)))
+		throw validation("Addresses can't contain line breaks");
+	const inbox = v.inbox ? await inboxFor(actor, v.inbox) : null;
+	const brandId = inbox?.organization_id ?? v.brand ?? actor.brands[0];
+	if (!brandId || !actor.brands.includes(brandId)) throw notFound("Brand");
+	if (inbox) checkSendLists(inbox, [...to, ...cc]);
+	const from = v.from;
+	const text = signed(v.text, inbox, actor.name);
+	const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+	const html =
+		v.html ??
+		`<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;white-space:pre-wrap">${escaped}</div>`;
+	const convId = crypto.randomUUID();
+	const replyId = crypto.randomUUID();
+	const at = iso(now);
+	const emailId = await sender.send(brandId, {
+		brand: brandId,
+		from,
+		to,
+		...(cc.length ? { cc } : {}),
+		...(inbox && lowerBare(from) !== inbox.address ? { reply_to: [inbox.address] } : {}),
+		subject: v.subject,
+		text,
+		html,
+		tags: [{ name: "conversation", value: convId }],
+	});
+	const tags = [...new Set((v.tags ?? []).map((t) => t.trim().toLowerCase()).filter(Boolean))];
+	await db.batch([
+		db.insert(c).values({
+			id: convId,
+			organization_id: brandId,
+			inbox_id: inbox?.id ?? null,
+			channel: "email",
+			subject: v.subject,
+			contact: to[0] ?? "",
+			contact_address: addressOf(to[0]),
+			status: "open",
+			messages: 1,
+			snippet: snippetOf(v.text),
+			last_message_at: at,
+			last_inbound_at: null,
+			last_reply_at: at,
+			first_reply_at: at,
+			replied_by: actor.type,
+			assignee: actor.reader,
+			tags: tags.length ? tags : null,
+			priority: "normal",
+			created_at: at,
+			updated_at: at,
+		}),
+		db.insert(rp).values({
+			id: replyId,
+			organization_id: brandId,
+			conversation_id: convId,
+			inbox_id: inbox?.id ?? null,
+			in_reply_to: null,
+			status: "sent",
+			from,
+			to,
+			cc: cc.length ? cc : null,
+			subject: v.subject,
+			text,
+			html,
+			email_id: emailId,
+			author_type: actor.type,
+			author_id: actor.id,
+			author_name: actor.name,
+			sent_by: null,
+			review: null,
+			sent_at: at,
+			created_at: at,
+			updated_at: at,
+		}),
+		db
+			.insert(schema.conversationRefs)
+			.values({
+				organization_id: brandId,
+				scope: inbox?.id ?? "",
+				ref: `email:${emailId}`,
+				conversation_id: convId,
+			})
+			.onConflictDoNothing(),
+	] as never);
+	await markRead(actor, { id: convId, channel: "email" }, true, now);
+	await logInbox(actor, {
+		brandId,
+		inboxId: inbox?.id ?? null,
+		conversationId: convId,
+		action: "reply.sent",
+		detail: { reply_id: replyId, email_id: emailId, to: to.map(lowerBare), started: true },
+		now,
+	});
+	await notifyInboxChange(brandId, {
+		kind: "started",
+		conversation_id: convId,
+		channel: "email",
+		subject: v.subject,
+		contact: to[0],
+	});
+	const fresh = await conversationFor(actor, convId);
+	return conversationView(fresh.c, fresh, actor, now);
+}
+
+/**
+ * Merges one or more conversations of the same brand into `keepId`: moves all inbound emails,
+ * replies, drafts, internal notes, chat messages and threading refs into `keepId`, combines
+ * tags, updates counters and removes the merged conversations.
+ */
+export async function mergeConversations(
+	actor: InboxActor,
+	keepId: string,
+	dropIds: string[],
+	now = Date.now(),
+) {
+	need(actor, "triage");
+	const keep = (await conversationFor(actor, keepId)).c;
+	const unique = [...new Set(dropIds.filter((id) => id && id !== keepId))].slice(0, 20);
+	if (!unique.length) throw validation("Pick at least one other conversation to merge");
+	const drops: Conversation[] = [];
+	for (const id of unique) {
+		const row = (await conversationFor(actor, id)).c;
+		if (row.organization_id !== keep.organization_id)
+			throw validation("Conversations must belong to the same brand to merge");
+		drops.push(row);
+	}
+	const ids = drops.map((d) => d.id);
+	const existingRefs = await db
+		.select()
+		.from(schema.conversationRefs)
+		.where(inArray(schema.conversationRefs.conversation_id, ids));
+	await db.batch([
+		db.update(re).set({ conversation_id: keep.id }).where(inArray(re.conversation_id, ids)),
+		db.update(rp).set({ conversation_id: keep.id }).where(inArray(rp.conversation_id, ids)),
+		db
+			.update(schema.conversationNotes)
+			.set({ conversation_id: keep.id })
+			.where(inArray(schema.conversationNotes.conversation_id, ids)),
+		db
+			.update(schema.chatMessages)
+			.set({ conversation_id: keep.id })
+			.where(inArray(schema.chatMessages.conversation_id, ids)),
+		db
+			.delete(schema.conversationRefs)
+			.where(inArray(schema.conversationRefs.conversation_id, ids)),
+		...chunk(existingRefs, 20).map((part) =>
+			db
+				.insert(schema.conversationRefs)
+				.values(
+					part.map((r) => ({
+						organization_id: r.organization_id,
+						scope: keep.inbox_id ?? r.scope,
+						ref: r.ref,
+						conversation_id: keep.id,
+					})),
+				)
+				.onConflictDoNothing(),
+		),
+	] as never);
+	const mergedTags = [...new Set([...(keep.tags ?? []), ...drops.flatMap((d) => d.tags ?? [])])];
+	const all = [keep, ...drops];
+	const maxIso = (vals: (string | null)[]) =>
+		vals
+			.filter((v): v is string => !!v)
+			.sort()
+			.at(-1) ?? null;
+	const latest = [...all].sort((a, b) => b.last_message_at.localeCompare(a.last_message_at))[0];
+	const totalMessages = all.reduce((n, x) => n + x.messages, 0);
+	await db.batch([
+		db
+			.update(c)
+			.set({
+				messages: totalMessages,
+				tags: mergedTags.length ? mergedTags : null,
+				last_message_at: latest?.last_message_at ?? keep.last_message_at,
+				last_inbound_at: maxIso(all.map((x) => x.last_inbound_at)),
+				last_reply_at: maxIso(all.map((x) => x.last_reply_at)),
+				snippet: latest?.snippet ?? keep.snippet,
+				updated_at: iso(now),
+			})
+			.where(eq(c.id, keep.id)),
+		db.delete(c).where(inArray(c.id, ids)),
+	] as never);
+	await logInbox(actor, {
+		brandId: keep.organization_id,
+		inboxId: keep.inbox_id,
+		conversationId: keep.id,
+		action: "conversation.merged",
+		detail: { merged: ids },
+		now,
+	});
+	await notifyInboxChange(keep.organization_id, { kind: "merged", conversation_id: keep.id });
+	const fresh = await conversationFor(actor, keep.id);
 	return conversationView(fresh.c, fresh, actor, now);
 }
 
@@ -1944,6 +2218,11 @@ export async function sendReply(
 		if (fresh) await afterSavedReply(actor, fresh, saved, now);
 	}
 	const row = await db.select().from(rp).where(eq(rp.id, replyId)).get();
+	await notifyInboxChange(x.organization_id, {
+		kind: "reply",
+		conversation_id: x.id,
+		channel: x.channel,
+	});
 	return { ...replyView(row as Reply), scheduled_for: sendAt ? iso(sendAt) : null };
 }
 

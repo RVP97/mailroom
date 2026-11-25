@@ -2475,3 +2475,29 @@ export const surveyResponses = sqliteTable(
 		index("survey_responses_contact_idx").on(t.contact_id),
 	],
 );
+
+/**
+ * Optional BYO-key AI assistant settings per organization (src/server/ai.ts): powers the Inbox
+ * Copilot (draft replies, thread summaries, tone polish) and optional auto-drafter / Fin-style
+ * auto-responder grounded in the brand's Help Center and saved replies.
+ */
+export const orgAiSettings = sqliteTable("org_ai_settings", {
+	organization_id: text("organization_id")
+		.primaryKey()
+		.references(() => organization.id, { onDelete: "cascade" }),
+	/** "anthropic" | "openai" | "compatible" */
+	provider: text("provider").notNull().default("anthropic"),
+	model: text("model").notNull().default("claude-sonnet-4-5"),
+	/** Optional base URL for OpenAI-compatible providers (OpenRouter, Workers AI, Ollama…). */
+	base_url: text("base_url"),
+	/** AES-GCM encrypted API key (derived from BETTER_AUTH_SECRET). */
+	api_key_encrypted: text("api_key_encrypted"),
+	/** Last 4 characters to show a key is saved without exposing it. */
+	api_key_hint: text("api_key_hint"),
+	copilot_enabled: integer("copilot_enabled", { mode: "boolean" }).notNull().default(true),
+	/** "off" | "draft" (auto-draft for approval) | "reply" (auto-reply when confident, else hand off) */
+	auto_mode: text("auto_mode").notNull().default("off"),
+	system_prompt: text("system_prompt"),
+	updated_by: text("updated_by"),
+	updated_at: text("updated_at").notNull(),
+});

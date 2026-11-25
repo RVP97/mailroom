@@ -985,6 +985,19 @@ async function postVisitorLine(
 		{ type: "message", message: teamView(line, keyed) },
 	);
 	if (x.status === "resolved") await pushToRoom(x.id, { type: "conversation", status: "open" });
+	const { hasAutoAi, notifyInboxChange } = await import("./inbox-live");
+	await notifyInboxChange(x.organization_id, {
+		kind: "chat",
+		conversation_id: x.id,
+		channel: "chat",
+		subject: x.subject,
+		contact: x.visitor_name ?? x.visitor_email ?? x.contact,
+		unread: true,
+	});
+	if (await hasAutoAi(x.organization_id)) {
+		const { maybeAutoRespond } = await import("./ai");
+		await maybeAutoRespond(x.organization_id, x.id, now);
+	}
 	const { inboxEvent } = await import("./conversations");
 	const about = {
 		id: x.id,
@@ -1799,6 +1812,12 @@ async function afterTeamLine(
 		{ type: "message", message: teamView(line, links) },
 	);
 	await pushToRoom(x.id, { type: "typing", role: "team", on: false });
+	const { notifyInboxChange } = await import("./inbox-live");
+	await notifyInboxChange(x.organization_id, {
+		kind: "reply",
+		conversation_id: x.id,
+		channel: "chat",
+	});
 	await logInbox(actor, {
 		brandId: x.organization_id,
 		inboxId: x.inbox_id,

@@ -114,6 +114,12 @@ function mailroomChat(c) {
 		"While you wait, these may help:": "Mientras tanto, esto puede ayudarle:",
 		"All help articles": "Todos los artículos de ayuda",
 		"Help center": "Centro de ayuda",
+		Messages: "Mensajes",
+		Help: "Ayuda",
+		"Search for help…": "Buscar ayuda…",
+		"No articles found": "No se encontraron artículos",
+		"Open full page": "Abrir página completa",
+		"Still need help? Send us a message": "¿Aún necesita ayuda? Escríbanos",
 	};
 	/** The server's errors, by code (its messages are in English). */
 	var ES_ERRORS = {
@@ -423,6 +429,16 @@ function mailroomChat(c) {
 			".btn.wide{width:100%;display:flex;gap:8px;align-items:center;justify-content:center}.btn.ghost{background:var(--soft);color:var(--text)}" +
 			// Past conversations
 			".hist{flex:1;display:none;flex-direction:column;min-height:0;background:var(--bg)}.histv .hist{display:flex}.histv .body,.histv .foot{display:none}" +
+			".helpv{flex:1;display:none;flex-direction:column;min-height:0;background:var(--bg)}.helpm .helpv{display:flex}.helpm .body,.helpm .foot,.helpm .hist{display:none}" +
+			".hsearch{padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel)}" +
+			".hsearch input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text);font:inherit;font-size:13px;outline:none}" +
+			".hsearch input:focus{border-color:var(--accent)}" +
+			".hbody{flex:1;overflow:auto;padding:12px 14px;font-size:13.5px;line-height:1.6;white-space:pre-wrap;word-break:break-word;color:var(--text)}" +
+			".hcat{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:4px}" +
+			".htitle{font-size:16px;font-weight:600;margin:0 0 10px;color:var(--text)}" +
+			".tabs{display:none;border-top:1px solid var(--line);background:var(--panel);flex-shrink:0}.hashelp .tabs{display:grid;grid-template-columns:1fr 1fr}" +
+			".tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:8px 4px;border:0;background:none;color:var(--muted);font:inherit;font-size:11px;font-weight:500;cursor:pointer;transition:color .12s}" +
+			".tab:hover{color:var(--text)}.tab.on{color:var(--accent)}" +
 			".hh{display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--line);font-size:15px;background:var(--panel)}.hh .hb{color:var(--text)}.hh .hb:hover{background:var(--soft)}" +
 			".hl{flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:2px;overscroll-behavior:contain}" +
 			".hi{display:flex;gap:12px;align-items:center;width:100%;padding:10px;border-radius:12px;text-align:left}.hi:hover,.hi.cur{background:var(--soft)}.hi .av{width:36px;height:36px}" +
@@ -851,6 +867,30 @@ function mailroomChat(c) {
 	var foot = h("div", { class: "foot" }, [form, note, fileInput]);
 	// The visitor's other conversations (the ⋯ menu), in place of this one.
 	var historyEl = h("div", { class: "hist" });
+	var helpEl = h("div", { class: "helpv" });
+	var tabMsg = h(
+		"button",
+		{
+			type: "button",
+			class: "tab on",
+			onclick: () => {
+				showMessagesTab();
+			},
+		},
+		[h("span", { html: svg(ICON.chat, 18) }), h("span", { text: T("Messages") })],
+	);
+	var tabHelp = h(
+		"button",
+		{
+			type: "button",
+			class: "tab",
+			onclick: () => {
+				showHelpTab();
+			},
+		},
+		[h("span", { html: svg(ICON.help, 18) }), h("span", { text: T("Help") })],
+	);
+	var tabsBar = h("nav", { class: "tabs", "aria-label": "Messenger" }, [tabMsg, tabHelp]);
 	var panel = h(
 		"div",
 		{
@@ -859,8 +899,9 @@ function mailroomChat(c) {
 			"aria-label": cfg.title + " chat",
 			"aria-modal": "false",
 		},
-		[head, menu, body, historyEl, foot, drop],
+		[head, menu, body, historyEl, helpEl, foot, tabsBar, drop],
 	);
+	if (cfg.help) panel.classList.add("hashelp");
 	root.appendChild(nudge);
 	root.appendChild(panel);
 	root.appendChild(launcher);
@@ -1972,6 +2013,163 @@ function mailroomChat(c) {
 		historyEl.textContent = "";
 		scrollDown();
 	}
+
+	// ── In-widget Help Center (Intercom-style searchable & readable Help tab) ──
+
+	var helpTimer = null;
+	var helpCache = null;
+	function showMessagesTab() {
+		panel.classList.remove("helpm");
+		tabMsg.classList.add("on");
+		tabHelp.classList.remove("on");
+		scrollDown();
+	}
+	function showHelpTab() {
+		hideHistory();
+		panel.classList.add("helpm");
+		tabHelp.classList.add("on");
+		tabMsg.classList.remove("on");
+		renderHelpList("");
+	}
+	function renderHelpList(initialQ) {
+		helpEl.textContent = "";
+		var searchIn = h("input", {
+			type: "search",
+			value: initialQ || "",
+			placeholder: T("Search for help…"),
+			"aria-label": T("Search for help…"),
+		});
+		var listEl = h("div", { class: "hl" }, [
+			h("div", { class: "hempty", text: T("Loading…") }),
+		]);
+		helpEl.appendChild(h("div", { class: "hsearch" }, [searchIn]));
+		helpEl.appendChild(listEl);
+		helpEl.appendChild(
+			h("div", { class: "hf" }, [
+				h(
+					"button",
+					{
+						type: "button",
+						class: "btn wide",
+						onclick: () => {
+							showMessagesTab();
+							input.focus();
+						},
+					},
+					[T("Still need help? Send us a message")],
+				),
+			]),
+		);
+		function fetchArticles(q) {
+			if (!q && helpCache) return draw(helpCache);
+			if (cfg.preview) {
+				var sample = [
+					{
+						id: "p1",
+						category: "Getting started",
+						title: "How billing & plans work",
+						description: "Upgrade, downgrade, or download invoices anytime.",
+						text: "You can manage your subscription and download PDF invoices from Settings at any time.",
+						url: cfg.help ? cfg.help.url : "#",
+					},
+				];
+				return draw(sample);
+			}
+			api("GET", "/articles?limit=10" + (q ? "&q=" + encodeURIComponent(q) : ""))
+				.then((r) => {
+					var rows = (r && r.articles) || [];
+					if (!q) helpCache = rows;
+					draw(rows);
+				})
+				.catch(() => {
+					listEl.textContent = "";
+					listEl.appendChild(h("div", { class: "hempty", text: T("No articles found") }));
+				});
+		}
+		function draw(rows) {
+			listEl.textContent = "";
+			if (!rows.length) {
+				listEl.appendChild(h("div", { class: "hempty", text: T("No articles found") }));
+				return;
+			}
+			rows.forEach((a) => {
+				listEl.appendChild(
+					h(
+						"button",
+						{
+							type: "button",
+							class: "hi",
+							onclick: () => {
+								renderHelpArticle(a, searchIn.value);
+							},
+						},
+						[
+							h("span", { class: "hx" }, [
+								h("b", { text: a.title }),
+								h("small", {
+									text: a.description || a.category || "",
+								}),
+							]),
+						],
+					),
+				);
+			});
+		}
+		searchIn.addEventListener("input", () => {
+			clearTimeout(helpTimer);
+			var q = searchIn.value.trim();
+			helpTimer = setTimeout(() => fetchArticles(q), 200);
+		});
+		fetchArticles(initialQ || "");
+	}
+	function renderHelpArticle(article, prevQ) {
+		helpEl.textContent = "";
+		helpEl.appendChild(
+			h("div", { class: "hh" }, [
+				h("button", {
+					class: "hb",
+					type: "button",
+					"aria-label": T("Back"),
+					html: svg(ICON.back, 20),
+					onclick: () => renderHelpList(prevQ),
+				}),
+				h("b", { text: article.category || T("Help center") }),
+			]),
+		);
+		var content = h("div", { class: "hbody" }, [
+			article.category ? h("div", { class: "hcat", text: article.category }) : null,
+			h("h3", { class: "htitle", text: article.title }),
+			h("div", { text: article.text || article.description || "" }),
+			article.url
+				? h("div", { style: "margin-top:14px" }, [
+						h("a", {
+							class: "link",
+							href: article.url,
+							target: "_blank",
+							rel: "noopener noreferrer",
+							text: T("Open full page") + " ↗",
+						}),
+					])
+				: null,
+		]);
+		helpEl.appendChild(content);
+		helpEl.appendChild(
+			h("div", { class: "hf" }, [
+				h(
+					"button",
+					{
+						type: "button",
+						class: "btn wide",
+						onclick: () => {
+							showMessagesTab();
+							input.focus();
+						},
+					},
+					[T("Still need help? Send us a message")],
+				),
+			]),
+		);
+	}
 	function openPast(x, tokens) {
 		if (cfg.preview || (state.conversation && x.id === state.conversation.id))
 			return hideHistory();
@@ -2100,7 +2298,7 @@ function mailroomChat(c) {
 				icon: ICON.help,
 				text: T("Help center"),
 				run: () => {
-					window.open(cfg.help.url, "_blank", "noopener");
+					showHelpTab();
 				},
 			});
 		if (cfg.newsletter)

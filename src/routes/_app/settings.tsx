@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { AccessLogCard } from "@/components/access-log-card";
+import { AiSettingsCard } from "@/components/ai-settings-card";
 import { ArchiveCard } from "@/components/archive-card";
 import { DigestCard } from "@/components/digest-card";
 import { FirewallCard, FirewallsOverview } from "@/components/firewall-card";
@@ -174,6 +175,7 @@ function Settings() {
 				>
 					<Organization canManage={canManage} />
 					<OrgLogoCard canManage={canManage} />
+					<AiSettingsCard canEdit={canManage} />
 				</TabsContent>
 				<TabsContent
 					value="team"

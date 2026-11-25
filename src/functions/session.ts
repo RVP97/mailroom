@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
-import { and, asc, eq, isNotNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { isOrgHandle } from "@/lib/org-handle";
 import { memberAccess } from "@/server/access";
 import { auth } from "@/server/auth";
@@ -86,17 +86,43 @@ export const getMe = createServerFn({ method: "GET" })
 			: [];
 		// Paused domains, for the banner that says why sending stopped.
 		const d = schema.domains;
-		const pausedDomains = active
-			? await db
-					.select({ id: d.id, name: d.name, reason: d.paused_reason })
-					.from(d)
-					.where(
-						and(inScope(d.organization_id, { org: active.id }), isNotNull(d.paused_at)),
-					)
-					.limit(20)
-			: [];
+		const brandIds = brands.map((b) => b.id);
+		const reader = `user:${context.userId}`;
+		const nowIso = new Date().toISOString();
+		const cv = schema.conversations;
+		const [pausedDomains, unreadRow] = active
+			? await Promise.all([
+					db
+						.select({ id: d.id, name: d.name, reason: d.paused_reason })
+						.from(d)
+						.where(
+							and(
+								inScope(d.organization_id, { org: active.id }),
+								isNotNull(d.paused_at),
+							),
+						)
+						.limit(20),
+					brandIds.length
+						? db
+								.select({ n: sql<number>`count(*)` })
+								.from(cv)
+								.where(
+									and(
+										inArray(cv.organization_id, brandIds),
+										eq(cv.status, "open"),
+										sql`(${cv.snoozed_until} IS NULL OR ${cv.snoozed_until} <= ${nowIso})`,
+										sql`${cv.last_inbound_at} IS NOT NULL`,
+										sql`${cv.last_inbound_at} > coalesce((SELECT r.read_at FROM ${schema.conversationReads} r WHERE r.conversation_id = "conversations"."id" AND r.reader = ${reader}), '')`,
+									),
+								)
+								.get()
+								.catch(() => ({ n: 0 }))
+						: Promise.resolve({ n: 0 }),
+				])
+			: [[], { n: 0 }];
 		return {
 			pausedDomains,
+			inboxUnread: Number(unreadRow?.n ?? 0),
 			user: { id: context.userId, email: context.email, name: context.name },
 			isAdmin: context.isAdmin,
 			organizations: orgs,

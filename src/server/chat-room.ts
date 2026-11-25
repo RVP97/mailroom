@@ -15,9 +15,15 @@ interface Attached {
 	role: ChatRole;
 	/** Who it is, for "Ana is typing…" (a team member's first name; the visitor's own name). */
 	name: string;
-	/** A team member's photo (https), shown by "typing…". */
+	/** A team member's user id (for collision detection across teammates). */
+	userId?: string | null;
+	/** A team member's photo (https), shown by "typing…" and viewer avatars. */
 	avatar?: string | null;
 	conversation: string;
+	/** Which conversation this team member currently has open (in the org inbox hub). */
+	viewing?: string | null;
+	/** Which conversation this team member is actively typing a reply in. */
+	typingIn?: string | null;
 	/** A team member without emails:unmasked: runs of 4+ digits in text arrive as dots. */
 	masked?: boolean;
 }
@@ -75,6 +81,34 @@ export class ChatRoom extends DurableObject {
 		}
 	}
 
+	private teamViewers(except?: WebSocket) {
+		const byUser = new Map<
+			string,
+			{
+				userId: string;
+				name: string;
+				avatar: string | null;
+				viewing: string | null;
+				typingIn: string | null;
+			}
+		>();
+		for (const ws of this.sockets("team", except)) {
+			try {
+				const a = ws.deserializeAttachment() as Attached | null;
+				if (!a?.userId) continue;
+				const prev = byUser.get(a.userId);
+				byUser.set(a.userId, {
+					userId: a.userId,
+					name: a.name || prev?.name || "Teammate",
+					avatar: a.avatar ?? prev?.avatar ?? null,
+					viewing: a.viewing ?? prev?.viewing ?? null,
+					typingIn: a.typingIn ?? prev?.typingIn ?? null,
+				});
+			} catch {}
+		}
+		return [...byUser.values()];
+	}
+
 	/** A socket of the visitor's or the team's (the Worker checked who it is). */
 	async fetch(request: Request): Promise<Response> {
 		if (request.headers.get("upgrade")?.toLowerCase() !== "websocket")
@@ -82,6 +116,7 @@ export class ChatRoom extends DurableObject {
 		const role = request.headers.get("x-chat-role") === "team" ? "team" : "visitor";
 		const attached: Attached = {
 			role,
+			userId: role === "team" ? (request.headers.get("x-chat-user") ?? null) : null,
 			name: (() => {
 				const raw = request.headers.get("x-chat-name") ?? "";
 				try {
@@ -95,6 +130,8 @@ export class ChatRoom extends DurableObject {
 				return role === "team" && /^https:\/\/\S{1,1000}$/.test(a) ? a : null;
 			})(),
 			conversation: request.headers.get("x-chat-conversation") ?? "",
+			viewing: null,
+			typingIn: null,
 			masked: role === "team" && request.headers.get("x-chat-masked") !== "0",
 		};
 		const pair = new WebSocketPair();
@@ -106,10 +143,16 @@ export class ChatRoom extends DurableObject {
 				type: "hello",
 				visitor_online: this.sockets("visitor", server).length > 0,
 				team_online: this.sockets("team", server).length > 0,
+				...(role === "team" ? { viewers: this.teamViewers() } : {}),
 			}),
 		);
 		if (role === "visitor")
 			this.send(this.sockets("team"), { type: "presence", visitor: true });
+		else if (attached.userId)
+			this.send(this.sockets("team", server), {
+				type: "presence.list",
+				viewers: this.teamViewers(),
+			});
 		return new Response(null, { status: 101, webSocket: client });
 	}
 
@@ -135,7 +178,7 @@ export class ChatRoom extends DurableObject {
 
 	async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
 		if (typeof message !== "string" || message.length > 2000) return;
-		let m: { type?: unknown; on?: unknown; text?: unknown };
+		let m: { type?: unknown; on?: unknown; text?: unknown; conversation?: unknown };
 		try {
 			m = JSON.parse(message);
 		} catch {
@@ -143,6 +186,29 @@ export class ChatRoom extends DurableObject {
 		}
 		const me = ws.deserializeAttachment() as Attached | null;
 		if (!me) return;
+		// Org-level inbox hub: track which conversation each teammate is viewing or replying in.
+		if (me.role === "team" && m.type === "view") {
+			const conv = typeof m.conversation === "string" ? m.conversation.slice(0, 80) : null;
+			const next: Attached = {
+				...me,
+				viewing: conv,
+				typingIn: me.typingIn === conv ? me.typingIn : null,
+			};
+			ws.serializeAttachment(next);
+			this.send(this.sockets("team"), { type: "presence.list", viewers: this.teamViewers() });
+			return;
+		}
+		if (me.role === "team" && m.type === "typing" && typeof m.conversation === "string") {
+			const conv = m.conversation.slice(0, 80);
+			const next: Attached = {
+				...me,
+				viewing: conv,
+				typingIn: m.on === true ? conv : null,
+			};
+			ws.serializeAttachment(next);
+			this.send(this.sockets("team"), { type: "presence.list", viewers: this.teamViewers() });
+			return;
+		}
 		const other: ChatRole = me.role === "visitor" ? "team" : "visitor";
 		if (m.type === "typing") {
 			this.send(this.sockets(other), {
@@ -175,6 +241,11 @@ export class ChatRoom extends DurableObject {
 			this.send(this.sockets("team"), { type: "presence", visitor: still });
 			if (!still)
 				this.send(this.sockets("team"), { type: "typing", role: "visitor", on: false });
+		} else if (me?.role === "team" && me.userId) {
+			this.send(this.sockets("team", ws), {
+				type: "presence.list",
+				viewers: this.teamViewers(ws),
+			});
 		}
 	}
 

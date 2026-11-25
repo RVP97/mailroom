@@ -224,6 +224,10 @@ export default withSentry(sentryOptions, {
 			const { handleTeamLive } = await import("./server/chat-public");
 			return secured(await handleTeamLive(request));
 		}
+		if (url.pathname === "/inbox-live") {
+			const { handleInboxLive } = await import("./server/inbox-live");
+			return secured(await handleInboxLive(request));
+		}
 		const page = await publicPage(request, url);
 		if (page) return page;
 		// A received email's attachment, from the signed link the API gives (src/server/inbound.ts).

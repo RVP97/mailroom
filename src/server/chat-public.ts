@@ -308,19 +308,48 @@ export async function handleChat(request: Request, now = Date.now()): Promise<Re
 				return json({ conversations }, { headers });
 			}
 			case "GET articles": {
-				// The help center's answers to what the visitor wrote (before a person answers).
-				const q = (url.searchParams.get("q") ?? "").slice(0, 500);
-				const { searchArticles, articleUrl } = await import("./help-center");
+				// The help center's answers to what the visitor wrote or searched in the Help tab.
+				const q = (url.searchParams.get("q") ?? "").trim().slice(0, 500);
+				const record = url.searchParams.get("record") === "1";
+				const max = Math.min(
+					Math.max(Number(url.searchParams.get("limit")) || (record ? 3 : 10), 1),
+					12,
+				);
+				const { searchArticles, listArticles, helpCenterOf, articleUrl } = await import(
+					"./help-center"
+				);
+				if (!q) {
+					const [center, rows] = await Promise.all([
+						helpCenterOf(w.inbox.organization_id),
+						listArticles([w.inbox.organization_id], { status: "published" }),
+					]);
+					return json(
+						{
+							articles: rows.slice(0, max).map((a) => ({
+								id: a.id,
+								title: a.title,
+								category: a.category,
+								description: a.description,
+								text: a.text.slice(0, 6000),
+								url: articleUrl(center, a),
+							})),
+						},
+						{ headers },
+					);
+				}
 				const { center, results } = await searchArticles(w.inbox.organization_id, q, {
-					limit: 3,
-					gap: url.searchParams.get("record") === "1" ? "chat" : undefined,
+					limit: max,
+					gap: record ? "chat" : undefined,
 					now,
 				});
 				return json(
 					{
 						articles: results.map((a) => ({
+							id: a.id,
 							title: a.title,
+							category: a.category,
 							description: a.description,
+							text: a.text.slice(0, 6000),
 							url: articleUrl(center, a),
 						})),
 					},

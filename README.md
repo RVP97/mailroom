@@ -72,7 +72,7 @@ An organization that should be fully apart can optionally use its own SES accoun
 [2. Cloudflare](#2-cloudflare) · [3. First sign-in](#3-first-sign-in) ·
 [4. Smoke test](#4-smoke-test) · [When something goes wrong](#when-something-goes-wrong)) ·
 [Configuration](#configuration) · [Optional extras](#optional-extras) · [Sending](#sending) ·
-[Development](#development) · [License](#license)
+[Development](#development) ([Local guide](docs/local-development.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)) · [License](#license)
 
 ## Features
 

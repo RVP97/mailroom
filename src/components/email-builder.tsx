@@ -26,6 +26,7 @@ import {
 	Paintbrush,
 	Plus,
 	Quote,
+	Redo2,
 	Share2,
 	Smartphone,
 	Sparkles,
@@ -33,6 +34,7 @@ import {
 	Trash2,
 	Type,
 	Underline,
+	Undo2,
 	Upload,
 	Vote,
 } from "lucide-react";
@@ -383,11 +385,38 @@ export function EmailBuilder({
 	const sections = useSections();
 	const docRef = useRef(doc);
 	docRef.current = doc;
+	const historyRef = useRef<{ past: EmailDoc[]; future: EmailDoc[] }>({ past: [], future: [] });
+	const [, bumpHistory] = useState(0);
+	const commit = (next: EmailDoc) => {
+		historyRef.current.past = [
+			...historyRef.current.past.slice(-59),
+			structuredClone(docRef.current),
+		];
+		historyRef.current.future = [];
+		bumpHistory((n) => n + 1);
+		onChange(next);
+	};
+	const canUndo = historyRef.current.past.length > 0;
+	const canRedo = historyRef.current.future.length > 0;
+	const undo = () => {
+		const prev = historyRef.current.past.pop();
+		if (!prev) return;
+		historyRef.current.future.push(structuredClone(docRef.current));
+		bumpHistory((n) => n + 1);
+		onChange(prev);
+	};
+	const redo = () => {
+		const next = historyRef.current.future.pop();
+		if (!next) return;
+		historyRef.current.past.push(structuredClone(docRef.current));
+		bumpHistory((n) => n + 1);
+		onChange(next);
+	};
 	const setBlocks = (fn: (b: Block[]) => Block[]) =>
-		onChange({ ...docRef.current, blocks: fn(docRef.current.blocks) });
+		commit({ ...docRef.current, blocks: fn(docRef.current.blocks) });
 	const patch = (id: string, p: Partial<Block>) => setBlocks((b) => updateBlock(b, id, p));
 	const setTheme = (p: Partial<Theme>) =>
-		onChange({ ...docRef.current, theme: { ...docRef.current.theme, ...p } });
+		commit({ ...docRef.current, theme: { ...docRef.current.theme, ...p } });
 
 	const onDrop = (e: DragEvent, spot: Spot) => {
 		e.preventDefault();
@@ -421,11 +450,21 @@ export function EmailBuilder({
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
 			const target = e.target as HTMLElement | null;
-			if (
+			const editing =
 				target?.isContentEditable ||
-				/^(INPUT|TEXTAREA|SELECT)$/.test(target?.tagName ?? "")
-			)
+				/^(INPUT|TEXTAREA|SELECT)$/.test(target?.tagName ?? "");
+			if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && !editing) {
+				e.preventDefault();
+				if (e.shiftKey) redo();
+				else undo();
 				return;
+			}
+			if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "y" && !editing) {
+				e.preventDefault();
+				redo();
+				return;
+			}
+			if (editing) return;
 			if (e.key === "Escape") select(null);
 			if ((e.key === "Backspace" || e.key === "Delete") && selected) {
 				e.preventDefault();
@@ -483,6 +522,30 @@ export function EmailBuilder({
 						<ArrowLeft />
 					</Button>
 					<span className="min-w-0 truncate text-[15px] font-semibold">{title}</span>
+					<div className="flex items-center gap-0.5">
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-sm"
+							aria-label="Undo"
+							title="Undo (⌘Z)"
+							disabled={!canUndo}
+							onClick={undo}
+						>
+							<Undo2 className="size-4" />
+						</Button>
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-sm"
+							aria-label="Redo"
+							title="Redo (⇧⌘Z)"
+							disabled={!canRedo}
+							onClick={redo}
+						>
+							<Redo2 className="size-4" />
+						</Button>
+					</div>
 					<span className="flex-1" />
 					<div className="flex items-center gap-0.5 rounded-lg bg-muted p-0.5">
 						{(["edit", "preview"] as const).map((m) => (

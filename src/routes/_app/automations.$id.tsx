@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { MoreHorizontal, Pause, Play, Trash2, Workflow, X } from "lucide-react";
+import { FlaskConical, MoreHorizontal, Pause, Play, Trash2, Workflow, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ApiDrawer } from "@/components/api-drawer";
@@ -19,6 +19,15 @@ import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+	Dialog,
+	DialogBody,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -44,6 +53,7 @@ import {
 	deleteAutomationFn,
 	getAutomationFn,
 	saveAutomationFn,
+	simulateAutomationFn,
 } from "@/functions/automations";
 import {
 	blank,
@@ -261,6 +271,27 @@ function AutomationPage() {
 	const dirty = JSON.stringify(toFields(form)) !== JSON.stringify(toFields(savedForm()));
 	const [busy, setBusy] = useState<"save" | "status" | null>(null);
 	const [deleting, setDeleting] = useState(false);
+	const [dryOpen, setDryOpen] = useState(false);
+	const [dryEmail, setDryEmail] = useState("");
+	const [dryBusy, setDryBusy] = useState(false);
+	const [dryResult, setDryResult] = useState<Awaited<
+		ReturnType<typeof simulateAutomationFn>
+	> | null>(null);
+	const runDry = async () => {
+		if (!dryEmail.trim()) return;
+		setDryBusy(true);
+		try {
+			setDryResult(
+				await simulateAutomationFn({
+					data: { automation: saved.id, email: dryEmail.trim() },
+				}),
+			);
+		} catch (error) {
+			toast.error(await errorMessage(error));
+		} finally {
+			setDryBusy(false);
+		}
+	};
 	const [selected, setSelected] = useState<string | null>(null);
 	const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => ({ ...f, [k]: v }));
 	const setStep = (key: string, change: Partial<Step>) =>
@@ -490,6 +521,13 @@ function AutomationPage() {
 					title={saved.name}
 					actions={
 						<>
+							<Button
+								variant="outline"
+								onClick={() => setDryOpen(true)}
+							>
+								<FlaskConical />
+								Dry run
+							</Button>
 							{canManage && (
 								<>
 									<Button
@@ -566,6 +604,110 @@ function AutomationPage() {
 					}
 				/>
 			</div>
+			<Dialog
+				open={dryOpen}
+				onOpenChange={setDryOpen}
+			>
+				<DialogContent className="sm:max-w-lg">
+					<DialogHeader>
+						<DialogTitle>Dry-run this automation</DialogTitle>
+						<DialogDescription>
+							Trace which branches and steps a contact would take right now. No emails
+							are sent and no contact data changes.
+						</DialogDescription>
+					</DialogHeader>
+					<form
+						className="contents"
+						onSubmit={(e) => {
+							e.preventDefault();
+							void runDry();
+						}}
+					>
+						<DialogBody className="flex flex-col gap-4">
+							<Field>
+								<FieldLabel htmlFor="dry-email">Contact email</FieldLabel>
+								<div className="flex gap-2">
+									<Input
+										id="dry-email"
+										type="email"
+										required
+										placeholder="customer@example.com"
+										value={dryEmail}
+										onChange={(e) => setDryEmail(e.target.value)}
+									/>
+									<Button
+										type="submit"
+										disabled={dryBusy || !dryEmail.trim()}
+									>
+										{dryBusy ? <Spinner /> : <FlaskConical />}
+										Trace
+									</Button>
+								</div>
+								<FieldDescription>
+									Uses the saved steps. Save any edits first to trace them.
+								</FieldDescription>
+							</Field>
+							{dryResult && (
+								<div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3 text-sm">
+									<div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+										<span className="font-medium text-foreground">
+											{dryResult.contact.email}
+										</span>
+										<span>
+											·{" "}
+											{dryResult.contact.exists
+												? "Existing contact"
+												: "Simulated (not in contacts)"}
+										</span>
+										{dryResult.contact.unsubscribed && (
+											<span className="text-destructive">· Unsubscribed</span>
+										)}
+										{dryResult.contact.quiet && (
+											<span className="text-warning">· Quiet / paused</span>
+										)}
+									</div>
+									{dryResult.steps.length === 0 ? (
+										<p className="text-xs text-muted-foreground">
+											No steps yet.
+										</p>
+									) : (
+										<ol className="flex flex-col gap-1.5">
+											{dryResult.steps.map((s) => (
+												<li
+													key={s.step}
+													className="flex items-start gap-2 text-xs"
+												>
+													<span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-[11px]">
+														{s.step}
+													</span>
+													<span className="min-w-0 flex-1 pt-0.5">
+														{s.detail}
+													</span>
+												</li>
+											))}
+										</ol>
+									)}
+									<p className="border-t pt-2 text-xs font-medium">
+										Result:{" "}
+										{dryResult.outcome === "complete"
+											? "Reaches end of flow"
+											: "Exits early"}
+									</p>
+								</div>
+							)}
+						</DialogBody>
+						<DialogFooter>
+							<Button
+								type="button"
+								variant="ghost"
+								onClick={() => setDryOpen(false)}
+							>
+								Close
+							</Button>
+						</DialogFooter>
+					</form>
+				</DialogContent>
+			</Dialog>
 			<Confirm
 				open={deleting}
 				onOpenChange={setDeleting}
