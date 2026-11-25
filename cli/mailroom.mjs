@@ -11,6 +11,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { parseArgs } from "node:util";
 import { parseCsv } from "./csv.mjs";
+import { pullTemplates, pushTemplates, startDevServer } from "./dev-and-sync.mjs";
 
 const HELP = `mailroom <command> [options]
 
@@ -21,7 +22,8 @@ const HELP = `mailroom <command> [options]
   email       <id>                                               one email, with its events
   received    [--search <q>] [--limit <n>]                       the latest received emails
   tail        [--received] [--every <seconds>]                   new emails as they happen
-  templates                                                      the templates
+  templates   [pull|push] [--dir <path>] [--publish]             list, pull to disk, or push templates
+  dev         [--port <4025>]                                    local email catcher + preview inbox UI
   contacts    [--search <q>] [--segment <id>] [--limit <n>]      contacts
   import      <file.csv> [--segment <id>] [--topic <id>]         add or update contacts from a CSV
   broadcasts                                                     broadcasts and their state
@@ -29,7 +31,7 @@ const HELP = `mailroom <command> [options]
   status                                                         can it send right now
   archive     [--kind emails|bodies|received] [--get <key>]      the long-term archive in R2
 
-Environment: MAILROOM_API_KEY (required), MAILROOM_URL (default http://localhost:3000).
+Environment: MAILROOM_API_KEY (required except for dev), MAILROOM_URL (default http://localhost:3000).
 The CSV's first row names the columns: email (required), first_name, last_name, unsubscribed,
 and anything else goes to the contact's properties.`;
 
@@ -60,6 +62,9 @@ const { values: o, positionals } = parseArgs({
 		kind: { type: "string" },
 		get: { type: "string" },
 		marketing: { type: "boolean" },
+		dir: { type: "string" },
+		publish: { type: "boolean" },
+		port: { type: "string" },
 		help: { type: "boolean", short: "h" },
 	},
 });
@@ -242,7 +247,28 @@ const commands = {
 		}
 	},
 
-	async templates() {
+	async templates(sub) {
+		const dir = o.dir || "./mailroom-templates";
+		if (sub === "pull") {
+			const res = await pullTemplates(api, dir);
+			return print(res, () => {
+				console.log(
+					`Pulled ${res.count} template${res.count === 1 ? "" : "s"} to ${res.dir}`,
+				);
+				for (const t of res.templates)
+					console.log(`  ${t.file}.html + ${t.file}.json  (${t.name})`);
+			});
+		}
+		if (sub === "push") {
+			const res = await pushTemplates(api, dir, { publish: !!o.publish });
+			return print(res, () => {
+				console.log(
+					`Pushed ${res.count} template${res.count === 1 ? "" : "s"} from ${res.dir}`,
+				);
+				for (const t of res.templates)
+					console.log(`  ${pad(t.action, 18)}  ${t.file}  (${t.id})`);
+			});
+		}
 		const r = await api("GET", "/templates");
 		print(r, () =>
 			table(r.data, [
@@ -253,6 +279,16 @@ const commands = {
 				[(t) => t.id, 40],
 			]),
 		);
+	},
+
+	async dev() {
+		const port = Math.max(1024, Math.min(65535, Number(o.port) || 4025));
+		await startDevServer({ port });
+		console.log(`Mailroom dev inbox running at http://localhost:${port}`);
+		console.log(
+			`Set MAILROOM_URL=http://localhost:${port} (or RESEND_BASE_URL=http://localhost:${port}/api)`,
+		);
+		await new Promise(() => {});
 	},
 
 	async contacts() {

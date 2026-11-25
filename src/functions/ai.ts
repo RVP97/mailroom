@@ -4,7 +4,10 @@ import {
 	AI_AUTO_MODES,
 	AI_PROVIDERS,
 	AI_TONES,
+	aiAssistEmailCopy,
+	aiDraftHelpArticle,
 	aiSettingsView,
+	aiTranslateHelpArticle,
 	clearAiSettings,
 	draftReplyWithAi,
 	getAiSettings,
@@ -75,4 +78,60 @@ export const aiPolishFn = createServerFn({ method: "POST" })
 	)
 	.handler(({ data, context }) =>
 		call(() => polishReplyWithAi(context.organizationId, data.text, data.tone)),
+	);
+
+export const aiEmailAssistFn = createServerFn({ method: "POST" })
+	.middleware([orgMiddleware])
+	.validator(
+		z.object({
+			mode: z.enum(["subjects", "rewrite", "spam_check"]),
+			subject: z.string().max(300).optional(),
+			body: z.string().min(1).max(12_000),
+			instruction: z.string().max(500).optional(),
+		}),
+	)
+	.handler(({ data, context }) => call(() => aiAssistEmailCopy(context.organizationId, data)));
+
+export const aiDraftHelpArticleFn = createServerFn({ method: "POST" })
+	.middleware([can("help:edit")])
+	.validator(
+		z.object({
+			brand: z.string().optional(),
+			question: z.string().min(2).max(400),
+		}),
+	)
+	.handler(({ data, context }) =>
+		call(async () => {
+			const { brandIn } = await import("@/server/brands");
+			const brand = data.brand
+				? await brandIn(context.organizationId, data.brand)
+				: context.organizationId;
+			return aiDraftHelpArticle(context.organizationId, brand, data.question);
+		}),
+	);
+
+export const aiTranslateHelpArticleFn = createServerFn({ method: "POST" })
+	.middleware([can("help:edit")])
+	.validator(
+		z.object({
+			title: z.string().min(1).max(160),
+			description: z.string().max(300).nullable().optional(),
+			category: z.string().max(60).nullable().optional(),
+			html: z.string().max(500_000),
+			locale: z.string().min(2).max(16),
+		}),
+	)
+	.handler(({ data, context }) =>
+		call(() =>
+			aiTranslateHelpArticle(
+				context.organizationId,
+				{
+					title: data.title,
+					description: data.description,
+					category: data.category,
+					html: data.html,
+				},
+				data.locale,
+			),
+		),
 	);

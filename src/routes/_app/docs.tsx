@@ -3,6 +3,7 @@ import { ArrowUpRight, KeyRound, RotateCw } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Method } from "@/components/api-drawer";
+import { ApiPlayground } from "@/components/api-playground";
 import { BrandFilter } from "@/components/brand-filter";
 import { CodeBlock, CodeTabs } from "@/components/code-block";
 import { Confirm } from "@/components/confirm";
@@ -24,8 +25,8 @@ import { useMe } from "@/lib/me";
 import { allows } from "@/lib/permissions";
 import { listedRow, Sketch, useOpened, usePage } from "@/lib/sketch";
 
-type Tab = "api" | "endpoints" | "smtp" | "webhooks";
-const TABS: Tab[] = ["api", "endpoints", "smtp", "webhooks"];
+type Tab = "api" | "playground" | "endpoints" | "smtp" | "webhooks";
+const TABS: Tab[] = ["api", "playground", "endpoints", "smtp", "webhooks"];
 
 export const Route = createFileRoute("/_app/docs")({
 	validateSearch: (s: Record<string, unknown>): { tab?: Tab; brand?: string } => ({
@@ -450,6 +451,7 @@ function Docs() {
 						className="justify-start gap-5 overflow-x-auto [scrollbar-width:none] *:after:bottom-0"
 					>
 						<TabsTrigger value="api">API</TabsTrigger>
+						<TabsTrigger value="playground">Playground</TabsTrigger>
 						<TabsTrigger value="endpoints">Endpoints</TabsTrigger>
 						<TabsTrigger value="smtp">SMTP</TabsTrigger>
 						<TabsTrigger value="webhooks">Webhooks</TabsTrigger>
@@ -552,6 +554,14 @@ function Docs() {
 							</li>
 						</Notes>
 					</Section>
+				</TabsContent>
+				<TabsContent
+					value="playground"
+					className={PANEL}
+				>
+					<ApiPlayground
+						origin={typeof window === "undefined" ? "" : window.location.origin}
+					/>
 				</TabsContent>
 				<TabsContent
 					value="endpoints"

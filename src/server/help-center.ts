@@ -133,6 +133,20 @@ export async function saveHelpCenter(
 
 // ── Articles ────────────────────────────────────────────────────────────────
 
+const localeCode = z
+	.string()
+	.trim()
+	.toLowerCase()
+	.regex(/^[a-z]{2}(?:-[a-z]{2})?$/, "locale: a language code like en, es, fr, pt-br");
+
+const translationEntry = z.object({
+	title: z.string().trim().min(1).max(160),
+	description: z.string().trim().max(300).nullish(),
+	category: z.string().trim().max(60).nullish(),
+	design: z.unknown().nullish(),
+	html: z.string().max(500_000).optional(),
+});
+
 export const articleInput = z.object({
 	title: z.string().trim().min(1, "title: give it a title").max(160),
 	description: z.string().trim().max(300).nullish(),
@@ -142,10 +156,36 @@ export const articleInput = z.object({
 	design: z.unknown().nullish(),
 	html: z.string().max(500_000).optional(),
 	status: z.enum(["draft", "published"]).optional(),
+	locale: localeCode.optional(),
+	translations: z.record(localeCode, translationEntry.nullable()).optional(),
 });
 
-export function articleUrl(c: Pick<HelpCenter, "slug"> | null, a: Pick<HelpArticle, "slug">) {
-	return c ? `${helpUrl(c.slug)}/${a.slug}` : null;
+export type HelpTranslation = NonNullable<HelpArticle["translations"]>[string];
+
+export function localizeArticle(a: HelpArticle, lang?: string | null): HelpArticle {
+	const wanted = (lang ?? "").trim().toLowerCase();
+	if (!wanted || wanted === (a.locale || "en")) return a;
+	const tr = a.translations?.[wanted] ?? a.translations?.[wanted.split("-")[0] ?? ""];
+	if (!tr) return a;
+	return {
+		...a,
+		title: tr.title || a.title,
+		description: tr.description ?? a.description,
+		category: tr.category ?? a.category,
+		html: tr.html || a.html,
+		text: tr.text || a.text,
+		locale: wanted,
+	};
+}
+
+export function articleUrl(
+	c: Pick<HelpCenter, "slug"> | null,
+	a: Pick<HelpArticle, "slug">,
+	lang?: string | null,
+) {
+	if (!c) return null;
+	const base = `${helpUrl(c.slug)}/${a.slug}`;
+	return lang ? `${base}?lang=${encodeURIComponent(lang)}` : base;
 }
 
 export const articleView = (a: HelpArticle, c: HelpCenter | null, full = true) => ({
@@ -156,6 +196,11 @@ export const articleView = (a: HelpArticle, c: HelpCenter | null, full = true) =
 	description: a.description,
 	category: a.category,
 	slug: a.slug,
+	locale: a.locale || "en",
+	locales: [
+		a.locale || "en",
+		...Object.keys(a.translations ?? {}).filter((l) => l !== (a.locale || "en")),
+	],
 	status: a.status as "draft" | "published",
 	url: a.status === "published" && c?.enabled ? articleUrl(c, a) : null,
 	views: a.views,
@@ -164,7 +209,14 @@ export const articleView = (a: HelpArticle, c: HelpCenter | null, full = true) =
 	published_at: a.published_at,
 	created_at: a.created_at,
 	updated_at: a.updated_at,
-	...(full ? { design: a.design ?? null, html: a.html, text: a.text } : {}),
+	...(full
+		? {
+				design: a.design ?? null,
+				html: a.html,
+				text: a.text,
+				translations: a.translations ?? {},
+			}
+		: {}),
 });
 
 export async function listArticles(
@@ -235,6 +287,33 @@ async function freeArticleSlug(brand: string, base: string, self?: string) {
 	return `${base}-${crypto.randomUUID().slice(0, 6)}`;
 }
 
+function mergeTranslations(
+	was: HelpArticle["translations"],
+	incoming: z.infer<typeof articleInput>["translations"],
+	primaryLocale: string,
+	now: number,
+): HelpArticle["translations"] {
+	if (!incoming) return was ?? null;
+	const next: Record<string, HelpTranslation> = { ...(was ?? {}) };
+	for (const [loc, entry] of Object.entries(incoming)) {
+		if (loc === primaryLocale || entry === null) {
+			delete next[loc];
+			continue;
+		}
+		const html = (entry.html ?? "").replace(/\{\{\{?[^{}]*\}?\}\}/g, "");
+		next[loc] = {
+			title: entry.title,
+			description: entry.description || null,
+			category: entry.category || null,
+			design: entry.design ? (parseDoc(entry.design) ?? null) : (next[loc]?.design ?? null),
+			html,
+			text: htmlToText(html).replace(/\s+/g, " ").trim().slice(0, 20_000),
+			updated_at: iso(now),
+		};
+	}
+	return Object.keys(next).length ? next : null;
+}
+
 export async function createArticle(
 	brand: string,
 	raw: unknown,
@@ -244,6 +323,7 @@ export async function createArticle(
 	const v = articleInput.parse(raw);
 	const c = contentOf(v);
 	const status = v.status ?? "draft";
+	const locale = v.locale ?? "en";
 	const [row] = await db
 		.insert(ha)
 		.values({
@@ -253,6 +333,8 @@ export async function createArticle(
 			title: v.title,
 			description: v.description || null,
 			category: v.category || null,
+			locale,
+			translations: mergeTranslations(null, v.translations, locale, now),
 			...c,
 			status,
 			published_at: status === "published" ? iso(now) : null,
@@ -276,12 +358,17 @@ export async function updateArticle(brand: string, ref: string, raw: unknown, no
 	const slug =
 		v.slug && v.slug !== was.slug ? await freeArticleSlug(brand, v.slug, was.id) : undefined;
 	if (slug && slug !== v.slug) throw new ApiError(409, "slug_taken", `${v.slug} is taken here`);
+	const locale = v.locale ?? was.locale ?? "en";
 	const [row] = await db
 		.update(ha)
 		.set({
 			...(v.title !== undefined ? { title: v.title } : {}),
 			...(v.description !== undefined ? { description: v.description || null } : {}),
 			...(v.category !== undefined ? { category: v.category || null } : {}),
+			...(v.locale !== undefined ? { locale } : {}),
+			...(v.translations !== undefined
+				? { translations: mergeTranslations(was.translations, v.translations, locale, now) }
+				: {}),
 			...(slug ? { slug } : {}),
 			...c,
 			...(v.status !== undefined
@@ -371,14 +458,16 @@ function rank(rows: HelpArticle[], q: string) {
 export async function searchArticles(
 	brand: string,
 	q: string,
-	o: { limit?: number; gap?: "chat" | "search"; now?: number } = {},
+	o: { limit?: number; gap?: "chat" | "search"; now?: number; lang?: string | null } = {},
 ) {
 	const c = await helpCenterOf(brand);
 	if (!c?.enabled) return { center: c, results: [] as HelpArticle[] };
-	const rows = await db
-		.select()
-		.from(ha)
-		.where(and(eq(ha.organization_id, brand), eq(ha.status, "published")));
+	const rows = (
+		await db
+			.select()
+			.from(ha)
+			.where(and(eq(ha.organization_id, brand), eq(ha.status, "published")))
+	).map((a) => localizeArticle(a, o.lang));
 	const results = rank(rows, q)
 		.slice(0, o.limit ?? 5)
 		.map((r) => r.a);
@@ -497,29 +586,49 @@ const CSS = `.hc{max-width:760px;margin:0 auto;padding:40px 16px 72px}
 .hc .vote button{font:500 14px var(--font);color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:var(--r-btn);padding:8px 16px;cursor:pointer}
 .hc .vote button:hover{border-color:var(--mute)}`;
 
-function listHtml(c: HelpCenter, rows: HelpArticle[]) {
+function listHtml(c: HelpCenter, rows: HelpArticle[], lang?: string | null) {
 	return `<div class="list">${rows
 		.map(
 			(a) =>
-				`<a href="${esc(articleUrl(c, a) ?? "#")}"><b>${esc(a.title)}</b>${a.description ? `<span>${esc(a.description)}</span>` : ""}</a>`,
+				`<a href="${esc(articleUrl(c, a, lang) ?? "#")}"><b>${esc(a.title)}</b>${a.description ? `<span>${esc(a.description)}</span>` : ""}</a>`,
 		)
 		.join("")}</div>`;
 }
 
-async function homePage(c: HelpCenter, q: string) {
+function langBar(locales: string[], active: string, baseUrl: string) {
+	if (locales.length <= 1) return "";
+	return `<div style="display:flex;gap:6px;margin:0 0 18px;flex-wrap:wrap">${locales
+		.map((loc) => {
+			const on = loc === active;
+			const href = `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}lang=${encodeURIComponent(loc)}`;
+			return `<a href="${esc(href)}" style="padding:4px 10px;border-radius:999px;font:600 12px var(--font);text-transform:uppercase;text-decoration:none;border:1px solid ${on ? "var(--accent)" : "var(--line)"};background:${on ? "var(--accent)" : "var(--card)"};color:${on ? "#fff" : "var(--ink)"}">${esc(loc)}</a>`;
+		})
+		.join("")}</div>`;
+}
+
+async function homePage(c: HelpCenter, q: string, lang: string | null) {
 	const d = await dress(c);
-	const rows = await db
+	const rawRows = await db
 		.select()
 		.from(ha)
 		.where(and(eq(ha.organization_id, c.organization_id), eq(ha.status, "published")))
 		.orderBy(asc(ha.category), asc(ha.title));
+	const allLocales = [
+		...new Set(
+			rawRows.flatMap((a) => [a.locale || "en", ...Object.keys(a.translations ?? {})]),
+		),
+	];
+	const activeLang = lang && allLocales.includes(lang) ? lang : (allLocales[0] ?? "en");
+	const rows = rawRows.map((a) => localizeArticle(a, activeLang));
+	const switcher = langBar(allLocales, activeLang, helpUrl(c.slug));
 	let body: string;
 	if (q) {
 		const { results } = await searchArticles(c.organization_id, q, {
 			limit: 20,
 			gap: "search",
+			lang: activeLang,
 		});
-		body = `<h2>${results.length ? `Results for “${esc(q)}”` : `Nothing for “${esc(q)}” yet`}</h2>${results.length ? listHtml(c, results) : `<p class="none">Try other words, or write to us.</p>`}`;
+		body = `<h2>${results.length ? `Results for “${esc(q)}”` : `Nothing for “${esc(q)}” yet`}</h2>${results.length ? listHtml(c, results, lang) : `<p class="none">Try other words, or write to us.</p>`}`;
 	} else {
 		const groups = new Map<string, HelpArticle[]>();
 		for (const a of rows) {
@@ -529,7 +638,7 @@ async function homePage(c: HelpCenter, q: string) {
 		body = rows.length
 			? [...groups]
 					.sort(([x], [y]) => (x === "" ? 1 : y === "" ? -1 : x.localeCompare(y)))
-					.map(([k, list]) => `<h2>${esc(k || "More")}</h2>${listHtml(c, list)}`)
+					.map(([k, list]) => `<h2>${esc(k || "More")}</h2>${listHtml(c, list, lang)}`)
 					.join("")
 			: `<p class="none">No articles yet.</p>`;
 	}
@@ -537,19 +646,34 @@ async function homePage(c: HelpCenter, q: string) {
 		title: c.title,
 		head: `${c.intro ? `<meta name="description" content="${esc(c.intro)}">` : ""}<link rel="canonical" href="${esc(helpUrl(c.slug))}">`,
 		css: CSS,
-		body: `${dressBar(d)}<main class="hc"><h1>${esc(c.title)}</h1>${c.intro ? `<p class="lead">${esc(c.intro)}</p>` : ""}<form class="s" method="get" action="${esc(helpUrl(c.slug))}"><input type="search" name="q" value="${esc(q)}" placeholder="Search the articles" aria-label="Search the articles"><button class="mrw-btn" type="submit">Search</button></form>${body}</main>`,
+		body: `${dressBar(d)}<main class="hc">${switcher}<h1>${esc(c.title)}</h1>${c.intro ? `<p class="lead">${esc(c.intro)}</p>` : ""}<form class="s" method="get" action="${esc(helpUrl(c.slug))}">${lang ? `<input type="hidden" name="lang" value="${esc(lang)}">` : ""}<input type="search" name="q" value="${esc(q)}" placeholder="Search the articles" aria-label="Search the articles"><button class="mrw-btn" type="submit">Search</button></form>${body}</main>`,
 	});
 }
 
-async function articlePage(c: HelpCenter, a: HelpArticle, voted: string | null) {
+async function articlePage(
+	c: HelpCenter,
+	rawArticle: HelpArticle,
+	voted: string | null,
+	lang: string | null,
+) {
+	const locales = [
+		rawArticle.locale || "en",
+		...Object.keys(rawArticle.translations ?? {}).filter(
+			(l) => l !== (rawArticle.locale || "en"),
+		),
+	];
+	const activeLang = lang && locales.includes(lang) ? lang : rawArticle.locale || "en";
+	const a = localizeArticle(rawArticle, activeLang);
 	const d = await dress(c);
-	const url = articleUrl(c, a) ?? "";
+	const url = articleUrl(c, rawArticle) ?? "";
+	const switcher = langBar(locales, activeLang, url);
 	const vote =
 		voted === "yes" || voted === "no"
 			? `<div class="vote">Thanks for telling us.</div>`
 			: `<div class="vote">Did this answer your question?<form method="post" action="${esc(url)}/vote"><input type="hidden" name="v" value="yes"><button type="submit">Yes</button></form><form method="post" action="${esc(url)}/vote"><input type="hidden" name="v" value="no"><button type="submit">No</button></form></div>`;
 	const head = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(a.title)} · ${esc(c.title)}</title>${a.description ? `<meta name="description" content="${esc(a.description)}"><meta property="og:description" content="${esc(a.description)}">` : ""}<meta property="og:title" content="${esc(a.title)}"><meta property="og:type" content="article"><link rel="canonical" href="${esc(url)}">${dressFonts(d)}<style>${dressCss(d)}\n${CSS}\n.hc.top{padding-bottom:0}.hc.end{padding-top:0}</style>`;
-	const top = `${dressBar(d)}<div class="mrw hc top"><div class="crumb"><a href="${esc(helpUrl(c.slug))}">${esc(c.title)}</a>${a.category ? ` · ${esc(a.category)}` : ""}</div><h1>${esc(a.title)}</h1>${a.description ? `<p class="lead">${esc(a.description)}</p>` : ""}</div>`;
+	const homeHref = lang ? `${helpUrl(c.slug)}?lang=${encodeURIComponent(lang)}` : helpUrl(c.slug);
+	const top = `${dressBar(d)}<div class="mrw hc top">${switcher}<div class="crumb"><a href="${esc(homeHref)}">${esc(c.title)}</a>${a.category ? ` · ${esc(a.category)}` : ""}</div><h1>${esc(a.title)}</h1>${a.description ? `<p class="lead">${esc(a.description)}</p>` : ""}</div>`;
 	const end = `<div class="mrw hc end">${vote}</div>`;
 	// The article is the email's own page (as a newsletter issue's web version is), with the help
 	// center's bar, title and vote around it.
@@ -565,18 +689,20 @@ async function articlePage(c: HelpCenter, a: HelpArticle, voted: string | null) 
 		.replace(/<\/body>/i, `${end}</body>`);
 }
 
-/** /help/<center>[?q=], /help/<center>/<article> and its /vote. */
+/** /help/<center>[?q=&lang=], /help/<center>/<article>[?lang=] and its /vote. */
 export async function handleHelpPage(request: Request): Promise<Response> {
 	const u = new URL(request.url);
 	const m = /^\/help\/([a-z0-9-]{1,64})(?:\/([a-z0-9-]{1,80})(\/vote)?)?\/?$/.exec(u.pathname);
 	if (!m?.[1]) return missing();
 	const c = await db.select().from(hc).where(eq(hc.slug, m[1])).get();
 	if (!c?.enabled || !shownHere(c.organization_id)) return missing();
+	const rawLang = (u.searchParams.get("lang") ?? "").trim().toLowerCase();
+	const lang = /^[a-z]{2}(?:-[a-z]{2})?$/.test(rawLang) ? rawLang : null;
 	if (!m[2]) {
 		if (request.method !== "GET" && request.method !== "HEAD")
 			return new Response("Method not allowed", { status: 405 });
 		const q = (u.searchParams.get("q") ?? "").trim().slice(0, 200);
-		return page(await homePage(c, q), 200, q ? "no-store" : "public, max-age=120");
+		return page(await homePage(c, q, lang), 200, q ? "no-store" : "public, max-age=120");
 	}
 	const a = await db
 		.select()
@@ -612,5 +738,5 @@ export async function handleHelpPage(request: Request): Promise<Response> {
 			.update(ha)
 			.set({ views: sql`${ha.views} + 1` })
 			.where(eq(ha.id, a.id));
-	return page(await articlePage(c, a, u.searchParams.get("voted")), 200, "no-store");
+	return page(await articlePage(c, a, u.searchParams.get("voted"), lang), 200, "no-store");
 }

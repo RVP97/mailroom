@@ -6,6 +6,7 @@ import {
 	MessageCircleQuestion,
 	Plus,
 	Settings2,
+	Sparkles,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -48,6 +49,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { aiDraftHelpArticleFn } from "@/functions/ai";
 import {
 	deleteArticleFn,
 	dismissGapFn,
@@ -450,7 +452,17 @@ function HelpCenterPage() {
 											</span>
 										</TableCell>
 										<TableCell className="hidden truncate text-sm text-muted-foreground md:table-cell">
-											{a.category ?? "—"}
+											<span className="inline-flex items-center gap-1.5">
+												<span>{a.category ?? "—"}</span>
+												{a.locales.length > 1 && (
+													<Badge
+														variant="outline"
+														className="h-5 px-1.5 text-[10px] uppercase"
+													>
+														{a.locales.join(" · ")}
+													</Badge>
+												)}
+											</span>
 										</TableCell>
 										<TableCell>
 											<Badge
@@ -519,7 +531,11 @@ function HelpCenterPage() {
 									</p>
 								</div>
 								{canEdit && (
-									<div className="flex gap-2">
+									<div className="flex flex-wrap gap-2">
+										<AiDraftFromGapButton
+											brand={g.brand_id || search.brand}
+											question={g.question}
+										/>
 										<NewArticle
 											brand={search.brand}
 											title={g.question.slice(0, 160)}
@@ -550,5 +566,47 @@ function HelpCenterPage() {
 				)}
 			</Card>
 		</Page>
+	);
+}
+
+function AiDraftFromGapButton({ brand, question }: { brand?: string; question: string }) {
+	const router = useRouter();
+	const [busy, setBusy] = useState(false);
+	return (
+		<Button
+			variant="outline"
+			size="sm"
+			disabled={busy}
+			onClick={async () => {
+				setBusy(true);
+				try {
+					const draft = await aiDraftHelpArticleFn({
+						data: { brand, question },
+					});
+					const created = await saveArticleFn({
+						data: {
+							brand,
+							fields: {
+								title: draft.title,
+								description: draft.description,
+								category: draft.category,
+								html: draft.html,
+								status: "draft",
+							},
+						},
+					});
+					toast.success("AI draft created — review before publishing");
+					await router.invalidate();
+					await router.navigate({ to: "/articles/$id", params: { id: created.id } });
+				} catch (error) {
+					toast.error(await errorMessage(error));
+				} finally {
+					setBusy(false);
+				}
+			}}
+		>
+			{busy ? <Spinner className="size-3.5" /> : <Sparkles className="size-3.5 text-brand" />}
+			Draft with AI
+		</Button>
 	);
 }

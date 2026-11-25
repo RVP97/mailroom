@@ -2075,7 +2075,12 @@ function mailroomChat(c) {
 				];
 				return draw(sample);
 			}
-			api("GET", "/articles?limit=10" + (q ? "&q=" + encodeURIComponent(q) : ""))
+			api(
+				"GET",
+				"/articles?limit=10" +
+					(lang ? "&lang=" + encodeURIComponent(lang) : "") +
+					(q ? "&q=" + encodeURIComponent(q) : ""),
+			)
 				.then((r) => {
 					var rows = (r && r.articles) || [];
 					if (!q) helpCache = rows;
@@ -2831,7 +2836,13 @@ function mailroomChat(c) {
 	}
 	function suggest(text) {
 		if (!cfg.help || !text || cfg.preview) return;
-		api("GET", "/articles?record=1&q=" + encodeURIComponent(String(text).slice(0, 500)))
+		api(
+			"GET",
+			"/articles?record=1" +
+				(lang ? "&lang=" + encodeURIComponent(lang) : "") +
+				"&q=" +
+				encodeURIComponent(String(text).slice(0, 500)),
+		)
 			.then((r) => {
 				if (!r.articles || !r.articles.length || answered()) return;
 				suggested = r.articles;

@@ -88,8 +88,45 @@ export async function notifyInboxChange(
 		const orgId = await organizationOf(brandId);
 		if (!orgId) return;
 		await pushToRoom(hubId(orgId), { type: "inbox.changed", ...detail });
+		if (detail.unread && (detail.kind === "chat" || detail.kind === "inbound")) {
+			const hasAlert = await hasAlertChannel(orgId);
+			if (hasAlert) {
+				const { dispatchTeamAlert } = await import("./team-alerts");
+				const event = detail.kind === "chat" ? "chat.started" : "inbox.inbound";
+				await dispatchTeamAlert(brandId, event, {
+					title:
+						detail.kind === "chat"
+							? `New live chat${detail.contact ? ` from ${detail.contact}` : ""}`
+							: `New email: ${detail.subject || "(no subject)"}`,
+					body:
+						detail.kind === "chat"
+							? detail.subject || "A visitor sent a message in live chat."
+							: detail.contact
+								? `From ${detail.contact}`
+								: undefined,
+					path: detail.conversation_id
+						? `/received/${detail.conversation_id}`
+						: "/received",
+					severity: "info",
+				});
+			}
+		}
 	} catch {
 		// Best effort: never fail the caller after the write succeeded.
+	}
+}
+
+/** Fast check so inbound email/chat skips importing team-alerts.ts when no channel exists. */
+async function hasAlertChannel(orgId: string): Promise<boolean> {
+	try {
+		const row = await db
+			.select({ id: schema.orgAlertChannels.id })
+			.from(schema.orgAlertChannels)
+			.where(eq(schema.orgAlertChannels.organization_id, orgId))
+			.get();
+		return Boolean(row);
+	} catch {
+		return false;
 	}
 }
 

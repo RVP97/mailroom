@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gt, inArray, notExists, sql } from "drizzle-orm";
 import { z } from "zod";
-import { parseDoc, renderEmail } from "../lib/email-doc";
+import { hasBlockConditions, parseDoc, renderEmail } from "../lib/email-doc";
 import { fill, htmlToText } from "../lib/template-fill";
 import { LOCAL, localSpan, validZone, zonedInstant } from "../lib/zoned";
 import { bareAddress } from "./aws/mime";
@@ -898,7 +898,29 @@ export async function broadcastContent(email: {
 	const escaped = Object.fromEntries(
 		Object.entries(values).map(([k, v]) => [k, v == null ? v : escapeHtml(String(v))]),
 	);
-	let html = x.html ? fill(x.html, escaped) : undefined;
+	let baseHtml = x.html;
+	if (x.design && hasBlockConditions(x.design)) {
+		const contactSegments = contact
+			? (
+					await db
+						.select({
+							id: schema.contactSegments.segment_id,
+							name: schema.segments.name,
+						})
+						.from(schema.contactSegments)
+						.innerJoin(
+							schema.segments,
+							eq(schema.segments.id, schema.contactSegments.segment_id),
+						)
+						.where(eq(schema.contactSegments.contact_id, contact.id))
+				).flatMap((r) => [r.id, r.name])
+			: [];
+		baseHtml = renderEmail(x.design, {
+			title: x.subject,
+			context: { values, segments: contactSegments },
+		});
+	}
+	let html = baseHtml ? fill(baseHtml, escaped) : undefined;
 	if (html && x.campaign_id) {
 		const { tagLinks, utmOf } = await import("./campaigns");
 		const utm = await utmOf(x.campaign_id);

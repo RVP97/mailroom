@@ -15,6 +15,7 @@ import { Page, PageHeader } from "@/components/page";
 import { OrganizationLimitsCard } from "@/components/sending-limits";
 import { SesAccountCard } from "@/components/ses-account-card";
 import { ApprovalCard, MembersCard, RolesCard } from "@/components/team";
+import { TeamAlertsCard } from "@/components/team-alerts-card";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -176,6 +177,7 @@ function Settings() {
 					<Organization canManage={canManage} />
 					<OrgLogoCard canManage={canManage} />
 					<AiSettingsCard canEdit={canManage} />
+					<TeamAlertsCard canEdit={canManage} />
 				</TabsContent>
 				<TabsContent
 					value="team"

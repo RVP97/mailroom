@@ -84,6 +84,7 @@ export function useInboxLive(
 						window.dispatchEvent(
 							new CustomEvent("mailroom:inbox-unread", { detail: { delta: 1 } }),
 						);
+						notifyBrowserOfInboxEvent(change);
 					}
 					clearTimeout(refreshTimer);
 					refreshTimer = setTimeout(() => onChangeRef.current?.(change), 250);
@@ -127,4 +128,83 @@ export function useInboxLive(
 export function broadcastUnreadCount(count: number) {
 	if (typeof window === "undefined") return;
 	window.dispatchEvent(new CustomEvent("mailroom:inbox-unread", { detail: { count } }));
+}
+
+const NOTIFY_KEY = "mailroom:inbox-notify";
+const SOUND_KEY = "mailroom:inbox-sound";
+
+export function readNotificationPrefs() {
+	if (typeof window === "undefined") return { desktop: false, sound: false };
+	try {
+		return {
+			desktop: localStorage.getItem(NOTIFY_KEY) === "1",
+			sound: localStorage.getItem(SOUND_KEY) === "1",
+		};
+	} catch {
+		return { desktop: false, sound: false };
+	}
+}
+
+export function writeNotificationPrefs(prefs: { desktop?: boolean; sound?: boolean }) {
+	if (typeof window === "undefined") return;
+	try {
+		if (prefs.desktop !== undefined)
+			localStorage.setItem(NOTIFY_KEY, prefs.desktop ? "1" : "0");
+		if (prefs.sound !== undefined) localStorage.setItem(SOUND_KEY, prefs.sound ? "1" : "0");
+	} catch {}
+}
+
+function playChime() {
+	try {
+		const Ctx =
+			window.AudioContext ||
+			(window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+		if (!Ctx) return;
+		const ctx = new Ctx();
+		const osc = ctx.createOscillator();
+		const gain = ctx.createGain();
+		osc.type = "sine";
+		osc.frequency.setValueAtTime(660, ctx.currentTime);
+		osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.09);
+		gain.gain.setValueAtTime(0.06, ctx.currentTime);
+		gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.22);
+		osc.connect(gain);
+		gain.connect(ctx.destination);
+		osc.start();
+		osc.stop(ctx.currentTime + 0.23);
+		setTimeout(() => void ctx.close(), 350);
+	} catch {}
+}
+
+function notifyBrowserOfInboxEvent(ev: InboxChangeEvent) {
+	if (typeof window === "undefined") return;
+	if (ev.kind !== "chat" && ev.kind !== "inbound") return;
+	const prefs = readNotificationPrefs();
+	if (prefs.sound) playChime();
+	if (
+		prefs.desktop &&
+		typeof Notification !== "undefined" &&
+		Notification.permission === "granted" &&
+		document.hidden
+	) {
+		const title =
+			ev.kind === "chat"
+				? `New live chat${ev.contact ? ` · ${ev.contact}` : ""}`
+				: `New email${ev.contact ? ` · ${ev.contact}` : ""}`;
+		const n = new Notification(title, {
+			body: ev.subject || "Open Mailroom Inbox to reply",
+			tag: ev.conversation_id ? `mr:${ev.conversation_id}` : "mr:inbox",
+		});
+		n.onclick = () => {
+			window.focus();
+			if (ev.conversation_id) {
+				window.dispatchEvent(
+					new CustomEvent("mailroom:inbox-select", {
+						detail: { conversationId: ev.conversation_id },
+					}),
+				);
+			}
+			n.close();
+		};
+	}
 }

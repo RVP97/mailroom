@@ -8,6 +8,21 @@ import { scaleLinks } from "./survey-scale";
 
 export type Align = "left" | "center" | "right";
 
+export type ConditionOp = "eq" | "neq" | "contains" | "exists" | "not_exists";
+
+/** Conditional visibility rule evaluated per contact at send time (e.g. show only to plan=pro). */
+export type BlockCondition = {
+	/** Contact property key (e.g. "plan", "FIRST_NAME", "contact.plan") or "segment". */
+	field: string;
+	op: ConditionOp;
+	value?: string;
+};
+
+export type BlockEvalContext = {
+	values?: Record<string, string | number | null | undefined>;
+	segments?: Set<string> | string[];
+};
+
 type Base = {
 	id: string;
 	/**
@@ -15,6 +30,8 @@ type Base = {
 	 * blocks in a row with the same one make one band. Null or missing: the email's own color.
 	 */
 	bg?: string | null;
+	/** Optional per-contact visibility condition (evaluated at send time). */
+	show_if?: BlockCondition | null;
 };
 
 /** How a logo shows: as it is, on a rounded square, or in a circle. */
@@ -374,12 +391,94 @@ function leaf(raw: Record<string, unknown>): LeafBlock | null {
 	}
 }
 
-/** A block of the email itself, with its band color if it has one. */
+const CONDITION_OPS = new Set<ConditionOp>(["eq", "neq", "contains", "exists", "not_exists"]);
+
+function cleanCondition(raw: unknown): BlockCondition | null {
+	if (!raw || typeof raw !== "object") return null;
+	const r = raw as Record<string, unknown>;
+	const field = typeof r.field === "string" ? r.field.trim().slice(0, 80) : "";
+	const op =
+		typeof r.op === "string" && CONDITION_OPS.has(r.op as ConditionOp)
+			? (r.op as ConditionOp)
+			: null;
+	if (!field || !op) return null;
+	const value = typeof r.value === "string" ? r.value.trim().slice(0, 200) : "";
+	return op === "exists" || op === "not_exists" ? { field, op } : { field, op, value };
+}
+
+/** True when a block's `show_if` condition holds for the recipient's values & segments. */
+export function evaluateBlockCondition(
+	cond: BlockCondition | null | undefined,
+	ctx?: BlockEvalContext,
+): boolean {
+	if (!cond || !ctx) return true;
+	const field = cond.field.trim();
+	const target = (cond.value ?? "").trim().toLowerCase();
+	if (field.toLowerCase() === "segment") {
+		const segs = ctx.segments
+			? new Set([...ctx.segments].map((s) => s.toLowerCase()))
+			: new Set<string>();
+		if (cond.op === "exists") return segs.size > 0;
+		if (cond.op === "not_exists") return segs.size === 0;
+		const has = segs.has(target);
+		return cond.op === "neq" ? !has : has;
+	}
+	const vals = ctx.values ?? {};
+	const lookup =
+		vals[field] ??
+		vals[`contact.${field}`] ??
+		vals[field.replace(/^contact\./i, "")] ??
+		vals[field.toUpperCase()];
+	const strVal = lookup === null || lookup === undefined ? "" : String(lookup).trim();
+	const lower = strVal.toLowerCase();
+	switch (cond.op) {
+		case "exists":
+			return strVal.length > 0;
+		case "not_exists":
+			return strVal.length === 0;
+		case "eq":
+			return lower === target;
+		case "neq":
+			return lower !== target;
+		case "contains":
+			return target.length > 0 && lower.includes(target);
+	}
+}
+
+export function hasBlockConditions(doc: EmailDoc | null | undefined): boolean {
+	if (!doc?.blocks.length) return false;
+	return doc.blocks.some(
+		(b) =>
+			Boolean(b.show_if) ||
+			(b.type === "columns" && b.columns.some((col) => col.some((x) => Boolean(x.show_if)))),
+	);
+}
+
+export function filterDocForContact(doc: EmailDoc, ctx?: BlockEvalContext): EmailDoc {
+	if (!ctx || !hasBlockConditions(doc)) return doc;
+	const blocks: Block[] = [];
+	for (const b of doc.blocks) {
+		if (!evaluateBlockCondition(b.show_if, ctx)) continue;
+		if (b.type === "columns") {
+			const c0 = b.columns[0].filter((x) => evaluateBlockCondition(x.show_if, ctx));
+			const c1 = b.columns[1].filter((x) => evaluateBlockCondition(x.show_if, ctx));
+			if (!c0.length && !c1.length) continue;
+			blocks.push({ ...b, columns: [c0, c1] });
+		} else {
+			blocks.push(b);
+		}
+	}
+	return { ...doc, blocks };
+}
+
+/** A block of the email itself, with its band color and optional visibility rule. */
 function topBlock(raw: unknown): Block | null {
 	const b = block(raw);
 	if (!b) return null;
-	const bg = (raw as Record<string, unknown>).bg ? color((raw as { bg: unknown }).bg, "") : "";
-	return bg ? { ...b, bg } : b;
+	const r = raw as Record<string, unknown>;
+	const bg = r.bg ? color(r.bg, "") : "";
+	const show_if = cleanCondition(r.show_if);
+	return { ...b, ...(bg ? { bg } : {}), ...(show_if ? { show_if } : {}) };
 }
 
 function block(raw: unknown): Block | null {
@@ -390,9 +489,13 @@ function block(raw: unknown): Block | null {
 		const col = (c: unknown) =>
 			(Array.isArray(c) ? c : [])
 				.slice(0, 20)
-				.map((x) =>
-					x && typeof x === "object" ? leaf(x as Record<string, unknown>) : null,
-				)
+				.map((x) => {
+					if (!x || typeof x !== "object") return null;
+					const parsed = leaf(x as Record<string, unknown>);
+					if (!parsed) return null;
+					const show_if = cleanCondition((x as Record<string, unknown>).show_if);
+					return show_if ? { ...parsed, show_if } : parsed;
+				})
 				.filter((x): x is LeafBlock => !!x);
 		return {
 			id: typeof r.id === "string" && /^[\w-]{1,40}$/.test(r.id) ? r.id : rid(),
@@ -722,13 +825,14 @@ export function layoutOf(blocks: Block[], t: Theme) {
 }
 
 /** The whole email. */
-export function renderEmail(doc: EmailDoc, o: { title?: string } = {}) {
-	const t = doc.theme;
+export function renderEmail(doc: EmailDoc, o: { title?: string; context?: BlockEvalContext } = {}) {
+	const resolved = o.context ? filterDocForContact(doc, o.context) : doc;
+	const t = resolved.theme;
 	const fonts = [...new Set([t.font, t.heading_font])]
 		.map((k) => (FONTS[k] as { google?: string }).google)
 		.filter(Boolean);
 	const faces = fontFaceCss(t);
-	const layout = layoutOf(doc.blocks, t);
+	const layout = layoutOf(resolved.blocks, t);
 	// A band is one cell holding all its blocks: rows of one color side by side leave hairline
 	// seams when an inbox or a preview scales the email.
 	const runs: { bg: string | null; items: number[] }[] = [];
@@ -744,7 +848,7 @@ export function renderEmail(doc: EmailDoc, o: { title?: string } = {}) {
 				return items
 					.map((i) => {
 						const l = layout[i] as (typeof layout)[number];
-						return `<tr><td class="mr-pad" style="padding:${l.top}px ${t.padding}px ${l.bottom}px;">${blockInner(doc.blocks[i] as Block, t)}</td></tr>`;
+						return `<tr><td class="mr-pad" style="padding:${l.top}px ${t.padding}px ${l.bottom}px;">${blockInner(resolved.blocks[i] as Block, t)}</td></tr>`;
 					})
 					.join("\n");
 			const a = layout[items[0] as number] as (typeof layout)[number];
@@ -753,7 +857,7 @@ export function renderEmail(doc: EmailDoc, o: { title?: string } = {}) {
 			const inner = items
 				.map((i, k) => {
 					const top = k ? (layout[i] as (typeof layout)[number]).top : 0;
-					return `<tr><td style="padding:${top}px 0 0;">${blockInner(doc.blocks[i] as Block, bt)}</td></tr>`;
+					return `<tr><td style="padding:${top}px 0 0;">${blockInner(resolved.blocks[i] as Block, bt)}</td></tr>`;
 				})
 				.join("");
 			const corners = `border-radius:${a.first ? r : 0}px ${a.first ? r : 0}px ${z.last ? r : 0}px ${z.last ? r : 0}px;`;

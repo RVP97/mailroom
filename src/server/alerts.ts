@@ -176,6 +176,13 @@ async function notify(
 	const results = await Promise.allSettled(
 		to.map((address) => sendSystemEmail({ to: address, subject, ...body })),
 	);
+	const { dispatchTeamAlert } = await import("./team-alerts");
+	await dispatchTeamAlert(brand.id, "sending.alert", {
+		title: subject,
+		body: lines.join("\n\n"),
+		path: "/",
+		severity: level === "warning" ? "warning" : "danger",
+	});
 	if (to.length && results.every((r) => r.status === "rejected"))
 		throw (results[0] as PromiseRejectedResult).reason;
 }

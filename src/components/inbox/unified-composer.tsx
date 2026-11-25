@@ -5,6 +5,8 @@ import {
 	BookOpen,
 	ChevronDown,
 	CircleCheck,
+	Clock,
+	Eye,
 	Italic,
 	Link2,
 	List,
@@ -26,6 +28,7 @@ import {
 	useState,
 } from "react";
 import { toast } from "sonner";
+import { MacrosPopover } from "@/components/inbox/macros-popover";
 import { Avatar, PickMoment } from "@/components/inbox-triage";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -54,6 +57,8 @@ import {
 } from "@/functions/inboxes";
 import { errorMessage } from "@/lib/errors";
 import { formatDateTime } from "@/lib/format";
+import { useMe } from "@/lib/me";
+import { allows } from "@/lib/permissions";
 import { fillVariables } from "@/lib/reply-variables";
 import { cn } from "@/lib/utils";
 
@@ -209,8 +214,11 @@ export function UnifiedComposer({
 	onChatTyping?: (on: boolean) => void;
 }) {
 	const { conversation: c, compose, people, saved, articles, workflow, ai } = data;
+	const me = useMe();
+	const canManageMacros = allows(me.active?.access, "inbox:rules");
 	const isChat = c.channel === "chat";
 	const [mode, setMode] = useState<"reply" | "note">("reply");
+	const [previewHtml, setPreviewHtml] = useState(false);
 	const [from, setFrom] = useState(draft?.from ?? compose.from ?? "");
 	const [to, setTo] = useState((draft?.to ?? compose.to).join(", "));
 	const [cc, setCc] = useState((draft?.cc ?? []).join(", "));
@@ -444,7 +452,7 @@ export function UnifiedComposer({
 		};
 	};
 
-	const send = async (o: { at?: Date; resolve?: boolean } = {}) => {
+	const send = async (o: { at?: Date; resolve?: boolean; snooze?: Date } = {}) => {
 		if (!text.trim()) return;
 		if (mode === "note") {
 			setBusy("note");
@@ -477,6 +485,12 @@ export function UnifiedComposer({
 					() => {},
 				);
 				await onReload();
+			} else if (o.snooze) {
+				await updateConversationFn({
+					data: { id: c.id, snooze_until: o.snooze.toISOString() },
+				}).catch(() => {});
+				toast.success(`Snoozed until ${shortDate.format(o.snooze)}`);
+				await onReload();
 			}
 			return;
 		}
@@ -487,7 +501,13 @@ export function UnifiedComposer({
 			});
 			announceSend(sent, !!o.at, workflow.undo_seconds, onReload);
 			if (o.resolve) await updateConversationFn({ data: { id: c.id, status: "resolved" } });
+			else if (o.snooze) {
+				await updateConversationFn({
+					data: { id: c.id, snooze_until: o.snooze.toISOString() },
+				});
+			}
 			clear();
+			setPreviewHtml(false);
 			onDone?.();
 			await onReload();
 		} catch (error) {
@@ -696,6 +716,16 @@ export function UnifiedComposer({
 							>
 								<List className="size-3.5" />
 							</Button>
+							<Button
+								type="button"
+								variant={previewHtml ? "secondary" : "ghost"}
+								size="icon-sm"
+								title="Toggle formatted preview"
+								aria-label="Toggle formatted preview"
+								onClick={() => setPreviewHtml((v) => !v)}
+							>
+								<Eye className="size-3.5" />
+							</Button>
 						</div>
 					)}
 				</div>
@@ -879,29 +909,65 @@ export function UnifiedComposer({
 					</div>
 				)}
 
+				{/* Optional formatted email preview */}
+				{previewHtml && !isChat && !isNote && text.trim().length > 0 && (
+					<div className="mx-3 mt-2 rounded-md border border-border/70 bg-muted/20 p-2.5 text-sm">
+						<p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+							Formatted preview
+						</p>
+						<div
+							className="prose prose-sm max-w-none dark:prose-invert"
+							// biome-ignore lint/security/noDangerouslySetInnerHtml: markdownToEmailHtml escapes all HTML entities before wrapping tags
+							dangerouslySetInnerHTML={{
+								__html:
+									markdownToEmailHtml(text) ??
+									`<p>${text
+										.replace(/&/g, "&amp;")
+										.replace(/</g, "&lt;")
+										.replace(/>/g, "&gt;")
+										.replace(/\n/g, "<br>")}</p>`,
+							}}
+						/>
+					</div>
+				)}
+
 				{/* Attached files */}
 				{files.length > 0 && !isNote && (
 					<div className="flex flex-wrap gap-1.5 px-3 pt-1.5">
-						{files.map((f) => (
-							<span
-								key={f.id}
-								className="inline-flex h-7 items-center gap-1.5 rounded-md bg-muted px-2 text-xs"
-							>
-								<Paperclip className="size-3 text-muted-foreground" />
-								<span className="max-w-44 truncate">{f.filename}</span>
-								<span className="text-muted-foreground tabular-nums">
-									{Math.max(1, Math.round(f.size / 1024))} KB
-								</span>
-								<button
-									type="button"
-									aria-label={`Remove ${f.filename}`}
-									onClick={() => setFiles((l) => l.filter((x) => x.id !== f.id))}
-									className="text-muted-foreground hover:text-foreground"
+						{files.map((f) => {
+							const isImg =
+								Boolean(f.content) && Boolean(f.content_type?.startsWith("image/"));
+							return (
+								<span
+									key={f.id}
+									className="inline-flex h-8 items-center gap-1.5 rounded-md bg-muted px-2 text-xs"
 								>
-									<X className="size-3" />
-								</button>
-							</span>
-						))}
+									{isImg ? (
+										<img
+											src={`data:${f.content_type};base64,${f.content}`}
+											alt={f.filename}
+											className="size-5 rounded object-cover"
+										/>
+									) : (
+										<Paperclip className="size-3 text-muted-foreground" />
+									)}
+									<span className="max-w-44 truncate">{f.filename}</span>
+									<span className="text-muted-foreground tabular-nums">
+										{Math.max(1, Math.round(f.size / 1024))} KB
+									</span>
+									<button
+										type="button"
+										aria-label={`Remove ${f.filename}`}
+										onClick={() =>
+											setFiles((l) => l.filter((x) => x.id !== f.id))
+										}
+										className="text-muted-foreground hover:text-foreground"
+									>
+										<X className="size-3" />
+									</button>
+								</span>
+							);
+						})}
 					</div>
 				)}
 
@@ -932,6 +998,19 @@ export function UnifiedComposer({
 							<SavedPopover
 								saved={saved}
 								onPick={(s) => insertSaved(s)}
+							/>
+
+							<MacrosPopover
+								brandId={c.brand_id}
+								inboxId={c.inbox_id}
+								conversationId={c.id}
+								canManage={canManageMacros}
+								onInsertReply={(reply) => {
+									setMode("reply");
+									setText((cur) => (cur.trim() ? `${cur}\n\n${reply}` : reply));
+									requestAnimationFrame(() => box.current?.focus());
+								}}
+								onApplied={onReload}
 							/>
 
 							{articles.length > 0 && (
@@ -1117,6 +1196,27 @@ export function UnifiedComposer({
 												Send and resolve
 											</DropdownMenuItem>
 										)}
+										<DropdownMenuSeparator />
+										<DropdownMenuLabel>Send and snooze</DropdownMenuLabel>
+										{[
+											{
+												label: "4 hours",
+												at: new Date(Date.now() + 4 * 3_600_000),
+											},
+											{ label: "Tomorrow 9am", at: at9(1) },
+											{ label: "Next Monday", at: nextMonday() },
+										].map((s) => (
+											<DropdownMenuItem
+												key={s.label}
+												onSelect={() => void send({ snooze: s.at })}
+											>
+												<Clock className="size-3.5 text-muted-foreground" />
+												<span className="flex-1">{s.label}</span>
+												<span className="text-xs text-muted-foreground">
+													{shortDate.format(s.at)}
+												</span>
+											</DropdownMenuItem>
+										))}
 										{!isChat && (
 											<>
 												<DropdownMenuItem onSelect={() => void saveDraft()}>

@@ -87,6 +87,8 @@ const articleFields = z.object({
 	design: z.unknown().optional(),
 	html: z.string().optional(),
 	status: z.enum(["draft", "published"]).optional(),
+	locale: z.string().optional(),
+	translations: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const saveArticleFn = createServerFn({ method: "POST" })

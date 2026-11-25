@@ -51,6 +51,12 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { Choice, ColorField, Group, Labeled, SwitchRow } from "@/components/design-controls";
+import {
+	BlockVisibilityControl,
+	ConditionBadge,
+	EmailBuilderAiButton,
+	ImportMarkupButton,
+} from "@/components/email-builder-extras";
 import { LiveFrame } from "@/components/live-frame";
 import { Button } from "@/components/ui/button";
 import {
@@ -590,6 +596,18 @@ export function EmailBuilder({
 						))}
 					</div>
 					<span className="flex-1" />
+					<ImportMarkupButton
+						doc={doc}
+						onImport={(blocks, importMode) =>
+							setBlocks((cur) =>
+								importMode === "replace" ? blocks : [...cur, ...blocks],
+							)
+						}
+					/>
+					<EmailBuilderAiButton
+						doc={doc}
+						subject={subject}
+					/>
 					{actions}
 				</header>
 				<div className="flex min-h-0 flex-1">
@@ -995,6 +1013,11 @@ function BlockShell({
 							: "group-hover/block:shadow-[0_0_0_1px_rgba(59,130,246,.55)]",
 					)}
 				/>
+				{block.show_if && (
+					<div className="mb-1.5 flex justify-end">
+						<ConditionBadge condition={block.show_if} />
+					</div>
+				)}
 				{on && (
 					<div
 						className={cn(
@@ -2353,6 +2376,10 @@ function BlockPanel({ block: b }: { block: Block }) {
 					)}
 				</Group>
 			)}
+			<BlockVisibilityControl
+				condition={b.show_if}
+				onChange={(show_if) => set({ show_if })}
+			/>
 			{back}
 		</>
 	);

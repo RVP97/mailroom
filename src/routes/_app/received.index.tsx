@@ -28,6 +28,7 @@ import { z } from "zod";
 import { BrandFilter } from "@/components/brand-filter";
 import { type ConversationData, ConversationPane } from "@/components/inbox/conversation-pane";
 import { NewConversationDialog } from "@/components/inbox/inbox-dialogs";
+import { InboxNotificationToggle, SavedViewsSection } from "@/components/inbox/saved-views-rail";
 import { broadcastUnreadCount, useInboxLive } from "@/components/inbox/use-inbox-live";
 import { Avatar, PriorityFlag, SlaText, Stars, TagChip } from "@/components/inbox-triage";
 import { CopyText, TablePager } from "@/components/page";
@@ -384,6 +385,16 @@ function InboxWorkspace() {
 		return () => window.removeEventListener("keydown", onKey);
 	}, [selectedId, selectRow]);
 
+	// Clicking a browser desktop notification selects that conversation immediately.
+	useEffect(() => {
+		const onSelect = (e: Event) => {
+			const id = (e as CustomEvent<{ conversationId?: string }>).detail?.conversationId;
+			if (id) selectRow(id);
+		};
+		window.addEventListener("mailroom:inbox-select", onSelect);
+		return () => window.removeEventListener("mailroom:inbox-select", onSelect);
+	}, [selectRow]);
+
 	const toggleChecked = (id: string) => {
 		setChecked((prev) => {
 			const next = new Set(prev);
@@ -496,17 +507,20 @@ function InboxWorkspace() {
 							/>
 						)}
 					</div>
-					{canReply && (
-						<Button
-							size="icon-sm"
-							variant="outline"
-							aria-label="New conversation"
-							title="New conversation"
-							onClick={() => setComposeOpen(true)}
-						>
-							<Plus className="size-3.5" />
-						</Button>
-					)}
+					<div className="flex items-center gap-1">
+						{!sketching && <InboxNotificationToggle />}
+						{canReply && (
+							<Button
+								size="icon-sm"
+								variant="outline"
+								aria-label="New conversation"
+								title="New conversation"
+								onClick={() => setComposeOpen(true)}
+							>
+								<Plus className="size-3.5" />
+							</Button>
+						)}
+					</div>
 				</div>
 
 				<div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
@@ -565,6 +579,36 @@ function InboxWorkspace() {
 								);
 							})}
 					</div>
+
+					{/* Custom saved views */}
+					{!sketching && (
+						<SavedViewsSection
+							currentFilters={{
+								view: view !== "open" ? view : undefined,
+								brand: search.brand,
+								inbox: search.inbox,
+								tag: search.tag,
+								priority: search.priority,
+								assignee: search.assignee,
+								unread: search.unread,
+								q: search.q,
+							}}
+							hasActiveFilters={filtered}
+							onApply={(f) =>
+								to({
+									view: (f.view as View | undefined) ?? undefined,
+									status: undefined,
+									brand: f.brand,
+									inbox: f.inbox,
+									tag: f.tag,
+									priority: f.priority as (typeof PRIORITIES)[number] | undefined,
+									assignee: f.assignee,
+									unread: f.unread,
+									q: f.q,
+								})
+							}
+						/>
+					)}
 
 					{/* Inboxes */}
 					{page.inboxes.length > 0 && (

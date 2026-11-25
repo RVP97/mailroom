@@ -2385,6 +2385,23 @@ export const helpArticles = sqliteTable(
 		/** The words, for search. */
 		text: text("text").notNull().default(""),
 		status: text("status").notNull().default("draft"),
+		/** Primary language code (e.g. "en", "es"). */
+		locale: text("locale").notNull().default("en"),
+		/** Localized variants keyed by BCP-47 language tag. */
+		translations: text("translations", { mode: "json" }).$type<
+			Record<
+				string,
+				{
+					title: string;
+					description?: string | null;
+					category?: string | null;
+					design?: EmailDoc | null;
+					html: string;
+					text: string;
+					updated_at?: string;
+				}
+			>
+		>(),
 		views: integer("views").notNull().default(0),
 		helpful: integer("helpful").notNull().default(0),
 		unhelpful: integer("unhelpful").notNull().default(0),
@@ -2501,3 +2518,93 @@ export const orgAiSettings = sqliteTable("org_ai_settings", {
 	updated_by: text("updated_by"),
 	updated_at: text("updated_at").notNull(),
 });
+
+/**
+ * Slack, Discord or generic webhook alert channels per organization (src/server/team-alerts.ts)
+ * for real-time live chat, inbound email, SLA warning/breach, note mention & sending alerts.
+ */
+export const orgAlertChannels = sqliteTable(
+	"org_alert_channels",
+	{
+		id: text("id").primaryKey(),
+		organization_id: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		/** "slack" | "discord" | "webhook" */
+		kind: text("kind").notNull().default("slack"),
+		name: text("name").notNull(),
+		/** AES-GCM encrypted webhook URL. */
+		webhook_url_encrypted: text("webhook_url_encrypted").notNull(),
+		/** Safe masked preview (e.g. "hooks.slack.com/…a1b2"). */
+		url_hint: text("url_hint").notNull(),
+		/** Subscribed event names. */
+		events: text("events", { mode: "json" }).$type<string[]>().notNull().default([]),
+		enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+		last_sent_at: text("last_sent_at"),
+		last_error: text("last_error"),
+		created_by: text("created_by"),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [index("org_alert_channels_org_idx").on(t.organization_id)],
+);
+
+export type InboxMacroActions = {
+	add_tags?: string[];
+	remove_tags?: string[];
+	priority?: "urgent" | "high" | "normal" | "low" | null;
+	assignee?: string | null;
+	status?: "open" | "resolved" | null;
+	snooze_hours?: number | null;
+};
+
+/** Multi-action inbox macros: insert reply/note + tag + assign + priority + resolve/snooze in one click. */
+export const inboxMacros = sqliteTable(
+	"inbox_macros",
+	{
+		id: text("id").primaryKey(),
+		/** Brand id. */
+		organization_id: orgId(),
+		inbox_id: text("inbox_id").references(() => inboxes.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		shortcut: text("shortcut"),
+		reply_text: text("reply_text"),
+		note_text: text("note_text"),
+		actions: text("actions", { mode: "json" }).$type<InboxMacroActions>().notNull().default({}),
+		uses: integer("uses").notNull().default(0),
+		created_by: text("created_by"),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [index("inbox_macros_org_idx").on(t.organization_id, t.inbox_id)],
+);
+
+export type InboxViewFilters = {
+	view?: string;
+	brand?: string;
+	inbox?: string;
+	tag?: string;
+	priority?: string;
+	assignee?: string;
+	unread?: boolean;
+	q?: string;
+};
+
+/** Custom saved Inbox views (pinned filter presets, shared with the org or personal). */
+export const inboxViews = sqliteTable(
+	"inbox_views",
+	{
+		id: text("id").primaryKey(),
+		organization_id: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		color: text("color"),
+		filters: text("filters", { mode: "json" }).$type<InboxViewFilters>().notNull().default({}),
+		shared: integer("shared", { mode: "boolean" }).notNull().default(true),
+		created_by: text("created_by"),
+		created_at: text("created_at").notNull(),
+		updated_at: text("updated_at").notNull(),
+	},
+	(t) => [index("inbox_views_org_idx").on(t.organization_id)],
+);

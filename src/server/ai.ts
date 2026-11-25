@@ -553,3 +553,215 @@ export async function maybeAutoRespond(brandId: string, conversationId: string, 
 		reportError(error);
 	}
 }
+
+// ── Email copywriting & Help Center AI helpers ──────────────────────────────
+
+export async function aiAssistEmailCopy(
+	organizationId: string,
+	input: {
+		mode: "subjects" | "rewrite" | "spam_check";
+		subject?: string;
+		body: string;
+		instruction?: string;
+	},
+) {
+	const cfg = await getAiSettings(organizationId);
+	if (!cfg?.api_key_encrypted)
+		throw new ApiError(
+			422,
+			"ai_not_configured",
+			"Configure an AI API key in Settings → General first",
+		);
+	if (input.mode === "subjects") {
+		const raw = await callLlm(
+			cfg,
+			[
+				{
+					role: "system",
+					content:
+						'You are an email copywriter. Given an email draft, suggest 5 concise, high-open-rate subject lines (under 60 chars, no clickbait or ALL CAPS) and 2 preview text options. Return JSON only: {"subjects":["..."],"previews":["..."]}',
+				},
+				{
+					role: "user",
+					content: [
+						input.subject ? `Current subject: ${input.subject}` : null,
+						input.instruction ? `Goal: ${input.instruction}` : null,
+						`Email content:\n${input.body.slice(0, 4000)}`,
+					]
+						.filter(Boolean)
+						.join("\n\n"),
+				},
+			],
+			{ maxTokens: 450, temperature: 0.6 },
+		);
+		try {
+			const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, "").trim()) as {
+				subjects?: string[];
+				previews?: string[];
+			};
+			return {
+				subjects: (parsed.subjects ?? []).slice(0, 5),
+				previews: (parsed.previews ?? []).slice(0, 3),
+				text: "",
+			};
+		} catch {
+			return { subjects: [], previews: [], text: raw };
+		}
+	}
+
+	if (input.mode === "spam_check") {
+		const text = await callLlm(
+			cfg,
+			[
+				{
+					role: "system",
+					content:
+						"You are an email deliverability specialist. Briefly review the subject and copy for spam triggers, unclear CTA, or readability issues. Give 3-5 short, actionable bullet points.",
+				},
+				{
+					role: "user",
+					content: `Subject: ${input.subject ?? "(none)"}\n\n${input.body.slice(0, 5000)}`,
+				},
+			],
+			{ maxTokens: 450, temperature: 0.2 },
+		);
+		return { subjects: [], previews: [], text };
+	}
+
+	const text = await callLlm(
+		cfg,
+		[
+			{
+				role: "system",
+				content:
+					"You are an email copy editor. Rewrite the given email copy to be clearer, punchier, and scannable while preserving any {{{MERGE_TAGS}}} and links verbatim. Return only the rewritten copy.",
+			},
+			{
+				role: "user",
+				content: [
+					input.instruction ? `Instruction: ${input.instruction}` : null,
+					input.body.slice(0, 5000),
+				]
+					.filter(Boolean)
+					.join("\n\n"),
+			},
+		],
+		{ maxTokens: 700, temperature: 0.4 },
+	);
+	return { subjects: [], previews: [], text };
+}
+
+/** Generate a complete Help Center article draft from an unanswered customer question (help gap). */
+export async function aiDraftHelpArticle(
+	organizationId: string,
+	brandId: string,
+	question: string,
+) {
+	const cfg = await getAiSettings(organizationId);
+	if (!cfg?.api_key_encrypted)
+		throw new ApiError(
+			422,
+			"ai_not_configured",
+			"Configure an AI API key in Settings → General first",
+		);
+	const { listArticles } = await import("./help-center");
+	const existing = (await listArticles([brandId], { status: "published" })).slice(0, 6);
+	const styleRef = existing
+		.map((a) => `- ${a.title} [${a.category ?? "General"}]: ${a.description ?? ""}`)
+		.join("\n");
+	const raw = await callLlm(
+		cfg,
+		[
+			{
+				role: "system",
+				content: [
+					"You write clear, helpful Help Center articles for a customer support knowledge base.",
+					"Write in concise, direct paragraphs with clear headings or numbered steps. If specific company details (like exact pricing or phone numbers) are unknown, insert a brief [TODO: ...] placeholder so the editor can fill it in before publishing.",
+					'Return JSON only: {"title":"...","description":"One-line summary","category":"Short category","paragraphs":["<p>...</p>"]}',
+					cfg.system_prompt ? `Brand instructions:\n${cfg.system_prompt}` : null,
+				]
+					.filter(Boolean)
+					.join("\n\n"),
+			},
+			{
+				role: "user",
+				content: [
+					`Customer question to answer: ${question}`,
+					styleRef ? `Existing articles for tone & category style:\n${styleRef}` : null,
+				]
+					.filter(Boolean)
+					.join("\n\n"),
+			},
+		],
+		{ maxTokens: 1000, temperature: 0.35 },
+	);
+	const cleaned = raw.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
+	const parsed = JSON.parse(cleaned) as {
+		title?: string;
+		description?: string;
+		category?: string;
+		paragraphs?: string[];
+	};
+	const title = (parsed.title || question).trim().slice(0, 160);
+	const htmlBody = (parsed.paragraphs ?? [])
+		.map((p) => (p.trim().startsWith("<") ? p.trim() : `<p>${p.trim()}</p>`))
+		.join("\n");
+	return {
+		title,
+		description: parsed.description?.trim().slice(0, 300) ?? null,
+		category: parsed.category?.trim().slice(0, 60) ?? null,
+		html: htmlBody || `<p>${question}</p>`,
+	};
+}
+
+/** Translate a Help Center article into another language (BCP-47 tag like "es", "fr", "de", "pt"). */
+export async function aiTranslateHelpArticle(
+	organizationId: string,
+	article: {
+		title: string;
+		description?: string | null;
+		category?: string | null;
+		html: string;
+	},
+	targetLocale: string,
+) {
+	const cfg = await getAiSettings(organizationId);
+	if (!cfg?.api_key_encrypted)
+		throw new ApiError(
+			422,
+			"ai_not_configured",
+			"Configure an AI API key in Settings → General first",
+		);
+	const raw = await callLlm(
+		cfg,
+		[
+			{
+				role: "system",
+				content: `You are a professional technical translator. Translate the Help Center article accurately into language "${targetLocale}". Keep all HTML structure, tags, links, and URLs intact — translate only human-readable text. Return JSON only: {"title":"...","description":"...","category":"...","html":"..."}`,
+			},
+			{
+				role: "user",
+				content: JSON.stringify({
+					title: article.title,
+					description: article.description ?? "",
+					category: article.category ?? "",
+					html: article.html.slice(0, 12_000),
+				}),
+			},
+		],
+		{ maxTokens: 2000, temperature: 0.2 },
+	);
+	const cleaned = raw.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
+	const parsed = JSON.parse(cleaned) as {
+		title?: string;
+		description?: string;
+		category?: string;
+		html?: string;
+	};
+	return {
+		title: (parsed.title || article.title).trim().slice(0, 160),
+		description: parsed.description?.trim().slice(0, 300) || null,
+		category: parsed.category?.trim().slice(0, 60) || null,
+		html: parsed.html?.trim() || article.html,
+	};
+}

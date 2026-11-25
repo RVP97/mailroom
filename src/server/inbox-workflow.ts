@@ -658,6 +658,19 @@ export async function addNote(actor: InboxActor, x: Conversation, raw: unknown, 
 				`${actor.name} mentioned you in a note on "${x.subject || "(no subject)"}":`,
 				v.text.slice(0, 600),
 			]);
+	if (unique.some((p) => p.reader !== actor.reader)) {
+		const { dispatchTeamAlert } = await import("./team-alerts");
+		await dispatchTeamAlert(x.organization_id, "note.mention", {
+			title: `${actor.name} mentioned ${unique.map((p) => p.name).join(", ")}`,
+			body: v.text.slice(0, 800),
+			path: `/received/${x.id}`,
+			fields: [
+				{ label: "Conversation", value: x.subject || "(no subject)" },
+				{ label: "Contact", value: x.contact },
+			],
+			severity: "info",
+		});
+	}
 	return noteView(row as Note);
 }
 
@@ -1767,6 +1780,16 @@ export async function checkSla(now = Date.now()) {
 					? `Nobody has replied to ${x.contact} and the reply was due ${x.sla_first_due_at}.`
 					: `It should have been resolved by ${x.sla_resolve_due_at}.`,
 			]);
+			const { dispatchTeamAlert } = await import("./team-alerts");
+			await dispatchTeamAlert(x.organization_id, "sla.breached", {
+				title: `SLA overdue (${w}): ${x.subject || "(no subject)"}`,
+				body:
+					w === "reply"
+						? `Reply to ${x.contact} was due ${x.sla_first_due_at}.`
+						: `Resolution for ${x.contact} was due ${x.sla_resolve_due_at}.`,
+				path: `/received/${x.id}`,
+				severity: "danger",
+			});
 		}
 	}
 	// Warnings: due within the inbox's warn_minutes, not warned yet.
@@ -1802,6 +1825,13 @@ export async function checkSla(now = Date.now()) {
 		await notifySla(x, `Due soon: ${x.subject || "(no subject)"}`, [
 			`A reply to ${x.contact} is due ${x.sla_first_due_at}.`,
 		]);
+		const { dispatchTeamAlert } = await import("./team-alerts");
+		await dispatchTeamAlert(x.organization_id, "sla.warning", {
+			title: `SLA due soon: ${x.subject || "(no subject)"}`,
+			body: `Reply to ${x.contact} is due ${x.sla_first_due_at}.`,
+			path: `/received/${x.id}`,
+			severity: "warning",
+		});
 	}
 	return { breached: late.length, warned: soon.length };
 }
