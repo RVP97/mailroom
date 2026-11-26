@@ -1,5 +1,6 @@
 import { and, eq, inArray, lt } from "drizzle-orm";
 import { db, schema } from "./db";
+import { retrying } from "./db/retry";
 import { iso } from "./time";
 
 /**
@@ -134,11 +135,9 @@ export async function undeliverable(
 		return [{ domain, state, checked_at: iso(now) }];
 	});
 	if (rows.length)
-		await db
-			.insert(dm)
-			.values(rows)
-			.onConflictDoNothing()
-			.catch((error) => console.error("address-checks: not kept", error));
+		await retrying(() => db.insert(dm).values(rows).onConflictDoNothing()).catch((error) =>
+			console.error("address-checks: not kept", error),
+		);
 	for (const [domain, state] of kept) {
 		if (state === "ok") continue;
 		for (const a of byDomain.get(domain) ?? [])

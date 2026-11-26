@@ -1,5 +1,6 @@
 import { and, desc, eq, gte, like, lt, or, type SQL } from "drizzle-orm";
 import { db, schema } from "./db";
+import { retrying } from "./db/retry";
 import { iso } from "./time";
 
 /**
@@ -93,22 +94,28 @@ export async function recordRequest(o: {
 	durationMs: number;
 	at: number;
 }) {
+	const id = crypto.randomUUID();
 	try {
-		await db.insert(r).values({
-			id: crypto.randomUUID(),
-			organization_id: o.organizationId,
-			api_key_id: o.apiKeyId,
-			method: o.method,
-			path: o.path,
-			query: o.query || null,
-			status: o.status,
-			user_agent: o.userAgent?.slice(0, 300) ?? null,
-			request_body: keptBody(o.requestBody),
-			response_body: keptBody(o.responseBody),
-			email_id: createdEmail(o.path, o.method, o.responseBody),
-			duration_ms: Math.round(o.durationMs),
-			created_at: iso(o.at),
-		});
+		await retrying(() =>
+			db
+				.insert(r)
+				.values({
+					id,
+					organization_id: o.organizationId,
+					api_key_id: o.apiKeyId,
+					method: o.method,
+					path: o.path,
+					query: o.query || null,
+					status: o.status,
+					user_agent: o.userAgent?.slice(0, 300) ?? null,
+					request_body: keptBody(o.requestBody),
+					response_body: keptBody(o.responseBody),
+					email_id: createdEmail(o.path, o.method, o.responseBody),
+					duration_ms: Math.round(o.durationMs),
+					created_at: iso(o.at),
+				})
+				.onConflictDoNothing(),
+		);
 	} catch (error) {
 		console.error("api: couldn't record the request", error);
 	}

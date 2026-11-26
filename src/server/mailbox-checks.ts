@@ -1,5 +1,6 @@
 import { and, gte, inArray, lt, ne, sql } from "drizzle-orm";
 import { db, schema } from "./db";
+import { retrying } from "./db/retry";
 import { cfg } from "./env";
 import { iso } from "./time";
 
@@ -132,18 +133,19 @@ export async function mailboxRejected(
 			return [{ address, ...answer, checked_at: iso(now) }];
 		});
 		if (rows.length)
-			await db
-				.insert(schema.mailboxChecks)
-				.values(rows)
-				.onConflictDoUpdate({
-					target: schema.mailboxChecks.address,
-					set: {
-						state: sql`excluded.state`,
-						reason: sql`excluded.reason`,
-						checked_at: sql`excluded.checked_at`,
-					},
-				})
-				.catch((error) => console.error("mailbox-checks: not kept", error));
+			await retrying(() =>
+				db
+					.insert(schema.mailboxChecks)
+					.values(rows)
+					.onConflictDoUpdate({
+						target: schema.mailboxChecks.address,
+						set: {
+							state: sql`excluded.state`,
+							reason: sql`excluded.reason`,
+							checked_at: sql`excluded.checked_at`,
+						},
+					}),
+			).catch((error) => console.error("mailbox-checks: not kept", error));
 	}
 	for (const [address, r] of known)
 		if (r.state === "undeliverable") out[address] = rejectedBecause(r.reason);

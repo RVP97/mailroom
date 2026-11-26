@@ -1,5 +1,6 @@
 import { and, desc, eq, gt, lt } from "drizzle-orm";
 import { db, schema } from "./db";
+import { retrying } from "./db/retry";
 import type { ActivityDetail } from "./db/schema";
 import { iso } from "./time";
 
@@ -51,25 +52,34 @@ export async function logActivity(e: {
 				)
 				.get();
 			if (recent) {
-				await db
-					.update(a)
-					.set({ created_at: iso(now), subject_name: e.subject.name ?? null })
-					.where(eq(a.id, recent.id));
+				await retrying(() =>
+					db
+						.update(a)
+						.set({ created_at: iso(now), subject_name: e.subject.name ?? null })
+						.where(eq(a.id, recent.id)),
+				);
 				return;
 			}
 		}
-		await db.insert(a).values({
-			id: crypto.randomUUID(),
-			organization_id: e.organizationId,
-			user_id: e.userId ?? null,
-			actor: e.actor ?? (await actorName(e.userId)),
-			action: e.action,
-			subject_type: e.subject.type,
-			subject_id: e.subject.id ?? null,
-			subject_name: e.subject.name?.slice(0, 200) ?? null,
-			detail: e.detail ?? null,
-			created_at: iso(now),
-		});
+		const id = crypto.randomUUID();
+		const actor = e.actor ?? (await actorName(e.userId));
+		await retrying(() =>
+			db
+				.insert(a)
+				.values({
+					id,
+					organization_id: e.organizationId,
+					user_id: e.userId ?? null,
+					actor,
+					action: e.action,
+					subject_type: e.subject.type,
+					subject_id: e.subject.id ?? null,
+					subject_name: e.subject.name?.slice(0, 200) ?? null,
+					detail: e.detail ?? null,
+					created_at: iso(now),
+				})
+				.onConflictDoNothing(),
+		);
 	} catch (error) {
 		// The log never stops the change it records.
 		console.error("activity: not logged", error);

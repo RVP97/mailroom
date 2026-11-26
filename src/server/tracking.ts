@@ -3,6 +3,7 @@ import { and, eq, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import { validZone } from "../lib/zoned";
 import { bareAddress } from "./aws/mime";
 import { db, schema } from "./db";
+import { retrying } from "./db/retry";
 import { baseUrl, cfg } from "./env";
 import { ApiError, validation } from "./errors";
 import { applySesEvent } from "./events";
@@ -228,16 +229,19 @@ export async function learnTimezone(emailId: string, tz: string) {
 	const to = e?.to[0];
 	if (!e || !to) return;
 	const c = schema.contacts;
-	await db
-		.update(c)
-		.set({ timezone: tz })
-		.where(
-			and(
-				eq(c.organization_id, e.org),
-				eq(c.email, bareAddress(to).toLowerCase()),
-				or(isNull(c.timezone), ne(c.timezone, tz)),
+	// Setting a fixed timezone is safe to repeat, so a transient D1 error is retried.
+	await retrying(() =>
+		db
+			.update(c)
+			.set({ timezone: tz })
+			.where(
+				and(
+					eq(c.organization_id, e.org),
+					eq(c.email, bareAddress(to).toLowerCase()),
+					or(isNull(c.timezone), ne(c.timezone, tz)),
+				),
 			),
-		);
+	);
 }
 
 type Who = { timestamp: string; ipAddress?: string; userAgent?: string };

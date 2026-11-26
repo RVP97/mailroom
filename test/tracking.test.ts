@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { eq } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dnsHostFromNameservers, recordNameForHost } from "@/lib/dns-hosts";
 import { handleApi } from "@/server/api";
 import { createKey } from "@/server/api-keys";
@@ -14,6 +14,7 @@ import {
 	addTrackingHost,
 	clickUrl,
 	handleTracking,
+	learnTimezone,
 	openUrl,
 	removeTrackingHost,
 	trackHtml,
@@ -163,6 +164,59 @@ describe("tracking requests", () => {
 		const bad = await handleTracking(new Request(`https://mailroom.test/o/${id}/nope`));
 		expect(bad.headers.get("content-type")).toBe("image/gif");
 		expect((await emailRow(id))?.open_count).toBe(1);
+	});
+
+	it("retries learnTimezone when the D1 update hits a transient connection drop", async () => {
+		fakeOutside();
+		const org = await seedOrg();
+		const email = "ana@cliente.test";
+		const contactId = crypto.randomUUID();
+		await db.insert(schema.contacts).values({
+			id: contactId,
+			organization_id: org.id,
+			email,
+			created_at: "2026-11-26T00:00:00.000Z",
+			updated_at: "2026-11-26T00:00:00.000Z",
+		});
+		const [r] = await createEmails(org.id, [
+			parseSend({
+				from: `hola@${org.domain}`,
+				to: email,
+				subject: "s",
+				text: "t",
+			}),
+		]);
+		const real = env.DB as D1Database;
+		const origPrepare = real.prepare.bind(real);
+		let dropped = 0;
+		const spy = vi.spyOn(real, "prepare").mockImplementation((query: string) => {
+			const stmt = origPrepare(query);
+			if (!/update\s+"contacts"\s+set\s+"timezone"/i.test(query)) return stmt;
+			const wrap = (s: D1PreparedStatement): D1PreparedStatement =>
+				({
+					bind: (...v: unknown[]) => wrap(s.bind(...v)),
+					all: () => s.all(),
+					raw: (o?: { columnNames?: boolean }) => s.raw(o as { columnNames: true }),
+					first: (col?: string) => (col === undefined ? s.first() : s.first(col)),
+					run: async () => {
+						if (dropped++ === 0) throw new Error("D1_ERROR: Network connection lost.");
+						return s.run();
+					},
+				}) as unknown as D1PreparedStatement;
+			return wrap(stmt);
+		});
+		try {
+			await learnTimezone(r?.id as string, "America/New_York");
+		} finally {
+			spy.mockRestore();
+		}
+		expect(dropped).toBe(2);
+		const contact = await db
+			.select({ timezone: schema.contacts.timezone })
+			.from(schema.contacts)
+			.where(eq(schema.contacts.id, contactId))
+			.get();
+		expect(contact?.timezone).toBe("America/New_York");
 	});
 });
 
