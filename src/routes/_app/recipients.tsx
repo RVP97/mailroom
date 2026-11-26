@@ -306,11 +306,11 @@ function Recipients() {
 									{r.unsubscribed.map((u) => (
 										<li
 											key={`${u.brand_id}:${u.group}`}
-											className="flex items-center gap-3 border-b border-border/70 px-5 py-3 last:border-0"
+											className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border/70 px-4 py-3 last:border-0 sm:px-5"
 										>
 											<Badge
 												variant="secondary"
-												className="font-mono"
+												className="max-w-full truncate font-mono"
 											>
 												{u.group}
 											</Badge>

@@ -89,20 +89,20 @@ export function PersonAcrossCard({
 								"flex flex-col gap-1 py-2.5 text-sm first:pt-0 last:pb-0",
 							)}
 						>
-							<div className="flex items-center justify-between gap-2">
+							<div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
 								{b.contact && !here ? (
 									<Link
 										to="/contacts/$id"
 										params={{ id: b.contact.id }}
 										search={{ brand: b.brand_id }}
-										className="underline-offset-2 hover:underline"
+										className="min-w-0 truncate underline-offset-2 hover:underline"
 									>
 										{name}
 									</Link>
 								) : (
-									name
+									<span className="min-w-0 truncate">{name}</span>
 								)}
-								<span className="flex items-center gap-2">
+								<span className="flex shrink-0 items-center gap-2">
 									{b.lead && b.lead.score > 0 && (
 										<LeadBadge
 											level={b.lead.level}

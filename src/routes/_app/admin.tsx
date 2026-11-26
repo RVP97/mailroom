@@ -263,7 +263,9 @@ function Admin() {
 						done={!!status.subscriptionConfirmedAt}
 						title="SNS subscribed"
 					>
-						<span className="font-mono">{status.endpoint}</span>
+						<span className="font-mono [overflow-wrap:anywhere]">
+							{status.endpoint}
+						</span>
 						{status.subscriptionConfirmedAt &&
 							` · confirmed ${formatRelative(status.subscriptionConfirmedAt)}`}
 					</Step>

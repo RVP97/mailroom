@@ -484,7 +484,7 @@ function CalendarPage() {
 						Today
 					</Button>
 				)}
-				<div className="ml-auto flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+				<div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground sm:ml-auto">
 					<span>{counts.sent} sent</span>
 					<span>{counts.scheduled} scheduled</span>
 					<span>{counts.planned} planned</span>
@@ -513,7 +513,7 @@ function CalendarPage() {
 					))}
 				</div>
 			)}
-			<Card className="hidden gap-0 overflow-hidden p-0 sm:block">
+			<Card className="hidden gap-0 overflow-hidden p-0 md:block">
 				<div className="grid grid-cols-7 border-b bg-muted/40 text-xs font-medium text-muted-foreground">
 					{WEEKDAYS.map((d) => (
 						<div
@@ -565,7 +565,7 @@ function CalendarPage() {
 											type="button"
 											aria-label={`Plan an email on ${day}`}
 											onClick={() => setPlanning(day)}
-											className="flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent focus-visible:opacity-100"
+											className="flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent focus-visible:opacity-100 pointer-coarse:opacity-80"
 										>
 											<Plus className="size-3.5" />
 										</button>
@@ -612,7 +612,7 @@ function CalendarPage() {
 					})}
 				</div>
 			</Card>
-			<div className="flex flex-col gap-3 sm:hidden">
+			<div className="flex flex-col gap-3 md:hidden">
 				{agenda.length === 0 && (
 					<Card className="items-center gap-2 p-8 text-center text-sm text-muted-foreground">
 						<CalendarDays className="size-5" />

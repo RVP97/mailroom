@@ -75,7 +75,7 @@ export function CodeBlock({
 			<button
 				type="button"
 				aria-label={copied ? "Copied" : "Copy"}
-				className="pressable absolute top-2 right-2 flex size-7 items-center justify-center rounded-md bg-white/[0.06] text-white/60 opacity-0 backdrop-blur hover:bg-white/[0.12] hover:text-white focus-visible:opacity-100 group-hover:opacity-100 [&_.text-success]:text-[oklch(0.8_0.15_155)]"
+				className="pressable absolute top-2 right-2 flex size-7 items-center justify-center rounded-md bg-white/[0.06] text-white/60 opacity-0 backdrop-blur hover:bg-white/[0.12] hover:text-white focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100 [&_.text-success]:text-[oklch(0.8_0.15_155)]"
 				onClick={() => copy(code)}
 			>
 				<CopyIcon copied={copied} />

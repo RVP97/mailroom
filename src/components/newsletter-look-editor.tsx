@@ -535,8 +535,8 @@ export function Preview({
 	}, [id, key]);
 	const shown = html;
 	return (
-		<Card className="sticky top-4 gap-0 overflow-hidden p-0">
-			<div className="flex h-11 items-center gap-2 border-b border-border/70 px-4">
+		<Card className="gap-0 overflow-hidden p-0 lg:sticky lg:top-4">
+			<div className="flex min-h-11 flex-wrap items-center gap-2 border-b border-border/70 px-4 py-1.5">
 				<span className="text-sm font-medium">Preview</span>
 				{busy && <Spinner className="size-3.5 text-muted-foreground" />}
 				<span className="flex-1" />

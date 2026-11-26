@@ -788,7 +788,7 @@ export function UnifiedComposer({
 									: "Write a reply… (/ saved replies, # help articles, ⌘↵ sends)"
 						}
 						className={cn(
-							"field-sizing-content block min-h-[76px] max-h-56 w-full resize-none border-0 bg-transparent px-3.5 py-2.5 text-[16px] leading-relaxed text-foreground placeholder:text-faint outline-none focus:outline-none focus-visible:outline-none md:text-sm",
+							"field-sizing-content block min-h-[48px] max-h-48 w-full resize-none border-0 bg-transparent px-3 py-2 text-[16px] leading-relaxed text-foreground placeholder:text-faint outline-none focus:outline-none focus-visible:outline-none sm:min-h-[76px] sm:max-h-56 sm:px-3.5 sm:py-2.5 md:text-sm",
 							isNote &&
 								"placeholder:text-amber-800/60 dark:placeholder:text-amber-200/50",
 						)}
@@ -846,7 +846,7 @@ export function UnifiedComposer({
 					/>
 
 					{choices.length > 0 && (
-						<ul className="absolute bottom-full left-3 z-30 mb-1 w-80 overflow-hidden rounded-lg bg-popover p-1 text-sm shadow-lg ring-1 ring-border">
+						<ul className="absolute inset-x-3 bottom-full z-30 mb-1 overflow-hidden rounded-lg bg-popover p-1 text-sm shadow-lg ring-1 ring-border sm:right-auto sm:w-80">
 							{choices.map((x, i) => (
 								<li key={x.key}>
 									<button
@@ -979,13 +979,14 @@ export function UnifiedComposer({
 				/>
 
 				{/* Bottom action bar */}
-				<div className="flex flex-wrap items-center gap-1.5 px-3 py-2">
+				<div className="flex flex-wrap items-center gap-1 px-2.5 pt-1.5 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:gap-1.5 sm:px-3 sm:py-2">
 					{!isNote && (
 						<>
 							<Button
 								type="button"
 								variant="ghost"
 								size="sm"
+								aria-label="Attach file"
 								className="h-7 px-2 text-xs text-muted-foreground"
 								disabled={busy !== null}
 								onClick={() => fileInput.current?.click()}
@@ -1027,6 +1028,7 @@ export function UnifiedComposer({
 											type="button"
 											variant="ghost"
 											size="sm"
+											aria-label="AI Copilot"
 											className="h-7 px-2 text-xs text-brand hover:text-brand"
 											disabled={busy !== null}
 										>
@@ -1035,7 +1037,7 @@ export function UnifiedComposer({
 											) : (
 												<Sparkles className="size-3.5" />
 											)}
-											Copilot
+											<span className="hidden sm:inline">Copilot</span>
 										</Button>
 									</DropdownMenuTrigger>
 									<DropdownMenuContent
@@ -1085,6 +1087,7 @@ export function UnifiedComposer({
 											type="button"
 											variant="ghost"
 											size="sm"
+											aria-label="AI Copilot"
 											className="h-7 px-2 text-xs text-muted-foreground"
 										>
 											<Sparkles className="size-3.5" />
@@ -1290,6 +1293,7 @@ function SavedPopover({ saved, onPick }: { saved: Saved[]; onPick: (s: Saved) =>
 					variant="ghost"
 					size="sm"
 					className="h-7 px-2 text-xs text-muted-foreground"
+					aria-label="Insert saved reply"
 					title="Insert saved reply (/)"
 				>
 					<Zap className="size-3.5" />
@@ -1298,7 +1302,7 @@ function SavedPopover({ saved, onPick }: { saved: Saved[]; onPick: (s: Saved) =>
 			</PopoverTrigger>
 			<PopoverContent
 				align="start"
-				className="w-80 p-2"
+				className="w-[min(20rem,calc(100vw-1.5rem))] p-2"
 			>
 				<Input
 					autoFocus
@@ -1374,6 +1378,7 @@ function ArticlePopover({
 					variant="ghost"
 					size="sm"
 					className="h-7 px-2 text-xs text-muted-foreground"
+					aria-label="Insert Help Center article"
 					title="Insert Help Center article (#)"
 				>
 					<BookOpen className="size-3.5" />
@@ -1382,7 +1387,7 @@ function ArticlePopover({
 			</PopoverTrigger>
 			<PopoverContent
 				align="start"
-				className="w-80 p-2"
+				className="w-[min(20rem,calc(100vw-1.5rem))] p-2"
 			>
 				<Input
 					autoFocus

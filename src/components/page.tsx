@@ -96,7 +96,7 @@ export function Section({
 			{/* On phones the actions go under a description, which otherwise wraps a few words a line. */}
 			<div
 				className={cn(
-					"flex items-end justify-between gap-4",
+					"flex flex-wrap items-end justify-between gap-x-4 gap-y-2",
 					description &&
 						"max-sm:flex-col max-sm:items-start max-sm:justify-start max-sm:gap-2",
 				)}
@@ -107,7 +107,11 @@ export function Section({
 						<p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
 					)}
 				</div>
-				{actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+				{actions && (
+					<div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">
+						{actions}
+					</div>
+				)}
 			</div>
 			{children}
 		</section>

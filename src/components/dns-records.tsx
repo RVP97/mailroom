@@ -70,8 +70,8 @@ export function RecordGroup({
 				)}
 			</div>
 			{note}
-			{/* Desktop: a table. Phones: each record as label and value rows. */}
-			<table className="hidden w-full table-fixed border-t border-border/70 text-sm md:table">
+			{/* Desktop: a table. Phones & tablets: each record as label and value rows. */}
+			<table className="hidden w-full table-fixed border-t border-border/70 text-sm lg:table">
 				<thead>
 					<tr className="text-left text-xs text-muted-foreground">
 						<th className="h-9 w-20 pl-5 font-medium">Type</th>
@@ -113,7 +113,7 @@ export function RecordGroup({
 					))}
 				</tbody>
 			</table>
-			<ul className="divide-y divide-border/70 border-t border-border/70 md:hidden">
+			<ul className="divide-y divide-border/70 border-t border-border/70 lg:hidden">
 				{records.map((r) => (
 					<li
 						key={`${r.type}${r.name}${r.value}`}
@@ -231,12 +231,14 @@ function Value({
 						copied={copied}
 						className={cn(
 							"ml-1.5 size-3 text-faint transition-opacity duration-150",
-							copied ? "opacity-100" : "opacity-0 group-hover/copy:opacity-100",
+							copied
+								? "opacity-100"
+								: "opacity-0 group-hover/copy:opacity-100 pointer-coarse:opacity-80",
 						)}
 					/>
 				</button>
 			</TooltipTrigger>
-			<TooltipContent className="max-w-96 font-mono font-normal break-all">
+			<TooltipContent className="max-w-[min(24rem,calc(100vw-2rem))] font-mono font-normal break-all">
 				{copied ? "Copied" : (full ?? value)}
 			</TooltipContent>
 		</Tooltip>

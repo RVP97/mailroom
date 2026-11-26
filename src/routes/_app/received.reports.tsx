@@ -218,12 +218,12 @@ function Customize({ layout, onChange }: { layout: Layout; onChange: (l: Layout)
 			</PopoverTrigger>
 			<PopoverContent
 				align="end"
-				className="w-72 p-2"
+				className="w-72 max-w-[calc(100vw-2rem)] p-2"
 			>
 				<p className="px-2 pt-1 pb-2 text-xs text-muted-foreground">
 					Show the cards you use, in your order. Kept in this browser.
 				</p>
-				<ul className="flex flex-col">
+				<ul className="flex max-h-[min(65vh,26rem)] flex-col overflow-y-auto">
 					{layout.order.map((id, i) => {
 						const card = CARDS.find((c) => c.id === id);
 						const shown = !layout.hidden.includes(id);
@@ -690,7 +690,7 @@ function CustomRange({
 			</PopoverTrigger>
 			<PopoverContent
 				align="start"
-				className="flex w-auto flex-col gap-3 p-3"
+				className="flex w-auto max-w-[calc(100vw-2rem)] flex-col gap-3 p-3"
 			>
 				<div className="grid gap-2 sm:grid-cols-2">
 					<DatePicker
@@ -728,16 +728,16 @@ function Kpi({
 	sub?: ReactNode;
 }) {
 	return (
-		<Card className="gap-1 px-4 py-3.5">
+		<Card className="gap-1 px-3 py-3 sm:px-4 sm:py-3.5">
 			<p className="text-[13px] text-muted-foreground">{label}</p>
-			<p className="flex items-center gap-2">
+			<p className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
 				<span className="text-2xl font-semibold tracking-tight tabular-nums">
 					<Ph>{value}</Ph>
 				</span>
 				{delta}
 			</p>
 			{sub && (
-				<p className="truncate text-xs text-faint">
+				<p className="line-clamp-2 text-xs text-faint">
 					<Ph>{sub}</Ph>
 				</p>
 			)}
@@ -774,7 +774,7 @@ function NowStrip({ data }: { data: Data }) {
 	];
 	return (
 		<Card className="gap-0 px-0 py-0">
-			<div className="flex items-center justify-between gap-3 px-5 pt-3.5">
+			<div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 pt-3.5 sm:px-5">
 				<h2 className="text-sm font-semibold">Right now</h2>
 				{n.oldest_waiting_at && (
 					<span className="text-xs text-muted-foreground">
@@ -1018,15 +1018,19 @@ function Breakdown({
 						<TableHeader>
 							<TableRow>
 								<TableHead>{label}</TableHead>
-								<TableHead className="w-28 text-right">Conversations</TableHead>
+								<TableHead className="w-24 text-right sm:w-28">
+									Conversations
+								</TableHead>
 								<TableHead className="hidden w-24 text-right sm:table-cell">
 									Resolved
 								</TableHead>
-								<TableHead className="w-28 text-right">First response</TableHead>
-								<TableHead className="hidden w-24 text-right md:table-cell">
+								<TableHead className="hidden w-28 text-right sm:table-cell">
+									First response
+								</TableHead>
+								<TableHead className="hidden w-24 text-right lg:table-cell">
 									SLA missed
 								</TableHead>
-								<TableHead className="hidden w-20 text-right md:table-cell">
+								<TableHead className="hidden w-20 text-right lg:table-cell">
 									Rating
 								</TableHead>
 								{extra && (
@@ -1054,18 +1058,18 @@ function Breakdown({
 									<TableCell className="hidden text-right tabular-nums sm:table-cell">
 										<Ph>{formatNumber(r.resolved)}</Ph>
 									</TableCell>
-									<TableCell className="text-right tabular-nums">
+									<TableCell className="hidden text-right tabular-nums sm:table-cell">
 										<Ph>{duration(r.first_response_median)}</Ph>
 									</TableCell>
 									<TableCell
 										className={cn(
-											"hidden text-right tabular-nums md:table-cell",
+											"hidden text-right tabular-nums lg:table-cell",
 											r.sla_missed > 0 && "text-destructive",
 										)}
 									>
 										<Ph>{formatNumber(r.sla_missed)}</Ph>
 									</TableCell>
-									<TableCell className="hidden text-right tabular-nums md:table-cell">
+									<TableCell className="hidden text-right tabular-nums lg:table-cell">
 										<Ph>{r.csat === null ? "—" : r.csat.toFixed(1)}</Ph>
 									</TableCell>
 									{extra && (
@@ -1113,7 +1117,7 @@ function Team({ data }: { data: Data }) {
 					{data.by_responder.map((r) => (
 						<span
 							key={`${r.type}-${r.name}`}
-							className="inline-flex items-center gap-2 rounded-full bg-muted px-2.5 py-1"
+							className="inline-flex max-w-full flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg bg-muted px-2.5 py-1 sm:rounded-full"
 						>
 							<Avatar
 								name={r.name}

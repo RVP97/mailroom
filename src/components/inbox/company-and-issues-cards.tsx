@@ -307,7 +307,7 @@ export function CompanyAndIssuesCards({
 												toast.error(await errorMessage(error));
 											}
 										}}
-										className="text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100"
+										className="shrink-0 rounded p-1 text-muted-foreground opacity-70 hover:text-destructive focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 pointer-coarse:opacity-70"
 									>
 										<Trash2 className="size-3" />
 									</button>

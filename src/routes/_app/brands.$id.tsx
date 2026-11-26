@@ -585,7 +585,7 @@ function BrandPage() {
 												<Link
 													to="/domains/$id"
 													params={{ id: d.id }}
-													className="truncate font-medium outline-none after:absolute after:inset-0 focus-visible:after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
+													className="block truncate font-medium outline-none after:absolute after:inset-0 focus-visible:after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
 												>
 													<Ph>{d.name}</Ph>
 												</Link>
@@ -777,7 +777,10 @@ function Remove({
 							value={moveTo}
 							onValueChange={setMoveTo}
 						>
-							<SelectTrigger aria-label="Move everything to">
+							<SelectTrigger
+								aria-label="Move everything to"
+								className="w-full"
+							>
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>

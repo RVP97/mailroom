@@ -153,8 +153,8 @@ export function BillingConnectorsCard({ canEdit }: { canEdit: boolean }) {
 												: ""}
 										</span>
 									</div>
-									<div className="mt-1 flex flex-wrap items-center gap-2">
-										<code className="truncate font-mono text-xs text-muted-foreground">
+									<div className="mt-1 flex min-w-0 flex-wrap items-center gap-2">
+										<code className="max-w-full min-w-0 truncate font-mono text-xs text-muted-foreground">
 											{r.webhook_url}
 										</code>
 										<CopyUrlButton value={r.webhook_url} />
@@ -350,8 +350,8 @@ export function IssueAndSlackSyncCard({ canEdit }: { canEdit: boolean }) {
 								className="space-y-2 rounded-lg border border-border/70 p-3.5"
 							>
 								<div className="flex flex-wrap items-center justify-between gap-2">
-									<div>
-										<div className="flex items-center gap-2">
+									<div className="min-w-0">
+										<div className="flex flex-wrap items-center gap-2">
 											<span className="text-sm font-medium">{meta.name}</span>
 											{item.configured ? (
 												<Badge variant="default">
@@ -366,8 +366,8 @@ export function IssueAndSlackSyncCard({ canEdit }: { canEdit: boolean }) {
 										</p>
 									</div>
 								</div>
-								<div className="flex flex-wrap items-center gap-2">
-									<code className="truncate rounded bg-muted px-2 py-1 font-mono text-[11px]">
+								<div className="flex min-w-0 flex-wrap items-center gap-2">
+									<code className="max-w-full min-w-0 truncate rounded bg-muted px-2 py-1 font-mono text-[11px]">
 										{item.webhook_url}
 									</code>
 									<CopyUrlButton value={item.webhook_url} />
@@ -559,7 +559,7 @@ export function MigrationImporterCard({ canEdit }: { canEdit: boolean }) {
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="space-y-4">
-				<div className="flex gap-2">
+				<div className="flex flex-wrap gap-2">
 					<Button
 						type="button"
 						size="sm"

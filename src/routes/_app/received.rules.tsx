@@ -189,8 +189,8 @@ function Rules() {
 							<TableRow>
 								<TableHead>Rule</TableHead>
 								<TableHead className="hidden w-[38%] md:table-cell">Does</TableHead>
-								<TableHead className="w-24">Status</TableHead>
-								<TableHead className="w-12" />
+								<TableHead className="w-16 sm:w-24">Status</TableHead>
+								<TableHead className="w-11 sm:w-12" />
 							</TableRow>
 						</TableHeader>
 						<TableBody>
@@ -222,6 +222,14 @@ function Rules() {
 														]
 															.filter(Boolean)
 															.join(" · ")}
+													</Ph>
+												</span>
+												<span className="block truncate text-xs text-muted-foreground md:hidden">
+													<Ph>
+														{r.action === "drop"
+															? "Drop it"
+															: `Forward to ${r.forward_to.join(", ")}`}
+														{r.continue && ", then the next rules"}
 													</Ph>
 												</span>
 											</span>

@@ -18,6 +18,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
+	DialogBody,
 	DialogContent,
 	DialogDescription,
 	DialogFooter,
@@ -570,11 +571,13 @@ export function PickMoment({
 					<DialogTitle>{title}</DialogTitle>
 					<DialogDescription>{description}</DialogDescription>
 				</DialogHeader>
-				<DateTimePicker
-					value={value}
-					min={min}
-					onChange={setValue}
-				/>
+				<DialogBody>
+					<DateTimePicker
+						value={value}
+						min={min}
+						onChange={setValue}
+					/>
+				</DialogBody>
 				<DialogFooter>
 					<Button
 						variant="ghost"

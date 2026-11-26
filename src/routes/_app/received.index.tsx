@@ -39,6 +39,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
 	Empty,
 	EmptyDescription,
 	EmptyHeader,
@@ -494,7 +500,7 @@ function InboxWorkspace() {
 	];
 
 	return (
-		<div className="flex min-h-[calc(100svh-3rem)] w-full overflow-hidden lg:h-[calc(100svh-1rem)] lg:rounded-xl">
+		<div className="flex min-h-[calc(100dvh-3rem)] w-full overflow-x-clip lg:h-[calc(100svh-1rem)] lg:overflow-hidden lg:rounded-xl">
 			{/* PANE 1: Compact Queue / Inbox / Tag Rail (desktop xl+) */}
 			<aside className="hidden w-52 shrink-0 flex-col border-r border-border bg-muted/15 p-3 xl:flex">
 				<div className="flex items-center justify-between gap-2 px-1 pb-2.5">
@@ -712,9 +718,9 @@ function InboxWorkspace() {
 			>
 				{/* Top List Toolbar */}
 				<div className="flex shrink-0 flex-col gap-2 border-b border-border px-3 py-2.5">
-					<div className="flex items-center gap-2">
+					<div className="flex items-center gap-1.5 sm:gap-2">
 						{/* Mobile / narrow desktop queue selector */}
-						<div className="flex items-center gap-2 xl:hidden">
+						<div className="flex min-w-0 shrink-0 items-center gap-2 xl:hidden">
 							<Select
 								value={view}
 								onValueChange={(v) =>
@@ -724,7 +730,7 @@ function InboxWorkspace() {
 									})
 								}
 							>
-								<SelectTrigger className="h-8 w-auto min-w-28 text-xs font-medium">
+								<SelectTrigger className="h-8 w-auto min-w-24 max-w-[9rem] text-xs font-medium sm:min-w-28 sm:max-w-none">
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
@@ -959,6 +965,36 @@ function InboxWorkspace() {
 							>
 								Chat
 							</Link>
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<button
+										type="button"
+										className="rounded-md px-1.5 py-0.5 hover:bg-muted hover:text-foreground xl:hidden"
+									>
+										More
+									</button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="end">
+									<DropdownMenuItem asChild>
+										<Link to="/received/rules">
+											<RouteIcon />
+											Rules
+										</Link>
+									</DropdownMenuItem>
+									<DropdownMenuItem asChild>
+										<Link to="/received/replies">
+											<Zap />
+											Saved replies
+										</Link>
+									</DropdownMenuItem>
+									<DropdownMenuItem asChild>
+										<Link to="/received/reports">
+											<BarChart3 />
+											Reports
+										</Link>
+									</DropdownMenuItem>
+								</DropdownMenuContent>
+							</DropdownMenu>
 						</div>
 					</div>
 				</div>
@@ -1060,12 +1096,17 @@ function InboxWorkspace() {
 											className={cn(
 												"group relative flex items-start gap-2.5 px-3 py-3 transition-colors",
 												isSelected
-													? "bg-brand/[0.07] dark:bg-white/[0.06]"
+													? "lg:bg-brand/[0.07] lg:dark:bg-white/[0.06]"
 													: "hover:bg-muted/50",
 											)}
 										>
 											{/* Selection checkbox / unread indicator */}
-											<div className="mt-0.5 flex flex-col items-center gap-2">
+											<div
+												className={cn(
+													"mt-0.5 flex-col items-center gap-2",
+													checked.size > 0 ? "flex" : "hidden lg:flex",
+												)}
+											>
 												<Checkbox
 													checked={isChecked}
 													aria-label={`Select ${r.subject || "conversation"}`}
@@ -1092,6 +1133,12 @@ function InboxWorkspace() {
 												className="min-w-0 flex-1 text-left outline-none"
 											>
 												<div className="flex items-center gap-1.5">
+													{r.unread && (
+														<span
+															className="size-2 shrink-0 rounded-full bg-brand lg:hidden"
+															title="Unread"
+														/>
+													)}
 													<span
 														className={cn(
 															"min-w-0 flex-1 truncate text-sm",
@@ -1224,8 +1271,8 @@ function InboxWorkspace() {
 												)}
 											</button>
 
-											{/* Hover quick actions */}
-											<div className="absolute top-2 right-2 hidden items-center gap-0.5 rounded-md border border-border bg-background/95 p-0.5 shadow-sm group-hover:flex">
+											{/* Hover quick actions (desktop only so taps open immediately on touch) */}
+											<div className="absolute top-2 right-2 hidden items-center gap-0.5 rounded-md border border-border bg-background/95 p-0.5 shadow-sm lg:group-hover:flex">
 												{canReply && (
 													<button
 														type="button"

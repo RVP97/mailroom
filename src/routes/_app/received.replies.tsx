@@ -665,9 +665,9 @@ function ReplyDialog({
 							}}
 						/>
 					) : (
-						<span />
+						<span className="hidden sm:block" />
 					)}
-					<span className="flex gap-2">
+					<span className="flex flex-col-reverse gap-2 *:h-10 sm:flex-row sm:*:h-8">
 						<Button
 							variant="ghost"
 							onClick={onClose}

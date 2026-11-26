@@ -261,7 +261,7 @@ function Shell({ me, children }: { me: Me; children: ReactNode }) {
 				<main className="lg:py-2 lg:pr-2 lg:pl-60">
 					<div
 						data-app-frame
-						className="relative min-h-[calc(100svh-3rem)] bg-background lg:min-h-[calc(100svh-1rem)] lg:rounded-xl lg:shadow-card"
+						className="relative min-h-[calc(100svh-3rem)] overflow-x-clip bg-background lg:min-h-[calc(100svh-1rem)] lg:rounded-xl lg:shadow-card"
 					>
 						<NavProgress />
 						<SecurityUpdateBanner me={me} />

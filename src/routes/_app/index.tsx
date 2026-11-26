@@ -638,7 +638,7 @@ function Trend({
 			<div
 				role="tablist"
 				aria-label="Metric"
-				className="grid grid-cols-2 gap-px border-b bg-border sm:grid-cols-5"
+				className="grid grid-cols-2 gap-px border-b bg-border sm:grid-cols-3 lg:grid-cols-5"
 			>
 				{tabs.map((x, i) => (
 					<button
@@ -648,7 +648,7 @@ function Trend({
 						aria-selected={x.key === active.key}
 						onClick={() => onMetric(x.key)}
 						className={cn(
-							"group relative flex min-w-0 flex-col items-start gap-1 bg-card px-4 py-3.5 text-left outline-none transition-colors focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset sm:px-5 sm:py-4",
+							"group relative flex min-w-0 flex-col items-start gap-1 bg-card px-3.5 py-3.5 text-left outline-none transition-colors focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset sm:px-4 sm:py-4",
 							x.key === active.key ? "bg-card" : "bg-card/60 hover:bg-card",
 							// An odd count on phones: the last one spans the row.
 							i === tabs.length - 1 && "max-sm:col-span-2",
@@ -667,7 +667,7 @@ function Trend({
 						<span className="text-[22px] leading-8 font-semibold tracking-[-0.022em] tabular-nums">
 							<Ph>{formatNumber(x.value)}</Ph>
 						</span>
-						<span className="flex h-5 items-center gap-1.5 text-xs text-faint tabular-nums">
+						<span className="flex min-h-5 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-faint tabular-nums">
 							{x.rate && <Ph>{x.rate}</Ph>}
 							<Ph>
 								<Delta
@@ -890,13 +890,13 @@ function RateCard({
 							<span className="text-muted-foreground tabular-nums">
 								<Ph>{formatNumber(r.count)}</Ph>
 								{r.countLabel && (
-									<span className="hidden text-faint sm:inline">
+									<span className="hidden text-faint sm:inline md:hidden xl:inline">
 										{" "}
 										{r.countLabel}
 									</span>
 								)}
 							</span>
-							<span className="w-16 text-right font-medium tabular-nums sm:w-24">
+							<span className="w-16 text-right font-medium tabular-nums sm:w-20">
 								<Ph>{formatPercent(r.share, digits)}</Ph>
 								{r.shareOf && <span className="sr-only"> {r.shareOf}</span>}
 							</span>
@@ -1124,7 +1124,7 @@ function ProvidersCard({
 				</p>
 			) : (
 				<ul className="border-t border-border/70">
-					<li className="grid grid-cols-[1fr_4rem_4rem_1rem] gap-3 sm:grid-cols-[1fr_4.5rem_4.5rem_4.5rem_1rem] border-b border-border/70 px-5 py-2 text-[11px] font-medium tracking-wide text-faint uppercase">
+					<li className="grid grid-cols-[minmax(0,1fr)_4.5rem_4.25rem_1rem] gap-2 border-b border-border/70 px-4 py-2 text-[11px] font-medium tracking-wide text-faint uppercase sm:grid-cols-[1fr_4.5rem_4.5rem_4.5rem_1rem] sm:gap-3 sm:px-5">
 						<span>Provider</span>
 						<span className="text-right">Delivered</span>
 						<span className="hidden text-right sm:block">Opened</span>
@@ -1136,7 +1136,7 @@ function ProvidersCard({
 							<Link
 								to="/emails"
 								search={emails({ provider: p.provider as Provider })}
-								className="group grid grid-cols-[1fr_4rem_4rem_1rem] items-center sm:grid-cols-[1fr_4.5rem_4.5rem_4.5rem_1rem] gap-3 border-b border-border/70 px-5 py-2.5 text-sm outline-none transition-colors last:border-0 hover:bg-accent/50 focus-visible:bg-accent/50"
+								className="group grid grid-cols-[minmax(0,1fr)_4.5rem_4.25rem_1rem] items-center gap-2 border-b border-border/70 px-4 py-2.5 text-sm outline-none transition-colors last:border-0 hover:bg-accent/50 focus-visible:bg-accent/50 sm:grid-cols-[1fr_4.5rem_4.5rem_4.5rem_1rem] sm:gap-3 sm:px-5"
 							>
 								<span className="min-w-0">
 									<span className="flex items-baseline justify-between gap-2">
@@ -1230,7 +1230,7 @@ function ByDomain({
 			color: "var(--chart-1)",
 			value: (r) => ratio(r.opened, r.delivered),
 			digits: 1,
-			className: "hidden md:table-cell",
+			className: "hidden lg:table-cell",
 		},
 		{
 			key: "clicked",
@@ -1238,7 +1238,7 @@ function ByDomain({
 			color: "var(--chart-6)",
 			value: (r) => ratio(r.clicked, r.delivered),
 			digits: 1,
-			className: "hidden lg:table-cell",
+			className: "hidden xl:table-cell",
 		},
 		{
 			key: "bounced",
@@ -1255,7 +1255,7 @@ function ByDomain({
 			value: (r) => r.complaintRate,
 			digits: 3,
 			bad: (r) => r.complaint,
-			className: "hidden sm:table-cell",
+			className: "hidden md:table-cell",
 		},
 	];
 	return (
@@ -1270,7 +1270,7 @@ function ByDomain({
 							{cols.map((c) => (
 								<TableHead
 									key={c.key}
-									className={cn("w-28 text-right", c.className)}
+									className={cn("w-24 text-right", c.className)}
 								>
 									<span className="inline-flex items-center gap-1.5">
 										<span
@@ -1378,8 +1378,10 @@ function ByBrand({
 							<TableHead className="hidden w-24 text-right sm:table-cell">
 								Delivered
 							</TableHead>
-							<TableHead className="w-24 text-right">Bounces</TableHead>
-							<TableHead className="w-28 text-right">Complaints</TableHead>
+							<TableHead className="w-20 text-right sm:w-24">Bounces</TableHead>
+							<TableHead className="hidden w-28 text-right sm:table-cell">
+								Complaints
+							</TableHead>
 						</TableRow>
 					</TableHeader>
 					<TableBody>
@@ -1418,7 +1420,7 @@ function ByBrand({
 								</TableCell>
 								<TableCell
 									className={cn(
-										"text-right tabular-nums",
+										"hidden text-right tabular-nums sm:table-cell",
 										o.complaint === "danger" && "text-destructive",
 										o.complaint === "warning" && "text-warning",
 									)}
@@ -1550,7 +1552,7 @@ function Setup({
 								i + 1
 							)}
 						</span>
-						<div className="min-w-0 flex-1">
+						<div className="min-w-44 flex-1">
 							<p
 								className={cn(
 									"text-sm font-medium",
@@ -1561,7 +1563,7 @@ function Setup({
 							</p>
 							{!s.done && <p className="text-sm text-muted-foreground">{s.hint}</p>}
 						</div>
-						<div className="flex items-center gap-2">
+						<div className="flex flex-wrap items-center gap-2">
 							{"smoke" in s && s.smoke && !s.done && (
 								<Button
 									type="button"

@@ -689,14 +689,16 @@ export function StatusPageAndPortalCard({ canEdit }: { canEdit: boolean }) {
 					{data?.components.map((c) => (
 						<div
 							key={c.id}
-							className="flex items-center justify-between rounded-md border border-border/60 px-3 py-1.5 text-xs"
+							className="flex items-center justify-between gap-2 rounded-md border border-border/60 px-3 py-1.5 text-xs"
 						>
-							<span className="font-medium">{c.name}</span>
-							<div className="flex items-center gap-2">
+							<span className="min-w-0 truncate font-medium">{c.name}</span>
+							<div className="flex shrink-0 items-center gap-1.5">
 								<Badge variant="outline">{c.status.replace(/_/g, " ")}</Badge>
 								{canEdit && (
-									<button
+									<Button
 										type="button"
+										variant="ghost"
+										size="icon-sm"
 										aria-label={`Delete ${c.name}`}
 										className="text-muted-foreground hover:text-destructive"
 										onClick={async () => {
@@ -705,7 +707,7 @@ export function StatusPageAndPortalCard({ canEdit }: { canEdit: boolean }) {
 										}}
 									>
 										<Trash2 className="size-3.5" />
-									</button>
+									</Button>
 								)}
 							</div>
 						</div>

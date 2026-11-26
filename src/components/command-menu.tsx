@@ -176,7 +176,7 @@ export function CommandMenu({
 					<DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-[oklch(0.2_0.01_265/0.2)] dark:bg-black/50" />
 					<DialogPrimitive.Content
 						aria-describedby={undefined}
-						className="fixed top-[14vh] left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-xl -translate-x-1/2 overflow-hidden rounded-xl bg-popover text-popover-foreground shadow-popover outline-none"
+						className="fixed top-3 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-xl -translate-x-1/2 overflow-hidden rounded-xl bg-popover text-popover-foreground shadow-popover outline-none sm:top-[14vh]"
 					>
 						<DialogPrimitive.Title className="sr-only">
 							Command menu
@@ -187,19 +187,29 @@ export function CommandMenu({
 							onValueChange={setSelected}
 							className="flex flex-col"
 						>
-							<div className="flex h-12 items-center gap-2.5 border-b px-4">
+							<div className="flex h-12 items-center gap-2.5 border-b px-3.5 sm:px-4">
 								<Search className="size-4 shrink-0 text-faint" />
 								<Command.Input
 									autoFocus
 									value={query}
 									onValueChange={setQuery}
 									placeholder="Search contacts, conversations, broadcasts… or go anywhere"
-									className="h-full flex-1 bg-transparent text-base outline-none placeholder:text-faint"
+									className="h-full min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-faint"
 								/>
-								{found.busy && <Spinner className="size-4 text-faint" />}
-								<Kbd>esc</Kbd>
+								{found.busy && <Spinner className="size-4 shrink-0 text-faint" />}
+								<Kbd className="hidden sm:inline-flex">esc</Kbd>
+								<button
+									type="button"
+									onClick={() => {
+										setOpen(false);
+										setQuery("");
+									}}
+									className="shrink-0 rounded-md px-1.5 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground sm:hidden"
+								>
+									Cancel
+								</button>
 							</div>
-							<Command.List className="max-h-[min(24rem,60vh)] scroll-py-2 overflow-y-auto p-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint">
+							<Command.List className="max-h-[min(24rem,calc(100dvh-6rem))] scroll-py-2 overflow-y-auto p-2 sm:max-h-[min(24rem,60vh)] [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-faint">
 								<Command.Empty className="px-3 py-8 text-center text-sm text-muted-foreground">
 									{found.busy ? "Searching…" : <>Nothing matches “{q}”.</>}
 								</Command.Empty>
@@ -344,7 +354,7 @@ export function CommandMenu({
 									</Item>
 								</Command.Group>
 							</Command.List>
-							<div className="flex h-10 items-center justify-end gap-4 border-t px-4 text-xs text-muted-foreground">
+							<div className="hidden h-10 items-center justify-end gap-4 border-t px-4 text-xs text-muted-foreground sm:flex">
 								<span className="flex items-center gap-1.5">
 									<Kbd>↑</Kbd>
 									<Kbd>↓</Kbd> to move

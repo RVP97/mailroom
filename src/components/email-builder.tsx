@@ -83,6 +83,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { ChipPopover, DEFAULT_GROUPS, TagText, VariableMenu } from "@/components/variables";
@@ -500,6 +501,7 @@ export function EmailBuilder({
 		saveSection: setSaving,
 	};
 	const current = selected ? locate(doc.blocks, selected)?.block : null;
+	const [mobileSheet, setMobileSheet] = useState<"blocks" | "inspector" | null>(null);
 
 	/** A saved section's blocks (fresh copies) after the selected block, or at the end. */
 	const insertSection = (list: Block[]) => {
@@ -515,10 +517,95 @@ export function EmailBuilder({
 		select(copies[0]?.id ?? null);
 	};
 
+	const blocksSidebarContent = (
+		<>
+			<div className="mx-4 mt-4 flex items-center gap-0.5 rounded-lg bg-muted p-0.5">
+				{(
+					[
+						["blocks", "Blocks"],
+						["saved", "Saved"],
+					] as const
+				).map(([k, l]) => (
+					<button
+						key={k}
+						type="button"
+						aria-pressed={side === k}
+						onClick={() => setSide(k)}
+						className={cn(
+							"h-7 flex-1 rounded-md text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground",
+							side === k &&
+								"bg-background text-foreground shadow-[0_0_0_1px_var(--border),0_1px_2px_var(--shadow-color)] dark:bg-white/[0.1]",
+						)}
+					>
+						{l}
+						{k === "saved" && sections.rows?.length ? (
+							<span className="ml-1 text-muted-foreground tabular-nums">
+								{sections.rows.length}
+							</span>
+						) : null}
+					</button>
+				))}
+			</div>
+			{side === "saved" ? (
+				<SavedSections
+					sections={sections}
+					onInsert={(list) => {
+						insertSection(list);
+						setMobileSheet(null);
+					}}
+				/>
+			) : (
+				<>
+					<p className="px-4 pt-4 pb-2 text-xs font-medium text-muted-foreground">
+						Drag onto the email, or click to add
+					</p>
+					<div className="grid grid-cols-2 gap-2 px-4 pb-4">
+						{blocks.map((b) => (
+							<button
+								key={b.type}
+								type="button"
+								draggable
+								onDragStart={(e) => {
+									e.dataTransfer.setData(DRAG_NEW, b.type);
+									e.dataTransfer.effectAllowed = "copy";
+								}}
+								onClick={() => {
+									add(b.type);
+									setMobileSheet(null);
+								}}
+								className="group flex aspect-[5/4] cursor-grab flex-col items-center justify-center gap-2 rounded-lg border border-border/80 bg-card text-[12.5px] font-medium text-muted-foreground shadow-[0_1px_2px_var(--shadow-color)] transition-[transform,border-color,color,box-shadow] hover:-translate-y-px hover:border-foreground/25 hover:text-foreground hover:shadow-[0_4px_12px_-4px_var(--shadow-color-strong)] active:cursor-grabbing"
+							>
+								<b.icon className="size-[18px] text-foreground/70 transition-colors group-hover:text-foreground" />
+								{b.label}
+							</button>
+						))}
+					</div>
+					<div className="mt-auto border-t border-border/70 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+						Select a block to change it. Delete removes it, Esc goes back to the email's
+						style.
+					</div>
+				</>
+			)}
+		</>
+	);
+
+	const inspectorContent = current ? (
+		<BlockPanel
+			key={current.id}
+			block={current}
+		/>
+	) : (
+		<StylePanel
+			theme={doc.theme}
+			set={setTheme}
+			kit={kit}
+		/>
+	);
+
 	return (
 		<BuilderCtx.Provider value={ctx}>
 			<div className="fixed inset-0 z-50 flex flex-col bg-background">
-				<header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 px-3 sm:px-4">
+				<header className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-border/70 px-2.5 py-2 sm:px-4 lg:h-14 lg:flex-nowrap lg:py-0">
 					<Button
 						variant="ghost"
 						size="icon"
@@ -527,8 +614,10 @@ export function EmailBuilder({
 					>
 						<ArrowLeft />
 					</Button>
-					<span className="min-w-0 truncate text-[15px] font-semibold">{title}</span>
-					<div className="flex items-center gap-0.5">
+					<span className="min-w-0 flex-1 truncate text-[15px] font-semibold lg:flex-none">
+						{title}
+					</span>
+					<div className="hidden items-center gap-0.5 sm:flex">
 						<Button
 							type="button"
 							variant="ghost"
@@ -552,7 +641,7 @@ export function EmailBuilder({
 							<Redo2 className="size-4" />
 						</Button>
 					</div>
-					<span className="flex-1" />
+					<span className="hidden flex-1 lg:inline" />
 					<div className="flex items-center gap-0.5 rounded-lg bg-muted p-0.5">
 						{(["edit", "preview"] as const).map((m) => (
 							<button
@@ -564,7 +653,7 @@ export function EmailBuilder({
 									select(null);
 								}}
 								className={cn(
-									"h-7 rounded-md px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground",
+									"h-7 rounded-md px-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground sm:px-3",
 									mode === m &&
 										"bg-background text-foreground shadow-[0_0_0_1px_var(--border),0_1px_2px_var(--shadow-color)] dark:bg-white/[0.1]",
 								)}
@@ -573,7 +662,7 @@ export function EmailBuilder({
 							</button>
 						))}
 					</div>
-					<div className="flex items-center gap-0.5 rounded-lg bg-muted p-0.5">
+					<div className="hidden items-center gap-0.5 rounded-lg bg-muted p-0.5 sm:flex">
 						{[
 							{ on: false, icon: Monitor, label: "Desktop" },
 							{ on: true, icon: Smartphone, label: "Phone" },
@@ -595,85 +684,72 @@ export function EmailBuilder({
 							</button>
 						))}
 					</div>
-					<span className="flex-1" />
-					<ImportMarkupButton
-						doc={doc}
-						onImport={(blocks, importMode) =>
-							setBlocks((cur) =>
-								importMode === "replace" ? blocks : [...cur, ...blocks],
-							)
-						}
-					/>
-					<EmailBuilderAiButton
-						doc={doc}
-						subject={subject}
-					/>
-					{actions}
+					{mode === "edit" && (
+						<div className="flex items-center gap-1 lg:hidden">
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className="md:hidden"
+								onClick={() => setMobileSheet("blocks")}
+							>
+								<Plus className="size-3.5" />
+								Blocks
+							</Button>
+							<Button
+								type="button"
+								variant={current ? "secondary" : "outline"}
+								size="sm"
+								onClick={() => setMobileSheet("inspector")}
+							>
+								<Paintbrush className="size-3.5" />
+								{current ? LABEL[current.type] : "Style"}
+							</Button>
+						</div>
+					)}
+					<span className="hidden flex-1 lg:inline" />
+					<div className="flex flex-wrap items-center gap-1.5 max-lg:w-full max-lg:justify-end">
+						<div className="mr-auto flex items-center gap-0.5 sm:hidden">
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon-sm"
+								aria-label="Undo"
+								disabled={!canUndo}
+								onClick={undo}
+							>
+								<Undo2 className="size-4" />
+							</Button>
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon-sm"
+								aria-label="Redo"
+								disabled={!canRedo}
+								onClick={redo}
+							>
+								<Redo2 className="size-4" />
+							</Button>
+						</div>
+						<ImportMarkupButton
+							doc={doc}
+							onImport={(blocks, importMode) =>
+								setBlocks((cur) =>
+									importMode === "replace" ? blocks : [...cur, ...blocks],
+								)
+							}
+						/>
+						<EmailBuilderAiButton
+							doc={doc}
+							subject={subject}
+						/>
+						{actions}
+					</div>
 				</header>
 				<div className="flex min-h-0 flex-1">
 					{mode === "edit" && (
 						<aside className="hidden w-[232px] shrink-0 flex-col overflow-y-auto border-r border-border/70 md:flex">
-							<div className="mx-4 mt-4 flex items-center gap-0.5 rounded-lg bg-muted p-0.5">
-								{(
-									[
-										["blocks", "Blocks"],
-										["saved", "Saved"],
-									] as const
-								).map(([k, l]) => (
-									<button
-										key={k}
-										type="button"
-										aria-pressed={side === k}
-										onClick={() => setSide(k)}
-										className={cn(
-											"h-7 flex-1 rounded-md text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground",
-											side === k &&
-												"bg-background text-foreground shadow-[0_0_0_1px_var(--border),0_1px_2px_var(--shadow-color)] dark:bg-white/[0.1]",
-										)}
-									>
-										{l}
-										{k === "saved" && sections.rows?.length ? (
-											<span className="ml-1 text-muted-foreground tabular-nums">
-												{sections.rows.length}
-											</span>
-										) : null}
-									</button>
-								))}
-							</div>
-							{side === "saved" ? (
-								<SavedSections
-									sections={sections}
-									onInsert={insertSection}
-								/>
-							) : (
-								<>
-									<p className="px-4 pt-4 pb-2 text-xs font-medium text-muted-foreground">
-										Drag onto the email, or click to add
-									</p>
-									<div className="grid grid-cols-2 gap-2 px-4 pb-4">
-										{blocks.map((b) => (
-											<button
-												key={b.type}
-												type="button"
-												draggable
-												onDragStart={(e) => {
-													e.dataTransfer.setData(DRAG_NEW, b.type);
-													e.dataTransfer.effectAllowed = "copy";
-												}}
-												onClick={() => add(b.type)}
-												className="group flex aspect-[5/4] cursor-grab flex-col items-center justify-center gap-2 rounded-lg border border-border/80 bg-card text-[12.5px] font-medium text-muted-foreground shadow-[0_1px_2px_var(--shadow-color)] transition-[transform,border-color,color,box-shadow] hover:-translate-y-px hover:border-foreground/25 hover:text-foreground hover:shadow-[0_4px_12px_-4px_var(--shadow-color-strong)] active:cursor-grabbing"
-											>
-												<b.icon className="size-[18px] text-foreground/70 transition-colors group-hover:text-foreground" />
-												{b.label}
-											</button>
-										))}
-									</div>
-									<div className="mt-auto border-t border-border/70 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
-										Select a block to change it. Delete removes it, Esc goes
-										back to the email's style.
-									</div>
-								</>
-							)}
+							{blocksSidebarContent}
 						</aside>
 					)}
 					<main
@@ -695,21 +771,44 @@ export function EmailBuilder({
 					</main>
 					{mode === "edit" && (
 						<aside className="hidden w-[320px] shrink-0 flex-col overflow-y-auto border-l border-border/70 lg:flex">
-							{current ? (
-								<BlockPanel
-									key={current.id}
-									block={current}
-								/>
-							) : (
-								<StylePanel
-									theme={doc.theme}
-									set={setTheme}
-									kit={kit}
-								/>
-							)}
+							{inspectorContent}
 						</aside>
 					)}
 				</div>
+				<Sheet
+					open={mobileSheet === "blocks"}
+					onOpenChange={(o) => !o && setMobileSheet(null)}
+				>
+					<SheetContent
+						side="left"
+						className="flex flex-col p-0"
+					>
+						<SheetHeader>
+							<SheetTitle>Add block</SheetTitle>
+						</SheetHeader>
+						<div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+							{blocksSidebarContent}
+						</div>
+					</SheetContent>
+				</Sheet>
+				<Sheet
+					open={mobileSheet === "inspector"}
+					onOpenChange={(o) => !o && setMobileSheet(null)}
+				>
+					<SheetContent
+						side="right"
+						className="flex flex-col p-0"
+					>
+						<SheetHeader>
+							<SheetTitle>
+								{current ? `${LABEL[current.type]} settings` : "Email style"}
+							</SheetTitle>
+						</SheetHeader>
+						<div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+							{inspectorContent}
+						</div>
+					</SheetContent>
+				</Sheet>
 			</div>
 			<SaveSectionDialog
 				block={saving}
@@ -1024,7 +1123,7 @@ function BlockShell({
 							"absolute z-30 flex items-center gap-px rounded-md bg-blue-500 p-0.5 text-white shadow-lg",
 							nested
 								? "-top-8 right-0"
-								: "top-[-6px] left-[calc(100%+10px)] flex-col max-sm:top-[-34px] max-sm:right-2 max-sm:left-auto max-sm:flex-row",
+								: "top-[-6px] left-[calc(100%+10px)] flex-col max-xl:top-[-34px] max-xl:right-2 max-xl:left-auto max-xl:flex-row",
 						)}
 					>
 						<span className="px-1.5 text-[11px] font-semibold">
@@ -1585,7 +1684,7 @@ function FormatBar({
 		<div
 			onMouseDown={keep}
 			onClick={(e) => e.stopPropagation()}
-			className="absolute -top-12 left-0 z-40 flex items-center gap-px rounded-lg border border-zinc-200 bg-white p-1 text-zinc-700 shadow-[0_8px_24px_-6px_rgba(0,0,0,.25)]"
+			className="absolute -top-12 left-0 z-40 flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-px rounded-lg border border-zinc-200 bg-white p-1 text-zinc-700 shadow-[0_8px_24px_-6px_rgba(0,0,0,.25)]"
 		>
 			{items.map((x) => (
 				<button
@@ -2948,7 +3047,7 @@ function SavedSections({
 							type="button"
 							aria-label={`Delete ${s.name}`}
 							title="Delete for everyone"
-							className="absolute top-1.5 right-1.5 hidden size-6 items-center justify-center rounded-md bg-background/90 text-muted-foreground shadow-sm group-hover:flex hover:text-destructive"
+							className="absolute top-1.5 right-1.5 flex size-6 items-center justify-center rounded-md bg-background/90 text-muted-foreground opacity-100 shadow-sm hover:text-destructive focus-visible:opacity-100 md:opacity-0 md:group-hover:opacity-100 pointer-coarse:opacity-100"
 							onClick={async () => {
 								try {
 									await deleteSectionFn({ data: { id: s.id } });

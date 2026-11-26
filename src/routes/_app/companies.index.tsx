@@ -142,16 +142,16 @@ function CompaniesPage() {
 						)}
 					</Empty>
 				) : (
-					<Table>
+					<Table className="table-fixed">
 						<TableHeader>
 							<TableRow>
 								<TableHead>Company</TableHead>
-								<TableHead>Plan</TableHead>
-								<TableHead className="text-right">MRR</TableHead>
-								<TableHead className="hidden text-right sm:table-cell">
+								<TableHead className="w-24 sm:w-28">Plan</TableHead>
+								<TableHead className="w-20 text-right sm:w-24">MRR</TableHead>
+								<TableHead className="hidden w-20 text-right sm:table-cell">
 									Seats
 								</TableHead>
-								<TableHead className="hidden text-right sm:table-cell">
+								<TableHead className="hidden w-24 text-right sm:table-cell">
 									Contacts
 								</TableHead>
 								<TableHead className="w-10" />
@@ -337,7 +337,7 @@ function NewCompanyDialog({
 								Optional. Matches contacts like ana@acme.com automatically.
 							</FieldDescription>
 						</Field>
-						<div className="grid grid-cols-3 gap-3">
+						<div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
 							<Field>
 								<FieldLabel htmlFor="cmp-plan">Plan</FieldLabel>
 								<Input

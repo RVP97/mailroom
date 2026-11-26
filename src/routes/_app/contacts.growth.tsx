@@ -246,9 +246,12 @@ function GrowthPage() {
 							<TableHeader>
 								<TableRow>
 									<TableHead>Source</TableHead>
-									<TableHead className="w-24 text-right">Joined</TableHead>
-									<TableHead className="w-28 text-right">
-										Still subscribed
+									<TableHead className="w-16 text-right sm:w-24">
+										Joined
+									</TableHead>
+									<TableHead className="w-24 text-right sm:w-32">
+										<span className="sm:hidden">Stayed</span>
+										<span className="hidden sm:inline">Still subscribed</span>
 									</TableHead>
 								</TableRow>
 							</TableHeader>

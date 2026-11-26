@@ -72,10 +72,10 @@ function SheetContent({
 			<SheetPrimitive.Content
 				data-slot="sheet-content"
 				className={cn(
-					"fixed z-50 flex flex-col bg-popover text-popover-foreground shadow-popover outline-none",
+					"fixed z-50 flex flex-col bg-popover pb-[env(safe-area-inset-bottom)] text-popover-foreground shadow-popover outline-none",
 					side === "right" &&
 						"animate-drawer inset-y-2 right-2 w-[calc(100%-1rem)] rounded-xl sm:max-w-md",
-					side === "left" && "animate-drawer-left inset-y-0 left-0 w-72",
+					side === "left" && "animate-drawer-left inset-y-0 left-0 w-72 max-w-[85vw]",
 					className,
 				)}
 				{...props}

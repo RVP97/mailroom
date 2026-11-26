@@ -103,6 +103,7 @@ function FormBuilder() {
 	const [v, setV] = useState<Fields>(() => fieldsOf(existing, first));
 	const [saved, setSaved] = useState(() => JSON.stringify(fieldsOf(existing, first)));
 	const [busy, setBusy] = useState(false);
+	const [mobilePane, setMobilePane] = useState<"edit" | "preview">("edit");
 	const set = <K extends keyof Fields>(k: K, x: Fields[K]) => setV((f) => ({ ...f, [k]: x }));
 	const look = (x: Partial<FormDesign>) => setV((f) => ({ ...f, design: { ...f.design, ...x } }));
 	const brand = v.brand ?? first ?? "";
@@ -203,7 +204,8 @@ function FormBuilder() {
 				{existing && (
 					<Button
 						variant="outline"
-						className="hidden sm:inline-flex"
+						aria-label="Get the code"
+						className="max-sm:size-8 max-sm:px-0"
 						asChild
 					>
 						<Link
@@ -211,7 +213,7 @@ function FormBuilder() {
 							search={{ code: existing.id }}
 						>
 							<Code />
-							Get the code
+							<span className="hidden sm:inline">Get the code</span>
 						</Link>
 					</Button>
 				)}
@@ -224,19 +226,56 @@ function FormBuilder() {
 					{existing ? "Save" : "Create form"}
 				</Button>
 			</header>
+			<div className="flex items-center gap-1 border-b border-border/70 bg-muted/20 px-3 py-1.5 lg:hidden">
+				<div className="grid w-full grid-cols-2 rounded-lg bg-muted p-0.5">
+					{(
+						[
+							["edit", "Customize"],
+							["preview", "Live preview"],
+						] as const
+					).map(([paneId, label]) => (
+						<button
+							key={paneId}
+							type="button"
+							aria-pressed={mobilePane === paneId}
+							onClick={() => setMobilePane(paneId)}
+							className={cn(
+								"h-7 rounded-md text-xs font-medium transition-colors",
+								mobilePane === paneId
+									? "bg-background text-foreground shadow-[0_0_0_1px_var(--border),0_1px_2px_var(--shadow-color)] dark:bg-white/[0.1]"
+									: "text-muted-foreground hover:text-foreground",
+							)}
+						>
+							{label}
+						</button>
+					))}
+				</div>
+			</div>
 			<div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-				<Canvas
-					input={input}
-					design={v.design}
-					turnstile={turnstile}
-					host={hostOf(v.website)}
-				/>
-				<aside className="flex min-h-0 w-full shrink-0 flex-col border-border/70 lg:w-[400px] lg:border-l">
+				<div
+					className={cn(
+						"min-h-0 min-w-0 flex-1 flex-col",
+						mobilePane === "preview" ? "flex" : "hidden lg:flex",
+					)}
+				>
+					<Canvas
+						input={input}
+						design={v.design}
+						turnstile={turnstile}
+						host={hostOf(v.website)}
+					/>
+				</div>
+				<aside
+					className={cn(
+						"min-h-0 w-full min-w-0 shrink-0 flex-col border-border/70 lg:flex lg:w-[400px] lg:border-l",
+						mobilePane === "edit" ? "flex flex-1 lg:flex-none" : "hidden",
+					)}
+				>
 					<Tabs
 						defaultValue={existing ? "design" : "design"}
 						className="min-h-0 flex-1 gap-0"
 					>
-						<div className="border-b border-border/70 px-5">
+						<div className="overflow-x-auto border-b border-border/70 px-3 sm:px-5 [scrollbar-width:none]">
 							<TabsList variant="line">
 								<TabsTrigger value="design">Design</TabsTrigger>
 								<TabsTrigger value="content">Content</TabsTrigger>
@@ -760,7 +799,7 @@ function DesignPanel({
 						);
 					})}
 				</div>
-				<div className="grid grid-cols-3 gap-2">
+				<div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
 					<ColorField
 						label="Button"
 						value={d.accent}

@@ -413,22 +413,22 @@ export function ChatThread({
 
 	const body = (
 		<>
-			<div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/70 px-4 text-xs">
+			<div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/70 px-3 text-xs sm:px-4">
 				<span
 					className={cn(
-						"size-2 rounded-full",
+						"size-2 shrink-0 rounded-full",
 						live.visitorOnline ? "bg-emerald-500" : "bg-muted-foreground/40",
 					)}
 				/>
-				<span className="font-medium">
+				<span className="shrink-0 font-medium">
 					{live.visitorOnline ? "Visitor online now" : "Visitor offline"}
 				</span>
 				{!live.visitorOnline && c.visitor?.email && (
-					<span className="truncate text-muted-foreground">
+					<span className="min-w-0 truncate text-muted-foreground">
 						· replies also email {c.visitor.email}
 					</span>
 				)}
-				<span className="ml-auto text-xs text-muted-foreground">
+				<span className="ml-auto shrink-0 text-xs text-muted-foreground">
 					{sketching ? "" : live.connected ? "Live" : "Connecting…"}
 				</span>
 			</div>
@@ -439,7 +439,7 @@ export function ChatThread({
 					pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
 				}}
 				className={cn(
-					"flex flex-col gap-1 overflow-y-auto px-4 py-4",
+					"flex flex-col gap-1 overflow-y-auto px-3 py-3 sm:px-4 sm:py-4",
 					embedded ? "min-h-0 flex-1" : "h-[min(62vh,640px)] min-h-[360px]",
 				)}
 				aria-live="polite"
@@ -626,7 +626,7 @@ function Files({ files, mine }: { files: ChatLine["files"]; mine: boolean }) {
 						<img
 							src={f.url}
 							alt={f.filename}
-							className="max-h-60 max-w-[260px] object-cover"
+							className="max-h-60 max-w-[min(260px,100%)] object-cover"
 							loading="lazy"
 						/>
 					</a>
@@ -636,7 +636,7 @@ function Files({ files, mine }: { files: ChatLine["files"]; mine: boolean }) {
 						href={f.url ?? undefined}
 						target="_blank"
 						rel="noreferrer"
-						className="flex max-w-[260px] items-center gap-2 rounded-xl border border-border/70 bg-background px-3 py-2 text-sm hover:bg-muted/60"
+						className="flex max-w-[min(260px,100%)] items-center gap-2 rounded-xl border border-border/70 bg-background px-3 py-2 text-sm hover:bg-muted/60"
 					>
 						<FileText className="size-4 shrink-0 text-muted-foreground" />
 						<span className="min-w-0 truncate">{f.filename}</span>
@@ -678,15 +678,17 @@ function Bubble({
 				first && "mt-3",
 			)}
 		>
-			<span className="w-7 shrink-0">{last && <Avatar author={l.author} />}</span>
+			<span className={cn("w-7 shrink-0", mine && "hidden sm:inline-block")}>
+				{last && <Avatar author={l.author} />}
+			</span>
 			<div
 				className={cn(
-					"flex max-w-[78%] min-w-0 flex-col gap-1",
+					"flex max-w-[85%] min-w-0 flex-col gap-1 sm:max-w-[78%]",
 					mine ? "items-end" : "items-start",
 				)}
 			>
 				{first && (
-					<span className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground">
+					<span className="flex flex-wrap items-center gap-1.5 px-1 text-xs text-muted-foreground">
 						<span className="font-medium text-foreground/80">{name}</span>
 						{l.author.type === "agent" && (
 							<Badge
@@ -703,7 +705,7 @@ function Bubble({
 					<div
 						title={formatDateTime(l.at)}
 						className={cn(
-							"rounded-2xl px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words",
+							"max-w-full rounded-2xl px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
 							mine
 								? "bg-brand text-brand-foreground [&_a]:text-brand-foreground"
 								: "bg-muted text-foreground",
@@ -721,7 +723,7 @@ function Bubble({
 					mine={mine}
 				/>
 				{last && (
-					<span className="flex items-center gap-1 px-1 text-[11px] text-muted-foreground tabular-nums">
+					<span className="flex flex-wrap items-center gap-1 px-1 text-[11px] text-muted-foreground tabular-nums">
 						{timeOf(l.at)}
 						{l.via === "email" && (
 							<span className="inline-flex items-center gap-0.5">
@@ -749,7 +751,7 @@ function Bubble({
 			{mine && l.text && (
 				<AnswerMenu
 					messageId={l.id}
-					className="mb-1 opacity-0 transition-opacity group-hover/line:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+					className="mb-1 opacity-0 transition-opacity group-hover/line:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 pointer-coarse:opacity-60"
 				/>
 			)}
 		</div>
@@ -759,12 +761,12 @@ function Bubble({
 function PendingBubble({ p }: { p: Pending }) {
 	return (
 		<div className="mt-1 flex flex-row-reverse items-end gap-2">
-			<span className="w-7 shrink-0" />
-			<div className="flex max-w-[78%] flex-col items-end gap-1">
+			<span className="hidden w-7 shrink-0 sm:inline-block" />
+			<div className="flex max-w-[85%] min-w-0 flex-col items-end gap-1 sm:max-w-[78%]">
 				{p.text && (
 					<div
 						className={cn(
-							"rounded-2xl rounded-br-md bg-brand px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words text-brand-foreground",
+							"max-w-full rounded-2xl rounded-br-md bg-brand px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-brand-foreground",
 							p.state === "sending" && "opacity-70",
 							p.state === "failed" && "bg-destructive/90",
 						)}
@@ -778,14 +780,14 @@ function PendingBubble({ p }: { p: Pending }) {
 							src={p.file.preview}
 							alt={p.file.name}
 							className={cn(
-								"max-h-60 max-w-[260px] rounded-xl border border-border/70 object-cover",
+								"max-h-60 max-w-[min(260px,100%)] rounded-xl border border-border/70 object-cover",
 								p.state === "sending" && "opacity-60",
 							)}
 						/>
 					) : (
-						<span className="flex items-center gap-2 rounded-xl border border-border/70 px-3 py-2 text-sm">
-							<FileText className="size-4 text-muted-foreground" />
-							{p.file.name}
+						<span className="flex max-w-[min(260px,100%)] items-center gap-2 rounded-xl border border-border/70 px-3 py-2 text-sm">
+							<FileText className="size-4 shrink-0 text-muted-foreground" />
+							<span className="min-w-0 truncate">{p.file.name}</span>
 						</span>
 					))}
 				<span className="flex items-center gap-1 px-1 text-[11px] text-muted-foreground">

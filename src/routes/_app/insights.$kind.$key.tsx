@@ -799,12 +799,13 @@ function OpenHours({
 								</div>
 							)}
 							{hours.map((h, i) => (
-								<div
+								<button
 									key={h.hour}
-									role="img"
-									className="relative flex h-full flex-1 items-end transition-opacity duration-150"
+									type="button"
+									className="relative flex h-full flex-1 items-end transition-opacity duration-150 outline-none focus-visible:ring-1 focus-visible:ring-ring"
 									style={{ opacity: active === null || active === i ? 1 : 0.4 }}
 									onMouseEnter={() => setActive(i)}
+									onClick={() => setActive((cur) => (cur === i ? null : i))}
 									aria-label={`${hour(h.hour)}: ${formatNumber(h.opened)} first opens`}
 								>
 									{/*
@@ -824,7 +825,7 @@ function OpenHours({
 											} as CSSProperties
 										}
 									/>
-								</div>
+								</button>
 							))}
 						</div>
 						<div className="mt-1.5 flex justify-between text-[11px] text-faint">
@@ -885,22 +886,22 @@ function Breakdown<
 					<TableHeader>
 						<TableRow>
 							<TableHead>{label}</TableHead>
-							<TableHead className="w-28 text-right">Sent</TableHead>
-							<TableHead className="hidden w-24 text-right sm:table-cell">
+							<TableHead className="w-24 text-right">Sent</TableHead>
+							<TableHead className="hidden w-20 text-right sm:table-cell">
 								Delivered
 							</TableHead>
-							<TableHead className="w-24 text-right">Bounced</TableHead>
-							<TableHead className="hidden w-24 text-right md:table-cell">
+							<TableHead className="w-20 text-right sm:w-24">Bounced</TableHead>
+							<TableHead className="hidden w-20 text-right lg:table-cell">
 								Spam
 							</TableHead>
-							<TableHead className="hidden w-24 text-right sm:table-cell">
+							<TableHead className="hidden w-20 text-right sm:table-cell">
 								Opened
 							</TableHead>
-							<TableHead className="hidden w-24 text-right lg:table-cell">
+							<TableHead className="hidden w-20 text-right xl:table-cell">
 								Clicked
 							</TableHead>
 							{extra && (
-								<TableHead className="hidden w-24 text-right md:table-cell">
+								<TableHead className="hidden w-20 text-right lg:table-cell">
 									{extra.label}
 								</TableHead>
 							)}
@@ -937,7 +938,7 @@ function Breakdown<
 									</TableCell>
 									<TableCell
 										className={cn(
-											"hidden text-right tabular-nums md:table-cell",
+											"hidden text-right tabular-nums lg:table-cell",
 											tone(s.complaint),
 										)}
 									>
@@ -946,11 +947,11 @@ function Breakdown<
 									<TableCell className="hidden text-right text-muted-foreground tabular-nums sm:table-cell">
 										<Ph>{formatPercent(s.openRate, 1)}</Ph>
 									</TableCell>
-									<TableCell className="hidden text-right text-muted-foreground tabular-nums lg:table-cell">
+									<TableCell className="hidden text-right text-muted-foreground tabular-nums xl:table-cell">
 										<Ph>{formatPercent(s.clickRate, 1)}</Ph>
 									</TableCell>
 									{extra && (
-										<TableCell className="hidden text-right text-muted-foreground tabular-nums md:table-cell">
+										<TableCell className="hidden text-right text-muted-foreground tabular-nums lg:table-cell">
 											<Ph>{extra.value(r)}</Ph>
 										</TableCell>
 									)}
@@ -1067,7 +1068,7 @@ function Recent({ rows }: { rows: Data["recent"] }) {
 								className="group flex items-center gap-3 border-b border-border/70 px-5 py-2.5 text-sm outline-none transition-colors last:border-0 hover:bg-accent/50"
 							>
 								<span className="flex min-w-0 flex-1 items-baseline gap-2">
-									<span className="min-w-0 truncate font-medium sm:shrink-0">
+									<span className="min-w-0 truncate font-medium sm:max-w-[55%]">
 										<Ph>{r.to?.[0] ?? ""}</Ph>
 									</span>
 									<span className="hidden min-w-0 truncate text-muted-foreground sm:block">

@@ -123,15 +123,15 @@ function Brands() {
 					<TableHeader>
 						<TableRow>
 							<TableHead>Brand</TableHead>
-							<TableHead className="hidden w-36 sm:table-cell">Status</TableHead>
-							<TableHead className="hidden w-28 text-right md:table-cell">
+							<TableHead className="hidden w-28 sm:table-cell">Status</TableHead>
+							<TableHead className="hidden w-24 text-right lg:table-cell">
 								Domains
 							</TableHead>
-							<TableHead className="w-24 text-right">Sent</TableHead>
-							<TableHead className="hidden w-24 text-right sm:table-cell">
+							<TableHead className="w-20 text-right sm:w-24">Sent</TableHead>
+							<TableHead className="hidden w-20 text-right sm:table-cell lg:w-24">
 								Bounces
 							</TableHead>
-							<TableHead className="hidden w-28 text-right sm:table-cell">
+							<TableHead className="hidden w-24 text-right lg:table-cell">
 								Complaints
 							</TableHead>
 						</TableRow>
@@ -186,7 +186,7 @@ function Brands() {
 											label={st.label}
 										/>
 									</TableCell>
-									<TableCell className="hidden text-right text-muted-foreground tabular-nums md:table-cell">
+									<TableCell className="hidden text-right text-muted-foreground tabular-nums lg:table-cell">
 										<Ph>
 											{formatNumber(b.domains)}
 											{b.marketingDomains > 0 && (
@@ -211,7 +211,7 @@ function Brands() {
 									</TableCell>
 									<TableCell
 										className={cn(
-											"hidden text-right tabular-nums sm:table-cell",
+											"hidden text-right tabular-nums lg:table-cell",
 											b.complaint === "danger" && "text-destructive",
 											b.complaint === "warning" && "text-warning",
 										)}

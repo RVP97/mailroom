@@ -146,24 +146,25 @@ export function DomainTracking({
 						</div>
 					</div>
 					{canManage && tracking?.customHost && (
-						<div className="flex flex-wrap gap-2 pl-7">
+						<div className="flex flex-wrap gap-2 sm:pl-7">
 							{!d.tracking_host ? (
 								<>
-									<div className="flex h-8 items-center overflow-hidden rounded-md border border-input bg-background text-sm focus-within:ring-2 focus-within:ring-ring/50">
+									<div className="flex h-8 max-w-full min-w-0 items-center overflow-hidden rounded-md border border-input bg-background text-sm focus-within:ring-2 focus-within:ring-ring/50">
 										<Input
 											value={prefix}
 											onChange={(e) => setPrefix(e.target.value)}
 											aria-label="Tracking subdomain"
 											spellCheck={false}
-											className="h-8 w-20 rounded-none border-0 bg-transparent px-2 text-right font-mono shadow-none focus-visible:ring-0"
+											className="h-8 w-20 shrink-0 rounded-none border-0 bg-transparent px-2 text-right font-mono shadow-none focus-visible:ring-0"
 										/>
-										<span className="pr-2.5 font-mono text-muted-foreground">
+										<span className="min-w-0 truncate pr-2.5 font-mono text-muted-foreground">
 											.{d.name}
 										</span>
 									</div>
 									<Button
 										size="sm"
 										variant="outline"
+										className="max-w-full"
 										disabled={busy !== null}
 										onClick={() =>
 											run(
@@ -181,7 +182,7 @@ export function DomainTracking({
 										}
 									>
 										{busy === "host" ? <Spinner /> : <Link2 />}
-										Use {host}
+										<span className="truncate">Use {host}</span>
 									</Button>
 								</>
 							) : (
@@ -206,18 +207,21 @@ export function DomainTracking({
 									<Button
 										size="sm"
 										variant="ghost"
+										className="max-w-full"
 										disabled={busy !== null}
 										onClick={() => setRemoving(true)}
 									>
 										<Trash2 />
-										Stop using {d.tracking_host}
+										<span className="truncate">
+											Stop using {d.tracking_host}
+										</span>
 									</Button>
 								</>
 							)}
 						</div>
 					)}
 					{tracking && !tracking.own && (
-						<p className="pl-7 text-xs text-muted-foreground text-pretty">
+						<p className="text-xs text-muted-foreground text-pretty sm:pl-7">
 							For now SES still tracks opens and clicks, on its shared awstrack.me
 							domain. Mailroom takes over once an admin updates the IAM policy
 							(scripts/update-iam.sh).

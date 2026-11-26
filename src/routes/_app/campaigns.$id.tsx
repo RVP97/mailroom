@@ -238,7 +238,7 @@ function CampaignPage() {
 				).map(([k, v, sub]) => (
 					<div
 						key={k}
-						className="flex flex-col gap-1 border-border/70 px-5 py-4 not-last:border-r max-lg:nth-[n+4]:border-t max-sm:nth-[n+3]:border-t max-sm:even:border-r-0"
+						className="flex flex-col gap-1 border-border/70 px-4 py-4 not-last:border-r sm:px-5 max-lg:nth-[n+4]:border-t max-sm:nth-[n+3]:border-t max-sm:even:border-r-0 sm:max-lg:nth-[3n]:border-r-0"
 					>
 						<span className="text-xs text-muted-foreground">{k}</span>
 						<span className="text-xl font-semibold tabular-nums">

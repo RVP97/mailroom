@@ -1256,7 +1256,9 @@ function ShownOnce({
 					{hint && (
 						<p className="flex items-start gap-2 text-xs text-muted-foreground">
 							<TriangleAlert className="mt-px size-3.5 shrink-0 text-warning" />
-							Send it as <code className="font-mono">{hint}</code>
+							<span className="min-w-0 break-words">
+								Send it as <code className="font-mono break-all">{hint}</code>
+							</span>
 						</p>
 					)}
 				</DialogBody>

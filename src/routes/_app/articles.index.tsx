@@ -520,7 +520,7 @@ function HelpCenterPage() {
 						{gaps.map((g) => (
 							<li
 								key={`${g.brand_id}:${g.question}`}
-								className="flex flex-wrap items-center gap-3 px-5 py-3"
+								className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:px-5"
 							>
 								<div className="min-w-0 flex-1">
 									<p className="truncate text-sm font-medium">“{g.question}”</p>

@@ -33,7 +33,7 @@ function PopoverContent({
 				align={align}
 				sideOffset={sideOffset}
 				className={cn(
-					"animate-pop z-50 origin-(--radix-popover-content-transform-origin) rounded-xl bg-popover text-popover-foreground shadow-popover outline-none",
+					"animate-pop z-50 max-w-[calc(100vw-1rem)] origin-(--radix-popover-content-transform-origin) rounded-xl bg-popover text-popover-foreground shadow-popover outline-none",
 					className,
 				)}
 				{...props}

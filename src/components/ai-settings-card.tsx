@@ -139,7 +139,10 @@ export function AiSettingsCard({ canEdit }: { canEdit: boolean }) {
 									setModel(MODEL_HINTS[next]);
 							}}
 						>
-							<SelectTrigger id="ai-provider">
+							<SelectTrigger
+								id="ai-provider"
+								className="w-full"
+							>
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
@@ -220,7 +223,10 @@ export function AiSettingsCard({ canEdit }: { canEdit: boolean }) {
 						disabled={!canEdit}
 						onValueChange={(v) => setAutoMode(v as AiConfig["auto_mode"])}
 					>
-						<SelectTrigger id="ai-auto">
+						<SelectTrigger
+							id="ai-auto"
+							className="w-full"
+						>
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>

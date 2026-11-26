@@ -388,7 +388,7 @@ function ContactPage() {
 							/>
 						</div>
 						{!contact.unsubscribed && (
-							<div className="flex items-center justify-between gap-4 text-sm">
+							<div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4">
 								<label htmlFor="c-pace">
 									<span className="font-medium">How often</span>
 									<span className="block text-muted-foreground">
@@ -442,7 +442,7 @@ function ContactPage() {
 								>
 									<SelectTrigger
 										id="c-pace"
-										className="w-52"
+										className="w-full sm:w-52 sm:shrink-0"
 									>
 										<SelectValue />
 									</SelectTrigger>

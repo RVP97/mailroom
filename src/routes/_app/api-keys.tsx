@@ -349,10 +349,12 @@ function CreateKey({ domains }: { domains: { id: string; name: string }[] }) {
 							</button>
 							<p className="flex items-start gap-2 text-xs text-muted-foreground">
 								<TriangleAlert className="mt-px size-3.5 shrink-0 text-warning" />
-								Send it as{" "}
-								<code className="font-mono">
-									Authorization: Bearer {token.slice(0, 7)}…
-								</code>
+								<span className="min-w-0 break-words">
+									Send it as{" "}
+									<code className="font-mono break-all">
+										Authorization: Bearer {token.slice(0, 7)}…
+									</code>
+								</span>
 							</p>
 						</DialogBody>
 						<DialogFooter>
@@ -433,7 +435,7 @@ function CreateKey({ domains }: { domains: { id: string; name: string }[] }) {
 										value={domainId}
 										onValueChange={setDomainId}
 									>
-										<SelectTrigger>
+										<SelectTrigger className="w-full">
 											<SelectValue />
 										</SelectTrigger>
 										<SelectContent>

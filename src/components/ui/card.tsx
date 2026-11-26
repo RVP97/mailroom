@@ -77,7 +77,7 @@ function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
 		<div
 			data-slot="card-footer"
 			className={cn(
-				"flex min-h-12 items-center gap-3 rounded-b-xl border-t bg-muted/60 px-5 py-2.5 text-sm text-muted-foreground dark:bg-white/[0.02]",
+				"flex min-h-12 flex-wrap items-center gap-3 rounded-b-xl border-t bg-muted/60 px-5 py-2.5 text-sm text-muted-foreground dark:bg-white/[0.02]",
 				className,
 			)}
 			{...props}

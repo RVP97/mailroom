@@ -479,10 +479,10 @@ function Docs() {
 				}
 				className="gap-8"
 			>
-				<div className="-mt-1 border-b border-border/70">
+				<div className="-mt-1 overflow-x-auto border-b border-border/70 [scrollbar-width:none]">
 					<TabsList
 						variant="line"
-						className="justify-start gap-5 overflow-x-auto [scrollbar-width:none] *:after:bottom-0"
+						className="justify-start gap-5 *:after:bottom-0"
 					>
 						<TabsTrigger value="api">API</TabsTrigger>
 						<TabsTrigger value="playground">Playground</TabsTrigger>

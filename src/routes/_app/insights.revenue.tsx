@@ -404,7 +404,7 @@ function Figure({ label, value, sub }: { label: string; value: string; sub?: str
 			<span className="text-[22px] leading-8 font-semibold tracking-[-0.022em] tabular-nums">
 				<Ph>{value}</Ph>
 			</span>
-			<span className="h-5 text-xs text-faint tabular-nums">{sub && <Ph>{sub}</Ph>}</span>
+			<span className="min-h-5 text-xs text-faint tabular-nums">{sub && <Ph>{sub}</Ph>}</span>
 		</div>
 	);
 }

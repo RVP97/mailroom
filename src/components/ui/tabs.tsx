@@ -19,7 +19,9 @@ function Tabs({
 	);
 }
 
-const tabsListVariants = cva("group/tabs-list inline-flex w-fit items-center text-muted-foreground", {
+const tabsListVariants = cva(
+	"group/tabs-list inline-flex w-fit max-w-full items-center overflow-x-auto text-muted-foreground [scrollbar-width:none]",
+	{
 	variants: {
 		variant: {
 			default:

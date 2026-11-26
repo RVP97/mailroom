@@ -78,11 +78,11 @@ export function ContactsHeader({
 				description="The people your broadcasts and automations go to, per brand. Segments group them; topics are what each one chooses to get."
 				actions={actions}
 			/>
-			<div className="flex flex-wrap items-end justify-between gap-x-3 border-b border-border/70">
+			<div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between lg:gap-x-3 lg:border-b lg:border-border/70">
 				<nav
 					ref={nav}
 					aria-label="Contacts"
-					className="-mb-px flex max-w-full items-center gap-5 overflow-x-auto [scrollbar-width:none]"
+					className="flex max-w-full items-center gap-5 overflow-x-auto border-b border-border/70 [scrollbar-width:none] lg:-mb-px lg:border-b-0"
 				>
 					{TABS.map(({ tab, label }) => {
 						const count = n && tab in n ? n[tab as keyof Counts] : undefined;
@@ -146,7 +146,7 @@ export function ContactsHeader({
 				</nav>
 				{filters && (
 					// 34px controls plus this margin are the tabs' 40px, so the bar is as tall with them.
-					<div className="mb-1.5 flex flex-wrap items-center gap-2">{filters}</div>
+					<div className="flex flex-wrap items-center gap-2 lg:mb-1.5">{filters}</div>
 				)}
 			</div>
 		</div>

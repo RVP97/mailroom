@@ -148,7 +148,7 @@ export function MembersCard({ team }: { team: Team }) {
 					return (
 						<li
 							key={m.id}
-							className="flex items-center gap-3 border-b border-border/70 px-5 py-2.5 last:border-0"
+							className="flex flex-wrap items-center gap-3 border-b border-border/70 px-4 py-2.5 last:border-0 sm:flex-nowrap sm:px-5"
 						>
 							<UserAvatar
 								name={m.name || m.email}
@@ -180,7 +180,7 @@ export function MembersCard({ team }: { team: Team }) {
 								</p>
 							</div>
 							{editable ? (
-								<>
+								<div className="flex shrink-0 items-center gap-2 max-sm:w-full max-sm:pl-11">
 									<Select
 										value={m.role}
 										onValueChange={(v) =>
@@ -201,7 +201,7 @@ export function MembersCard({ team }: { team: Team }) {
 										<SelectTrigger
 											data-ph
 											size="sm"
-											className="w-32"
+											className="flex-1 sm:w-32 sm:flex-none"
 											aria-label={`Role of ${m.email}`}
 										>
 											<SelectValue />
@@ -231,7 +231,7 @@ export function MembersCard({ team }: { team: Team }) {
 											<RemoveItem member={m} />
 										</DropdownMenuContent>
 									</DropdownMenu>
-								</>
+								</div>
 							) : (
 								<Badge
 									data-ph
@@ -505,7 +505,7 @@ function MemberAccessDialog({
 						}
 					/>
 				</div>
-				<SheetFooter className="flex-row justify-end">
+				<SheetFooter className="flex-row flex-wrap justify-end">
 					{(add.size > 0 || remove.size > 0) && (
 						<Button
 							variant="ghost"
@@ -799,7 +799,7 @@ function RoleDialog({
 						/>
 					)}
 				</div>
-				<SheetFooter className="flex-row items-center">
+				<SheetFooter className="flex-row flex-wrap items-center">
 					{!readOnly && role?.starter && role.edited && (
 						<Button
 							variant="ghost"

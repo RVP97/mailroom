@@ -128,7 +128,7 @@ function ChatsPage() {
 											</Ph>
 										</span>
 									</TableCell>
-									<TableCell className="w-44 py-3 text-right text-sm">
+									<TableCell className="w-24 py-3 text-right text-sm sm:w-44">
 										<span className="inline-flex items-center gap-2">
 											{i.chat ? (
 												<Badge variant="outline">
@@ -148,7 +148,7 @@ function ChatsPage() {
 											)}
 										</span>
 									</TableCell>
-									<TableCell className="w-14 py-3 pr-3 text-right">
+									<TableCell className="w-11 py-3 pr-3 text-right sm:w-14">
 										<InboxMenu
 											inbox={i}
 											here="chat"

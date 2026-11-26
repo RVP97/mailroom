@@ -94,6 +94,7 @@ export function MacrosPopover({
 						type="button"
 						variant="ghost"
 						size="sm"
+						aria-label="Macros"
 						className="h-7 px-2 text-xs text-muted-foreground"
 					>
 						<Layers className="size-3.5" />
@@ -102,7 +103,7 @@ export function MacrosPopover({
 				</PopoverTrigger>
 				<PopoverContent
 					align="start"
-					className="w-72 p-1.5"
+					className="w-72 max-w-[calc(100vw-2rem)] p-1.5"
 				>
 					<div className="flex items-center justify-between px-2 py-1">
 						<span className="text-xs font-medium text-muted-foreground">
@@ -174,7 +175,7 @@ export function MacrosPopover({
 											<button
 												type="button"
 												aria-label={`Delete ${m.name}`}
-												className="mr-1 rounded p-1 text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100"
+												className="mr-1 shrink-0 rounded p-1 text-muted-foreground opacity-70 hover:text-destructive focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 pointer-coarse:opacity-70"
 												onClick={async () => {
 													try {
 														await deleteMacroFn({

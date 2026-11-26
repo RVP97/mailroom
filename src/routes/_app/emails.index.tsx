@@ -1001,7 +1001,7 @@ function DrillSummary({
 	const kinds = NOT_DELIVERED.filter((k) => summary[k] > 0);
 	return (
 		<div className="overflow-hidden rounded-xl bg-card shadow-[0_0_0_1px_var(--border)]">
-			<div className="grid grid-cols-3 gap-px bg-border sm:grid-cols-6">
+			<div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-3 lg:grid-cols-6">
 				{tiles.map((t) => {
 					const active = t.key === status || (!t.key && !status);
 					return (
@@ -1011,7 +1011,7 @@ function DrillSummary({
 							onClick={() => onPick(t.key)}
 							aria-pressed={active}
 							className={cn(
-								"flex flex-col items-start gap-1 bg-card px-4 py-3 text-left transition-colors outline-none hover:bg-accent focus-visible:bg-accent",
+								"flex min-w-0 flex-col items-start gap-1 bg-card px-3 py-3 text-left transition-colors outline-none hover:bg-accent focus-visible:bg-accent sm:px-4",
 								active && "bg-accent shadow-[inset_0_-2px_0_var(--primary)]",
 							)}
 						>
@@ -1019,7 +1019,7 @@ function DrillSummary({
 								{t.key && <StatusDot status={filterDot(t.key)} />}
 								{t.label}
 							</span>
-							<span className="flex items-baseline gap-1.5">
+							<span className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
 								<span className="text-lg font-semibold tabular-nums">
 									<Ph>{t.n.toLocaleString("en-US")}</Ph>
 								</span>

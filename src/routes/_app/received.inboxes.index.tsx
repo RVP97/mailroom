@@ -188,11 +188,26 @@ function InboxesPage() {
 												</span>
 											)}
 										</span>
+										<span className="mt-1 flex items-center gap-2 text-xs text-muted-foreground sm:hidden">
+											<Ph>{i.open} open</Ph>
+											<span>·</span>
+											{i.credentials > 0 ? (
+												<span className="inline-flex items-center gap-1">
+													<KeyRound className="size-3" />
+													<Ph>
+														{i.credentials} key
+														{i.credentials === 1 ? "" : "s"}
+													</Ph>
+												</span>
+											) : (
+												<span>No credential</span>
+											)}
+										</span>
 									</TableCell>
 									<TableCell className="hidden w-32 py-3 text-sm sm:table-cell">
 										<Ph>{i.open} open</Ph>
 									</TableCell>
-									<TableCell className="w-40 py-3 text-right text-sm">
+									<TableCell className="hidden w-40 py-3 text-right text-sm sm:table-cell">
 										{i.credentials > 0 ? (
 											<span
 												className="text-muted-foreground"
@@ -214,7 +229,7 @@ function InboxesPage() {
 											<Badge variant="outline">No credential</Badge>
 										)}
 									</TableCell>
-									<TableCell className="w-14 py-3 pr-3 text-right">
+									<TableCell className="w-11 py-3 pr-3 text-right sm:w-14">
 										<InboxMenu
 											inbox={i}
 											className="relative z-10 size-8"

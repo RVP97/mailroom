@@ -233,7 +233,7 @@ function ClickMap({ html, links, sent }: { html: string; links: Report["links"];
 						title="Click map"
 						sandbox=""
 						srcDoc={doc}
-						className="block h-[720px] w-full bg-white"
+						className="block h-[420px] w-full bg-white sm:h-[580px] lg:h-[720px]"
 					/>
 				</div>
 				<div className="flex min-w-0 flex-col">
@@ -266,7 +266,7 @@ function ClickMap({ html, links, sent }: { html: string; links: Report["links"];
 											<span className="truncate">
 												{l.url.replace(/^https?:\/\//, "")}
 											</span>
-											<ExternalLink className="size-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+											<ExternalLink className="size-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 pointer-coarse:opacity-70" />
 										</a>
 										<span className="text-sm font-semibold tabular-nums">
 											<Ph>{l.people.toLocaleString()}</Ph>

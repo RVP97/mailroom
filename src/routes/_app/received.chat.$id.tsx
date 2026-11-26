@@ -331,6 +331,7 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 	const [saved, setSaved] = useState(() => JSON.stringify(fieldsOf(data)));
 	const [busy, setBusy] = useState(false);
 	const [tab, setTab] = useState(widget.origins.length ? "design" : "install");
+	const [mobilePane, setMobilePane] = useState<"edit" | "preview">("edit");
 	const set = <K extends keyof Fields>(k: K, x: Fields[K]) => setV((f) => ({ ...f, [k]: x }));
 	const look = (x: Partial<Design>) => setV((f) => ({ ...f, design: { ...f.design, ...x } }));
 	const dirty = JSON.stringify(v) !== saved;
@@ -447,8 +448,8 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 			: null;
 
 	return (
-		<div className="flex flex-col lg:h-[calc(100svh-1rem)]">
-			<header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/70 px-3 sm:px-4">
+		<div className="flex min-h-[calc(100dvh-3rem)] flex-col lg:h-[calc(100svh-1rem)]">
+			<header className="flex h-14 shrink-0 items-center gap-1.5 border-b border-border/70 px-2.5 sm:gap-2 sm:px-4">
 				<BackLink inbox={data.inbox.id} />
 				<div className="flex min-w-0 flex-col leading-tight">
 					<span className="truncate text-[15px] font-semibold">Website chat</span>
@@ -494,7 +495,8 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 				</Badge>
 				<Button
 					variant="outline"
-					className="hidden sm:inline-flex"
+					aria-label="Try website chat"
+					className="max-sm:size-8 max-sm:px-0"
 					asChild
 				>
 					<a
@@ -503,7 +505,7 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 						rel="noreferrer"
 					>
 						<ExternalLink />
-						Try it
+						<span className="hidden sm:inline">Try it</span>
 					</a>
 				</Button>
 				<Button
@@ -524,20 +526,57 @@ function Builder({ data, widget }: { data: Data; widget: Widget }) {
 					{missing}.
 				</div>
 			)}
+			<div className="flex items-center gap-1 border-b border-border/70 bg-muted/20 px-3 py-1.5 lg:hidden">
+				<div className="grid w-full grid-cols-2 rounded-lg bg-muted p-0.5">
+					{(
+						[
+							["edit", "Customize"],
+							["preview", "Live preview"],
+						] as const
+					).map(([id, label]) => (
+						<button
+							key={id}
+							type="button"
+							aria-pressed={mobilePane === id}
+							onClick={() => setMobilePane(id)}
+							className={cn(
+								"h-7 rounded-md text-xs font-medium transition-colors",
+								mobilePane === id
+									? "bg-background text-foreground shadow-[0_0_0_1px_var(--border),0_1px_2px_var(--shadow-color)] dark:bg-white/[0.1]"
+									: "text-muted-foreground hover:text-foreground",
+							)}
+						>
+							{label}
+						</button>
+					))}
+				</div>
+			</div>
 			<div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-				<Canvas
-					widget={widget}
-					config={config}
-					host={lines(v.origins)[0] ?? "yourwebsite.com"}
-					brand={data.brand_name}
-				/>
-				<aside className="flex min-h-0 w-full shrink-0 flex-col border-border/70 lg:w-[400px] lg:border-l">
+				<div
+					className={cn(
+						"min-h-0 min-w-0 flex-1 flex-col",
+						mobilePane === "preview" ? "flex" : "hidden lg:flex",
+					)}
+				>
+					<Canvas
+						widget={widget}
+						config={config}
+						host={lines(v.origins)[0] ?? "yourwebsite.com"}
+						brand={data.brand_name}
+					/>
+				</div>
+				<aside
+					className={cn(
+						"min-h-0 w-full min-w-0 shrink-0 flex-col border-border/70 lg:flex lg:w-[400px] lg:border-l",
+						mobilePane === "edit" ? "flex flex-1 lg:flex-none" : "hidden",
+					)}
+				>
 					<Tabs
 						value={tab}
 						onValueChange={setTab}
 						className="min-h-0 flex-1 gap-0"
 					>
-						<div className="border-b border-border/70 px-5">
+						<div className="overflow-x-auto border-b border-border/70 px-3 sm:px-5 [scrollbar-width:none]">
 							<TabsList variant="line">
 								<TabsTrigger value="design">Design</TabsTrigger>
 								<TabsTrigger value="messages">Messages</TabsTrigger>
@@ -924,13 +963,14 @@ function MessagesPanel({
 							<Button
 								variant="ghost"
 								size="icon"
+								className="shrink-0"
 								aria-label={`Remove topic ${i + 1}`}
 								onClick={() => look({ topics: topics.filter((_, j) => j !== i) })}
 							>
 								<Trash2 className="size-4" />
 							</Button>
 						</div>
-						<div className="grid grid-cols-2 gap-2">
+						<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
 							<Input
 								aria-label={`Topic ${i + 1}'s tag`}
 								placeholder="Tag (optional)"
@@ -945,7 +985,7 @@ function MessagesPanel({
 								}
 							>
 								<SelectTrigger
-									className="w-full"
+									className="w-full min-w-0"
 									aria-label={`Who gets topic ${i + 1}`}
 								>
 									<SelectValue />
@@ -998,7 +1038,10 @@ function MessagesPanel({
 					value={d.newsletter_id ?? "none"}
 					onValueChange={(x) => look({ newsletter_id: x === "none" ? null : x })}
 				>
-					<SelectTrigger aria-label="Newsletter in the chat">
+					<SelectTrigger
+						className="w-full min-w-0"
+						aria-label="Newsletter in the chat"
+					>
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
@@ -1025,14 +1068,17 @@ function MessagesPanel({
 						key={i}
 						className="flex flex-col gap-2 rounded-md border border-border/80 p-2.5"
 					>
-						<div className="grid grid-cols-2 gap-2">
+						<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
 							<Select
 								value={p.style ?? "nudge"}
 								onValueChange={(x) =>
 									setPopup(i, { style: x as "nudge" | "banner" | "popup" })
 								}
 							>
-								<SelectTrigger aria-label={`How pop-up ${i + 1} shows`}>
+								<SelectTrigger
+									className="w-full min-w-0"
+									aria-label={`How pop-up ${i + 1} shows`}
+								>
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
@@ -1047,7 +1093,10 @@ function MessagesPanel({
 									setPopup(i, { segment_id: x === "all" ? null : x })
 								}
 							>
-								<SelectTrigger aria-label={`Who sees pop-up ${i + 1}`}>
+								<SelectTrigger
+									className="w-full min-w-0"
+									aria-label={`Who sees pop-up ${i + 1}`}
+								>
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
@@ -1090,6 +1139,7 @@ function MessagesPanel({
 							<Button
 								variant="ghost"
 								size="icon"
+								className="shrink-0"
 								aria-label={`Remove pop-up ${i + 1}`}
 								onClick={() => look({ popups: popups.filter((_, j) => j !== i) })}
 							>
@@ -1124,7 +1174,7 @@ function MessagesPanel({
 						</div>
 						{(p.style === "banner" || p.style === "popup") && (
 							<>
-								<div className="grid grid-cols-[2fr_3fr] gap-2">
+								<div className="grid grid-cols-1 gap-2 sm:grid-cols-[2fr_3fr]">
 									<Input
 										aria-label={`Pop-up ${i + 1}'s button`}
 										maxLength={40}
@@ -1449,7 +1499,7 @@ function SettingsPanel({
 					<>
 						<Field>
 							<FieldLabel>What they can send</FieldLabel>
-							<div className="grid grid-cols-2 gap-2">
+							<div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
 								{FILE_KIND_OPTIONS.map(([k, label, hint]) => {
 									const on = v.file_kinds.includes(k);
 									return (

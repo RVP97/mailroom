@@ -232,7 +232,7 @@ function CompanyDetailPage() {
 								{data.contacts.map((p) => (
 									<li
 										key={p.id}
-										className="flex items-center justify-between gap-3 px-5 py-2.5 text-sm"
+										className="flex flex-col gap-0.5 px-4 py-2.5 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-5"
 									>
 										<Link
 											to="/contacts/$id"
@@ -244,7 +244,7 @@ function CompanyDetailPage() {
 												.filter(Boolean)
 												.join(" ") || p.email}
 										</Link>
-										<span className="truncate text-xs text-muted-foreground">
+										<span className="truncate text-xs text-muted-foreground sm:max-w-[50%]">
 											{p.email}
 										</span>
 									</li>

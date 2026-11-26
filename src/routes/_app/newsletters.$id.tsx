@@ -286,6 +286,7 @@ function NewsletterPage() {
 										href={n.url}
 										target="_blank"
 										rel="noreferrer"
+										aria-label="Public page"
 									>
 										<ExternalLink />
 										<span className="hidden sm:inline">Public page</span>
@@ -607,7 +608,7 @@ function NewsletterPage() {
 							{form.rss_url && (
 								<Field>
 									<FieldLabel>How the posts look</FieldLabel>
-									<div className="grid grid-cols-3 gap-2">
+									<div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
 										{(
 											[
 												[
@@ -849,7 +850,7 @@ function Issues({ data }: { data: Data }) {
 				{tiles.map(([k, v, sub]) => (
 					<div
 						key={k}
-						className="flex flex-col gap-1 border-border/70 px-5 py-4 not-last:border-r max-lg:nth-[n+4]:border-t max-sm:nth-[n+3]:border-t max-sm:even:border-r-0"
+						className="flex flex-col gap-1 border-border/70 px-4 py-4 not-last:border-r sm:px-5 max-lg:nth-[n+4]:border-t max-sm:nth-[n+3]:border-t max-sm:even:border-r-0 sm:max-lg:nth-[3n]:border-r-0"
 					>
 						<span className="text-xs text-muted-foreground">{k}</span>
 						<span className="text-xl font-semibold tabular-nums">
@@ -1127,42 +1128,48 @@ function Referrals({
 										value={r.reward}
 										onChange={(e) => change(i, { reward: e.target.value })}
 									/>
-									<Select
-										value={r.template_id ?? "none"}
-										onValueChange={(v) =>
-											change(i, { template_id: v === "none" ? null : v })
-										}
-										disabled={!canManage}
-									>
-										<SelectTrigger aria-label="Reward email">
-											<SelectValue />
-										</SelectTrigger>
-										<SelectContent>
-											<SelectItem value="none">No email</SelectItem>
-											{data.templates.map((t) => (
-												<SelectItem
-													key={t.id}
-													value={t.id}
-												>
-													Email: {t.name}
-												</SelectItem>
-											))}
-										</SelectContent>
-									</Select>
-									<Button
-										variant="ghost"
-										size="icon"
-										aria-label="Remove reward"
-										disabled={!canManage}
-										onClick={() =>
-											set(
-												"referral_rewards",
-												rewards.filter((_, j) => j !== i),
-											)
-										}
-									>
-										<Trash2 />
-									</Button>
+									<div className="col-span-2 flex items-center gap-2 sm:contents">
+										<Select
+											value={r.template_id ?? "none"}
+											onValueChange={(v) =>
+												change(i, { template_id: v === "none" ? null : v })
+											}
+											disabled={!canManage}
+										>
+											<SelectTrigger
+												aria-label="Reward email"
+												className="min-w-0 flex-1 sm:w-full"
+											>
+												<SelectValue />
+											</SelectTrigger>
+											<SelectContent>
+												<SelectItem value="none">No email</SelectItem>
+												{data.templates.map((t) => (
+													<SelectItem
+														key={t.id}
+														value={t.id}
+													>
+														Email: {t.name}
+													</SelectItem>
+												))}
+											</SelectContent>
+										</Select>
+										<Button
+											variant="ghost"
+											size="icon"
+											className="shrink-0"
+											aria-label="Remove reward"
+											disabled={!canManage}
+											onClick={() =>
+												set(
+													"referral_rewards",
+													rewards.filter((_, j) => j !== i),
+												)
+											}
+										>
+											<Trash2 />
+										</Button>
+									</div>
 								</div>
 							))}
 							{canManage && (

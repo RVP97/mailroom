@@ -2147,21 +2147,21 @@ function PollResults({
 									key={key}
 									className="flex flex-wrap items-center gap-3"
 								>
-									<div className="relative min-w-0 flex-1 overflow-hidden rounded-lg border border-border/70 px-3 py-2 text-sm">
+									<div className="relative min-w-0 basis-full overflow-hidden rounded-lg border border-border/70 px-3 py-2 text-sm sm:basis-0 sm:flex-1">
 										<span
 											className="absolute inset-y-0 left-0 bg-sky-500/12"
 											style={{ width: `${pct}%` }}
 										/>
 										<span className="relative flex items-center justify-between gap-3">
 											<span className="truncate">{o.label}</span>
-											<span className="text-muted-foreground tabular-nums">
+											<span className="shrink-0 text-muted-foreground tabular-nums">
 												{o.votes.toLocaleString()} · {Math.round(pct)}%
 											</span>
 										</span>
 									</div>
 									{canManage && o.votes > 0 && (
-										<div className="flex items-center gap-2">
-											<div className="w-44">
+										<div className="flex w-full items-center gap-2 sm:w-auto">
+											<div className="min-w-0 flex-1 sm:w-44 sm:flex-none">
 												<ListSelect
 													kind="segment"
 													brand={brand}

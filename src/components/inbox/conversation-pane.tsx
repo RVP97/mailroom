@@ -75,6 +75,7 @@ import {
 	DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Kbd } from "@/components/ui/kbd";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { aiSummarizeFn } from "@/functions/ai";
@@ -151,6 +152,7 @@ export function ConversationPane({
 
 	const [busy, setBusy] = useState<string | null>(null);
 	const [showPanel, setShowPanel] = useState(true);
+	const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
 	const [menu, setMenu] = useState<"assignee" | "priority" | "tags" | "snooze" | null>(null);
 	const [keysOpen, setKeysOpen] = useState(false);
 	const [mergeOpen, setMergeOpen] = useState(false);
@@ -334,21 +336,276 @@ export function ConversationPane({
 	}, []);
 
 	const openOther = (id: string) => {
+		setMobilePanelOpen(false);
 		if (onSelectConversation) onSelectConversation(id);
 		else void router.navigate({ to: "/received/$id", params: { id } });
 	};
 
 	const activeSummary = summary?.forId === c.id ? summary : null;
 
+	const detailsContent = (
+		<>
+			{/* Triage controls */}
+			<dl className="flex flex-col gap-1">
+				<Detail label="Owner">
+					<AssigneeMenu
+						row
+						open={menu === "assignee"}
+						onOpenChange={(o) => setMenu(o ? "assignee" : null)}
+						holder={c.assignee}
+						people={people}
+						me={data.me}
+						disabled={!canReply || busy !== null}
+						onChange={(reader) =>
+							void update(
+								{ assignee: reader },
+								"assignee",
+								reader
+									? reader === data.me
+										? "Assigned to you"
+										: `Assigned to ${nameOfReader(reader) ?? "them"}`
+									: "Unassigned",
+							)
+						}
+					/>
+				</Detail>
+				<Detail label="Priority">
+					<PriorityMenu
+						row
+						open={menu === "priority"}
+						onOpenChange={(o) => setMenu(o ? "priority" : null)}
+						priority={c.priority}
+						disabled={!canReply || busy !== null}
+						onChange={(priority) => void update({ priority }, "priority")}
+					/>
+				</Detail>
+				<Detail label="Tags">
+					<TagsMenu
+						row
+						open={menu === "tags"}
+						onOpenChange={(o) => setMenu(o ? "tags" : null)}
+						tags={c.tags}
+						catalog={workflow.tags}
+						disabled={!canReply || busy !== null}
+						onChange={(tags) => void update({ tags }, "tags")}
+					/>
+				</Detail>
+				{c.status === "open" && (
+					<Detail label="Snooze">
+						<SnoozeMenu
+							row
+							open={menu === "snooze"}
+							onOpenChange={(o) => setMenu(o ? "snooze" : null)}
+							until={c.snoozed_until}
+							disabled={!canReply || busy !== null}
+							onChange={(until) =>
+								void update(
+									{ snooze_until: until },
+									"snooze",
+									until ? `Snoozed until ${formatDateTime(until)}` : "Unsnoozed",
+								)
+							}
+						/>
+					</Detail>
+				)}
+				{slaState(c.sla, c.status) && (
+					<Detail label="SLA">
+						<SlaBadge
+							sla={c.sla}
+							status={c.status}
+						/>
+					</Detail>
+				)}
+			</dl>
+
+			{/* Contact + PersonPanel + Previous conversations */}
+			<div className="flex flex-col gap-4 border-t border-border pt-4">
+				<div className="flex items-start justify-between gap-2">
+					<div className="flex min-w-0 items-center gap-2.5">
+						<Avatar
+							name={contactName}
+							className="size-8 text-xs"
+						/>
+						<div className="min-w-0">
+							<p className="truncate text-sm font-medium">
+								<Ph>{contactName}</Ph>
+							</p>
+							<p className="truncate text-xs text-muted-foreground">
+								<Ph>
+									{isChat
+										? (c.visitor?.email ??
+											(live?.visitorOnline
+												? "Online now"
+												: "Website visitor"))
+										: c.contact}
+								</Ph>
+							</p>
+						</div>
+					</div>
+					{data.contact?.contact && (
+						<Button
+							variant="ghost"
+							size="icon-sm"
+							asChild
+							title="Open contact"
+						>
+							<Link
+								to="/contacts/$id"
+								params={{ id: data.contact.contact.id }}
+								search={{ brand: c.brand_id }}
+							>
+								<ArrowUpRight className="size-3.5" />
+							</Link>
+						</Button>
+					)}
+				</div>
+
+				{canReply && (
+					<PersonActions
+						conversationId={c.id}
+						isContact={Boolean(data.contact?.contact)}
+						inSegments={
+							data.contact && "segments" in data.contact
+								? data.contact.segments.map((s) => s.id)
+								: []
+						}
+						inNewsletters={
+							data.contact && "newsletters" in data.contact
+								? data.contact.newsletters.map((n) => n.id)
+								: []
+						}
+					/>
+				)}
+
+				{data.contact && (
+					<PersonFacts
+						p={data.contact}
+						brand={c.brand_id}
+					/>
+				)}
+
+				<CompanyAndIssuesCards
+					brandId={c.brand_id}
+					contactEmail={
+						isChat ? (c.visitor?.email ?? null) : (data.contact?.email ?? c.contact)
+					}
+					conversationId={c.id}
+					visitorContext={c.visitor?.context ?? null}
+					canEdit={canReply}
+				/>
+
+				{/* Previous conversations by this person (Intercom-style history) */}
+				{data.contact && data.contact.others.length > 0 && (
+					<div className="flex flex-col gap-1.5 border-t border-border pt-4">
+						<h3 className="eyebrow">
+							Other conversations ({data.contact.others.length})
+						</h3>
+						<ul className="flex flex-col gap-0.5">
+							{data.contact.others.map((o) => (
+								<li key={o.id}>
+									<button
+										type="button"
+										onClick={() => openOther(o.id)}
+										className="-mx-2 flex w-[calc(100%+1rem)] items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/70"
+									>
+										{o.channel === "chat" ? (
+											<MessageCircle className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+										) : (
+											<Mail className="size-3.5 shrink-0 text-muted-foreground" />
+										)}
+										<span className="min-w-0 flex-1 truncate font-medium">
+											{o.subject || "(no subject)"}
+										</span>
+										<span className="shrink-0 text-muted-foreground tabular-nums">
+											{formatAgo(o.last_message_at)}
+										</span>
+									</button>
+								</li>
+							))}
+						</ul>
+					</div>
+				)}
+			</div>
+
+			{/* Conversation metadata */}
+			<dl className="flex flex-col gap-1 border-t border-border pt-4 text-xs">
+				{inbox && (
+					<Detail label="Inbox">
+						<Link
+							to="/received/inboxes/$id"
+							params={{ id: inbox.id }}
+							className="truncate text-xs hover:underline"
+						>
+							{inbox.name}
+						</Link>
+					</Detail>
+				)}
+				<Detail label="Started">
+					<span className="text-xs">{formatDateTime(c.created_at)}</span>
+				</Detail>
+				<Detail label="First reply">
+					<span className="text-xs">
+						{c.first_reply_at
+							? `after ${formatSeconds(
+									Math.max(
+										0,
+										(Date.parse(c.first_reply_at) - Date.parse(c.created_at)) /
+											1000,
+									),
+								)}`
+							: "Not yet"}
+					</span>
+				</Detail>
+				{c.csat && (
+					<Detail label="Rating">
+						{c.csat.rating ? (
+							<Stars rating={c.csat.rating} />
+						) : (
+							<span className="text-xs text-muted-foreground">Asked, no answer</span>
+						)}
+					</Detail>
+				)}
+				<Detail label="ID">
+					<IdChip value={c.id} />
+				</Detail>
+				<div className="pt-2">
+					<ApiDrawer
+						title="Conversation API"
+						description="Access this conversation with a full-access key or inbox credential."
+						calls={[
+							{
+								title: "Get conversation",
+								method: "GET",
+								path: `/conversations/${c.id}?mark_read=true`,
+							},
+							{
+								title: "Send reply",
+								method: "POST",
+								path: `/conversations/${c.id}/reply`,
+								body: { text: "Thanks for writing!" },
+							},
+							{
+								title: "Update triage",
+								method: "PATCH",
+								path: `/conversations/${c.id}`,
+								body: { status: "resolved" },
+							},
+						]}
+					/>
+				</div>
+			</dl>
+		</>
+	);
+
 	return (
 		<div
 			className={cn(
 				"flex min-h-0 flex-1 flex-col bg-background",
-				!embedded && "h-[calc(100svh-3rem)] lg:h-[calc(100svh-1rem)]",
+				!embedded && "h-[calc(100dvh-3rem)] lg:h-[calc(100svh-1rem)]",
 			)}
 		>
 			{/* Fixed Top Header */}
-			<header className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5">
+			<header className="flex shrink-0 items-center gap-1.5 border-b border-border px-2.5 py-2 sm:gap-2 sm:px-4 sm:py-2.5">
 				{!embedded && (
 					<Button
 						variant="ghost"
@@ -363,10 +620,10 @@ export function ConversationPane({
 				)}
 
 				<div className="min-w-0 flex-1">
-					<div className="flex items-center gap-2">
+					<div className="flex items-center gap-1.5 sm:gap-2">
 						<span
 							className={cn(
-								"flex size-6 shrink-0 items-center justify-center rounded-md",
+								"hidden size-6 shrink-0 items-center justify-center rounded-md sm:flex",
 								isChat
 									? "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400"
 									: "bg-brand/12 text-brand",
@@ -378,13 +635,13 @@ export function ConversationPane({
 								<MessagesSquare className="size-3.5" />
 							)}
 						</span>
-						<h1 className="truncate text-sm font-semibold">
+						<h1 className="min-w-0 truncate text-sm font-semibold">
 							<Ph>{c.subject || "(no subject)"}</Ph>
 						</h1>
 						{c.status === "resolved" && (
 							<Badge
 								variant="outline"
-								className="h-5 text-[11px]"
+								className="h-5 shrink-0 text-[11px]"
 							>
 								Resolved
 							</Badge>
@@ -393,6 +650,7 @@ export function ConversationPane({
 							<StatusBadge
 								status="snoozed"
 								label={`Back ${formatAgo(c.snoozed_until)}`}
+								className="hidden sm:inline-flex"
 							/>
 						)}
 					</div>
@@ -452,6 +710,7 @@ export function ConversationPane({
 							<Button
 								variant="ghost"
 								size="icon-sm"
+								className="hidden sm:inline-flex"
 								aria-label="Mark unread"
 								disabled={busy !== null}
 								onClick={() => void update({ read: false }, "unread")}
@@ -468,6 +727,7 @@ export function ConversationPane({
 						<Button
 							size="sm"
 							disabled={busy !== null}
+							aria-label="Resolve conversation"
 							title="Resolve (E)"
 							onClick={() => void resolve()}
 						>
@@ -479,6 +739,7 @@ export function ConversationPane({
 							size="sm"
 							variant="outline"
 							disabled={busy !== null}
+							aria-label="Reopen conversation"
 							onClick={() => void update({ status: "open" }, "status", "Reopened")}
 						>
 							{busy === "status" ? <Spinner /> : <RotateCcw className="size-3.5" />}
@@ -491,6 +752,7 @@ export function ConversationPane({
 							<Button
 								variant={showPanel ? "secondary" : "ghost"}
 								size="icon-sm"
+								className="hidden md:inline-flex"
 								aria-label="Toggle details sidebar"
 								aria-pressed={showPanel}
 								onClick={togglePanel}
@@ -501,7 +763,25 @@ export function ConversationPane({
 						<TooltipContent>Contact &amp; details</TooltipContent>
 					</Tooltip>
 
+					<Button
+						variant={mobilePanelOpen ? "secondary" : "ghost"}
+						size="icon-sm"
+						className="md:hidden"
+						aria-label="Contact & details"
+						onClick={() => setMobilePanelOpen(true)}
+					>
+						<PanelRight className="size-4" />
+					</Button>
+
 					<MoreMenu>
+						<DropdownMenuItem
+							className="sm:hidden"
+							disabled={busy !== null}
+							onSelect={() => void update({ read: false }, "unread")}
+						>
+							<Mail />
+							Mark unread
+						</DropdownMenuItem>
 						{canReply && (
 							<DropdownMenuItem onSelect={() => setMergeOpen(true)}>
 								<GitMerge />
@@ -697,7 +977,7 @@ export function ConversationPane({
 					) : (
 						<>
 							{/* Scrollable Email + Interleaved Notes Timeline */}
-							<div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+							<div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-4 sm:py-4">
 								<div className="mx-auto flex max-w-3xl flex-col gap-3">
 									{older.more && (
 										<div className="flex justify-center">
@@ -808,265 +1088,28 @@ export function ConversationPane({
 						aria-label="Conversation details"
 						className="hidden w-72 shrink-0 flex-col gap-5 overflow-y-auto border-l border-border bg-muted/10 p-4 md:flex xl:w-80"
 					>
-						{/* Triage controls */}
-						<dl className="flex flex-col gap-1">
-							<Detail label="Owner">
-								<AssigneeMenu
-									row
-									open={menu === "assignee"}
-									onOpenChange={(o) => setMenu(o ? "assignee" : null)}
-									holder={c.assignee}
-									people={people}
-									me={data.me}
-									disabled={!canReply || busy !== null}
-									onChange={(reader) =>
-										void update(
-											{ assignee: reader },
-											"assignee",
-											reader
-												? reader === data.me
-													? "Assigned to you"
-													: `Assigned to ${nameOfReader(reader) ?? "them"}`
-												: "Unassigned",
-										)
-									}
-								/>
-							</Detail>
-							<Detail label="Priority">
-								<PriorityMenu
-									row
-									open={menu === "priority"}
-									onOpenChange={(o) => setMenu(o ? "priority" : null)}
-									priority={c.priority}
-									disabled={!canReply || busy !== null}
-									onChange={(priority) => void update({ priority }, "priority")}
-								/>
-							</Detail>
-							<Detail label="Tags">
-								<TagsMenu
-									row
-									open={menu === "tags"}
-									onOpenChange={(o) => setMenu(o ? "tags" : null)}
-									tags={c.tags}
-									catalog={workflow.tags}
-									disabled={!canReply || busy !== null}
-									onChange={(tags) => void update({ tags }, "tags")}
-								/>
-							</Detail>
-							{c.status === "open" && (
-								<Detail label="Snooze">
-									<SnoozeMenu
-										row
-										open={menu === "snooze"}
-										onOpenChange={(o) => setMenu(o ? "snooze" : null)}
-										until={c.snoozed_until}
-										disabled={!canReply || busy !== null}
-										onChange={(until) =>
-											void update(
-												{ snooze_until: until },
-												"snooze",
-												until
-													? `Snoozed until ${formatDateTime(until)}`
-													: "Unsnoozed",
-											)
-										}
-									/>
-								</Detail>
-							)}
-							{slaState(c.sla, c.status) && (
-								<Detail label="SLA">
-									<SlaBadge
-										sla={c.sla}
-										status={c.status}
-									/>
-								</Detail>
-							)}
-						</dl>
-
-						{/* Contact + PersonPanel + Previous conversations */}
-						<div className="flex flex-col gap-4 border-t border-border pt-4">
-							<div className="flex items-start justify-between gap-2">
-								<div className="flex min-w-0 items-center gap-2.5">
-									<Avatar
-										name={contactName}
-										className="size-8 text-xs"
-									/>
-									<div className="min-w-0">
-										<p className="truncate text-sm font-medium">
-											<Ph>{contactName}</Ph>
-										</p>
-										<p className="truncate text-xs text-muted-foreground">
-											<Ph>
-												{isChat
-													? (c.visitor?.email ??
-														(live?.visitorOnline
-															? "Online now"
-															: "Website visitor"))
-													: c.contact}
-											</Ph>
-										</p>
-									</div>
-								</div>
-								{data.contact?.contact && (
-									<Button
-										variant="ghost"
-										size="icon-sm"
-										asChild
-										title="Open contact"
-									>
-										<Link
-											to="/contacts/$id"
-											params={{ id: data.contact.contact.id }}
-											search={{ brand: c.brand_id }}
-										>
-											<ArrowUpRight className="size-3.5" />
-										</Link>
-									</Button>
-								)}
-							</div>
-
-							{canReply && (
-								<PersonActions
-									conversationId={c.id}
-									isContact={Boolean(data.contact?.contact)}
-									inSegments={
-										data.contact && "segments" in data.contact
-											? data.contact.segments.map((s) => s.id)
-											: []
-									}
-									inNewsletters={
-										data.contact && "newsletters" in data.contact
-											? data.contact.newsletters.map((n) => n.id)
-											: []
-									}
-								/>
-							)}
-
-							{data.contact && (
-								<PersonFacts
-									p={data.contact}
-									brand={c.brand_id}
-								/>
-							)}
-
-							<CompanyAndIssuesCards
-								brandId={c.brand_id}
-								contactEmail={
-									isChat
-										? (c.visitor?.email ?? null)
-										: (data.contact?.email ?? c.contact)
-								}
-								conversationId={c.id}
-								visitorContext={c.visitor?.context ?? null}
-								canEdit={canReply}
-							/>
-
-							{/* Previous conversations by this person (Intercom-style history) */}
-							{data.contact && data.contact.others.length > 0 && (
-								<div className="flex flex-col gap-1.5 border-t border-border pt-4">
-									<h3 className="eyebrow">
-										Other conversations ({data.contact.others.length})
-									</h3>
-									<ul className="flex flex-col gap-0.5">
-										{data.contact.others.map((o) => (
-											<li key={o.id}>
-												<button
-													type="button"
-													onClick={() => openOther(o.id)}
-													className="-mx-2 flex w-[calc(100%+1rem)] items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted/70"
-												>
-													{o.channel === "chat" ? (
-														<MessageCircle className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-													) : (
-														<Mail className="size-3.5 shrink-0 text-muted-foreground" />
-													)}
-													<span className="min-w-0 flex-1 truncate font-medium">
-														{o.subject || "(no subject)"}
-													</span>
-													<span className="shrink-0 text-muted-foreground tabular-nums">
-														{formatAgo(o.last_message_at)}
-													</span>
-												</button>
-											</li>
-										))}
-									</ul>
-								</div>
-							)}
-						</div>
-
-						{/* Conversation metadata */}
-						<dl className="flex flex-col gap-1 border-t border-border pt-4 text-xs">
-							{inbox && (
-								<Detail label="Inbox">
-									<Link
-										to="/received/inboxes/$id"
-										params={{ id: inbox.id }}
-										className="truncate text-xs hover:underline"
-									>
-										{inbox.name}
-									</Link>
-								</Detail>
-							)}
-							<Detail label="Started">
-								<span className="text-xs">{formatDateTime(c.created_at)}</span>
-							</Detail>
-							<Detail label="First reply">
-								<span className="text-xs">
-									{c.first_reply_at
-										? `after ${formatSeconds(
-												Math.max(
-													0,
-													(Date.parse(c.first_reply_at) -
-														Date.parse(c.created_at)) /
-														1000,
-												),
-											)}`
-										: "Not yet"}
-								</span>
-							</Detail>
-							{c.csat && (
-								<Detail label="Rating">
-									{c.csat.rating ? (
-										<Stars rating={c.csat.rating} />
-									) : (
-										<span className="text-xs text-muted-foreground">
-											Asked, no answer
-										</span>
-									)}
-								</Detail>
-							)}
-							<Detail label="ID">
-								<IdChip value={c.id} />
-							</Detail>
-							<div className="pt-2">
-								<ApiDrawer
-									title="Conversation API"
-									description="Access this conversation with a full-access key or inbox credential."
-									calls={[
-										{
-											title: "Get conversation",
-											method: "GET",
-											path: `/conversations/${c.id}?mark_read=true`,
-										},
-										{
-											title: "Send reply",
-											method: "POST",
-											path: `/conversations/${c.id}/reply`,
-											body: { text: "Thanks for writing!" },
-										},
-										{
-											title: "Update triage",
-											method: "PATCH",
-											path: `/conversations/${c.id}`,
-											body: { status: "resolved" },
-										},
-									]}
-								/>
-							</div>
-						</dl>
+						{detailsContent}
 					</aside>
 				)}
 			</div>
+
+			{/* Mobile Contact & Triage Sheet */}
+			<Sheet
+				open={mobilePanelOpen}
+				onOpenChange={setMobilePanelOpen}
+			>
+				<SheetContent
+					side="right"
+					className="flex flex-col p-0"
+				>
+					<SheetHeader>
+						<SheetTitle>Conversation details</SheetTitle>
+					</SheetHeader>
+					<div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4">
+						{detailsContent}
+					</div>
+				</SheetContent>
+			</Sheet>
 
 			{/* Dialogs */}
 			<MergeConversationDialog
@@ -1230,7 +1273,7 @@ function EmailTimelineCard({
 			download_url?: string;
 		}[];
 		return (
-			<Card className="gap-3 px-4 py-3.5">
+			<Card className="gap-3 px-3 py-3 sm:px-4 sm:py-3.5">
 				<div className="flex items-start gap-2.5">
 					<Avatar
 						name={nameOf(t.from)}
@@ -1409,7 +1452,7 @@ function EmailTimelineCard({
 
 	if (t.type === "reply") {
 		return (
-			<Card className="gap-2.5 border-brand/20 bg-brand/[0.03] px-4 py-3.5">
+			<Card className="gap-2.5 border-brand/20 bg-brand/[0.03] px-3 py-3 sm:px-4 sm:py-3.5">
 				<div className="flex items-start gap-2.5">
 					<Avatar
 						name={t.author.name ?? "Team"}

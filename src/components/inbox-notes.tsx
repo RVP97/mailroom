@@ -88,12 +88,12 @@ export function ClientSelect({
 							<span className={cn("flex", !on && c.id !== "default" && "opacity-70")}>
 								<ClientMark id={c.id} />
 							</span>
-							<span className="truncate max-[380px]:hidden">{SHORT[c.id]}</span>
+							<span className="truncate max-[480px]:hidden">{SHORT[c.id]}</span>
 						</button>
 					);
 				})}
 			</fieldset>
-			<p className="truncate px-1 text-xs text-muted-foreground">{hint}</p>
+			<p className="px-1 text-xs text-muted-foreground">{hint}</p>
 		</div>
 	);
 }

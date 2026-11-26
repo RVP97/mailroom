@@ -228,7 +228,7 @@ function Insights() {
 									to="/insights/$kind/$key"
 									params={{ kind: "template", key: t.id }}
 									search={{ days: search.days, brand: search.brand }}
-									className="font-medium hover:underline outline-none after:absolute after:inset-0 focus-visible:after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
+									className="block truncate font-medium hover:underline outline-none after:absolute after:inset-0 focus-visible:after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
 								>
 									<Ph>{t.name}</Ph>
 								</Link>
@@ -251,7 +251,7 @@ function Insights() {
 									to="/insights/$kind/$key"
 									params={{ kind: "tag", key: `${t.name}:${t.value}` }}
 									search={{ days: search.days, brand: search.brand }}
-									className="font-mono text-[13px] hover:underline outline-none after:absolute after:inset-0 focus-visible:after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
+									className="block truncate font-mono text-[13px] hover:underline outline-none after:absolute after:inset-0 focus-visible:after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
 								>
 									<Ph>
 										{t.name}: {t.value}
@@ -375,7 +375,7 @@ function Gmail({ rows }: { rows: NonNullable<Data["gmail"]> }) {
 										<Link
 											to="/domains/$id"
 											params={{ id: g.id }}
-											className="font-medium hover:underline outline-none after:absolute after:inset-0 focus-visible:after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
+											className="block truncate font-medium hover:underline outline-none after:absolute after:inset-0 focus-visible:after:rounded-sm focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
 										>
 											<Ph>{g.domain}</Ph>
 										</Link>
@@ -557,7 +557,10 @@ function TimeToInbox({
 									className="relative"
 								>
 									<TableCell
-										className={cn(l.provider === "all" && "font-medium")}
+										className={cn(
+											"truncate",
+											l.provider === "all" && "font-medium",
+										)}
 									>
 										{l.provider === "all" ? (
 											<Ph>All providers</Ph>
@@ -623,17 +626,17 @@ function StatsTable({
 						<TableRow>
 							<TableHead>{label}</TableHead>
 							<TableHead className="w-20 text-right">Sent</TableHead>
-							<TableHead className="hidden w-24 text-right sm:table-cell">
+							<TableHead className="hidden w-20 text-right sm:table-cell">
 								Delivered
 							</TableHead>
-							<TableHead className="w-24 text-right">Bounced</TableHead>
-							<TableHead className="hidden w-24 text-right md:table-cell">
+							<TableHead className="w-20 text-right sm:w-24">Bounced</TableHead>
+							<TableHead className="hidden w-20 text-right lg:table-cell">
 								Spam
 							</TableHead>
-							<TableHead className="hidden w-24 text-right sm:table-cell">
+							<TableHead className="hidden w-20 text-right sm:table-cell">
 								Opened
 							</TableHead>
-							<TableHead className="hidden w-24 text-right md:table-cell">
+							<TableHead className="hidden w-20 text-right lg:table-cell">
 								Clicked
 							</TableHead>
 						</TableRow>
@@ -658,7 +661,7 @@ function StatsTable({
 								</TableCell>
 								<TableCell
 									className={cn(
-										"hidden text-right tabular-nums md:table-cell",
+										"hidden text-right tabular-nums lg:table-cell",
 										tone(s.complaint),
 									)}
 								>
@@ -667,7 +670,7 @@ function StatsTable({
 								<TableCell className="hidden text-right text-muted-foreground tabular-nums sm:table-cell">
 									<Ph>{formatPercent(s.openRate, 1)}</Ph>
 								</TableCell>
-								<TableCell className="hidden text-right text-muted-foreground tabular-nums md:table-cell">
+								<TableCell className="hidden text-right text-muted-foreground tabular-nums lg:table-cell">
 									<Ph>{formatPercent(s.clickRate, 1)}</Ph>
 								</TableCell>
 							</TableRow>

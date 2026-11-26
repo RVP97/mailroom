@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { FlaskConical, MoreHorizontal, Pause, Play, Trash2, Workflow, X } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ApiDrawer } from "@/components/api-drawer";
 import {
@@ -276,6 +276,15 @@ function AutomationPage() {
 	useEffect(() => setForm(savedForm()), [saved.updated_at, saved.id]);
 	const dirty = JSON.stringify(toFields(form)) !== JSON.stringify(toFields(savedForm()));
 	const [busy, setBusy] = useState<"save" | "status" | null>(null);
+	const inspectorRef = useRef<HTMLElement>(null);
+	const pickNode = (key: string | null) => {
+		setSelected(key);
+		if (key && typeof window !== "undefined" && window.innerWidth < 1024) {
+			requestAnimationFrame(() => {
+				inspectorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+			});
+		}
+	};
 	const [deleting, setDeleting] = useState(false);
 	const [dryOpen, setDryOpen] = useState(false);
 	const [dryEmail, setDryEmail] = useState("");
@@ -786,7 +795,7 @@ function AutomationPage() {
 				<AutomationCanvas
 					form={form}
 					selected={selected}
-					onSelect={setSelected}
+					onSelect={pickNode}
 					here={here}
 					describe={describe}
 					trigger={triggerInfo}
@@ -794,10 +803,13 @@ function AutomationPage() {
 					onInsert={(at, index, kind) => {
 						const step = { ...blank(kind.type), action: kind.action ?? "add" };
 						setForm((f) => ({ ...f, steps: insertStep(f.steps, at, index, step) }));
-						setSelected(step.key);
+						pickNode(step.key);
 					}}
 				/>
-				<aside className="flex min-w-0 flex-col border-t border-border/70 lg:max-h-[calc(100vh-8rem)] lg:min-h-[560px] lg:border-t-0 lg:border-l">
+				<aside
+					ref={inspectorRef}
+					className="flex min-w-0 flex-col border-t border-border/70 lg:max-h-[calc(100vh-8rem)] lg:min-h-[560px] lg:border-t-0 lg:border-l"
+				>
 					{selected === "trigger" ? (
 						<Panel
 							icon={TRIGGER_ICON[form.trigger]}

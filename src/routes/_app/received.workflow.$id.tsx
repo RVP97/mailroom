@@ -573,7 +573,7 @@ function Sla({ v, set, timezone }: Panel & { timezone: string }) {
 					onChange={(enabled) => patch({ enabled })}
 				/>
 				<Card className={cn("gap-0 px-0 py-0", !s.enabled && "opacity-60")}>
-					<div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 gap-y-3 px-4 py-3 text-sm">
+					<div className="hidden grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 gap-y-3 px-4 py-3 text-sm lg:grid">
 						<span className="text-[11px] font-medium tracking-[0.07em] text-faint uppercase">
 							Priority
 						</span>
@@ -591,6 +591,57 @@ function Sla({ v, set, timezone }: Panel & { timezone: string }) {
 								onChange={(t) => patch({ targets: { ...s.targets, [p]: t } })}
 							/>
 						))}
+					</div>
+					<div className="divide-y divide-border/70 lg:hidden">
+						{(Object.keys(PRIORITY) as Priority[]).map((p) => {
+							const target = s.targets[p] ?? { reply: null, resolve: null };
+							return (
+								<div
+									key={p}
+									className="flex flex-col gap-2.5 px-4 py-3 text-sm"
+								>
+									<span className={cn("font-medium", PRIORITY[p].text)}>
+										{PRIORITY[p].label}
+									</span>
+									<div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+										<div className="flex flex-col gap-1">
+											<span className="text-[11px] font-medium tracking-[0.07em] text-faint uppercase">
+												First reply within
+											</span>
+											<Duration
+												id={`reply-m-${p}`}
+												value={target.reply}
+												onChange={(reply) =>
+													patch({
+														targets: {
+															...s.targets,
+															[p]: { ...target, reply },
+														},
+													})
+												}
+											/>
+										</div>
+										<div className="flex flex-col gap-1">
+											<span className="text-[11px] font-medium tracking-[0.07em] text-faint uppercase">
+												Resolved within
+											</span>
+											<Duration
+												id={`resolve-m-${p}`}
+												value={target.resolve}
+												onChange={(resolve) =>
+													patch({
+														targets: {
+															...s.targets,
+															[p]: { ...target, resolve },
+														},
+													})
+												}
+											/>
+										</div>
+									</div>
+								</div>
+							);
+						})}
 					</div>
 				</Card>
 			</Group>
@@ -615,6 +666,7 @@ function Sla({ v, set, timezone }: Panel & { timezone: string }) {
 						<ToggleGroup
 							type="multiple"
 							variant="outline"
+							className="grid w-full grid-cols-7 sm:inline-flex sm:w-fit"
 							value={hours.days.map(String)}
 							onValueChange={(days) =>
 								patch({
@@ -627,6 +679,7 @@ function Sla({ v, set, timezone }: Panel & { timezone: string }) {
 									key={d}
 									value={String(i)}
 									aria-label={d}
+									className="px-1 sm:px-2.5"
 								>
 									{d}
 								</ToggleGroupItem>
@@ -1018,13 +1071,15 @@ function Tags({ v, set }: Panel) {
 				{v.tags.map((t, i) => (
 					<div
 						key={t.name}
-						className="flex items-center gap-3 px-4 py-2"
+						className="flex items-center gap-2 px-3 py-2 sm:gap-3 sm:px-4"
 					>
-						<TagChip
-							tag={t.name}
-							catalog={v.tags}
-						/>
-						<span className="flex-1" />
+						<span className="min-w-0 flex-1">
+							<TagChip
+								tag={t.name}
+								catalog={v.tags}
+								className="max-w-full"
+							/>
+						</span>
 						<Select
 							value={t.color}
 							onValueChange={(color) =>
@@ -1036,7 +1091,7 @@ function Tags({ v, set }: Panel) {
 						>
 							<SelectTrigger
 								aria-label={`Color of ${t.name}`}
-								className="h-8 w-32"
+								className="h-8 w-24 sm:w-32"
 							>
 								<SelectValue />
 							</SelectTrigger>
@@ -1468,7 +1523,7 @@ function RuleDialog({
 						{d.conditions.map((c, i) => (
 							<div
 								key={i}
-								className="flex flex-wrap items-center gap-2"
+								className="flex flex-wrap items-center gap-2 rounded-lg border border-border/70 p-2.5 sm:border-0 sm:p-0"
 							>
 								<Select
 									value={c.field}
@@ -1489,7 +1544,7 @@ function RuleDialog({
 								>
 									<SelectTrigger
 										aria-label="Field"
-										className="w-48"
+										className="w-full sm:w-48"
 									>
 										<SelectValue />
 									</SelectTrigger>
@@ -1511,7 +1566,7 @@ function RuleDialog({
 									>
 										<SelectTrigger
 											aria-label="Yes or no"
-											className="w-28"
+											className="w-full sm:w-28"
 										>
 											<SelectValue />
 										</SelectTrigger>
@@ -1528,7 +1583,7 @@ function RuleDialog({
 										>
 											<SelectTrigger
 												aria-label="In or not in"
-												className="w-32"
+												className="w-full sm:w-32"
 											>
 												<SelectValue />
 											</SelectTrigger>
@@ -1543,7 +1598,7 @@ function RuleDialog({
 										>
 											<SelectTrigger
 												aria-label="Segment"
-												className="w-48"
+												className="w-full sm:w-48"
 											>
 												<SelectValue placeholder="Pick a segment" />
 											</SelectTrigger>
@@ -1575,7 +1630,7 @@ function RuleDialog({
 									>
 										<SelectTrigger
 											aria-label="Channel"
-											className="w-36"
+											className="w-full sm:w-36"
 										>
 											<SelectValue />
 										</SelectTrigger>
@@ -1592,7 +1647,7 @@ function RuleDialog({
 										>
 											<SelectTrigger
 												aria-label="How"
-												className="w-44"
+												className="w-full sm:w-44"
 											>
 												<SelectValue />
 											</SelectTrigger>
@@ -1609,7 +1664,7 @@ function RuleDialog({
 										</Select>
 										<Input
 											aria-label="Value"
-											className="min-w-40 flex-1"
+											className="w-full min-w-0 flex-1 sm:min-w-40"
 											placeholder={
 												c.op === "matches" ? "invoice|receipt" : "invoice"
 											}
@@ -1663,7 +1718,7 @@ function RuleDialog({
 						{d.actions.map((a, i) => (
 							<div
 								key={i}
-								className="flex flex-wrap items-center gap-2"
+								className="flex flex-wrap items-center gap-2 rounded-lg border border-border/70 p-2.5 sm:border-0 sm:p-0"
 							>
 								<Select
 									value={a.type}
@@ -1681,7 +1736,7 @@ function RuleDialog({
 								>
 									<SelectTrigger
 										aria-label="Action"
-										className="w-60"
+										className="w-full sm:w-60"
 									>
 										<SelectValue />
 									</SelectTrigger>
@@ -1769,9 +1824,9 @@ function RuleDialog({
 							}}
 						/>
 					) : (
-						<span />
+						<span className="hidden sm:block" />
 					)}
-					<span className="flex gap-2">
+					<span className="flex flex-col-reverse gap-2 *:h-10 sm:flex-row sm:*:h-8">
 						<Button
 							variant="ghost"
 							onClick={onClose}

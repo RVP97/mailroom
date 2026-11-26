@@ -642,7 +642,7 @@ function EmailPage() {
 					<IdChip value={email.id} />
 				</Fact>
 				<Fact label="Status">
-					<span className="flex min-w-0 flex-col gap-1">
+					<span className="flex min-w-0 flex-col items-start gap-1 whitespace-normal">
 						<StatusBadge status={shownStatus(email)} />
 						<span className="text-xs text-muted-foreground text-pretty">
 							{statusInfo(shownStatus(email)).description}
@@ -764,7 +764,12 @@ function EmailPage() {
 					<AlertDescription>
 						{bounce && <p>{bounce.sentence}</p>}
 						{email.error && !email.dropped && (
-							<p className={cn(bounce && "font-mono text-xs text-muted-foreground")}>
+							<p
+								className={cn(
+									"[overflow-wrap:anywhere]",
+									bounce && "font-mono text-xs text-muted-foreground",
+								)}
+							>
 								{email.error}
 							</p>
 						)}
@@ -931,11 +936,11 @@ function EmailPage() {
 						{attachments.map((a) => (
 							<span
 								key={a.filename}
-								className="inline-flex h-7 items-center gap-1.5 rounded-md bg-muted px-2 text-xs"
+								className="inline-flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-md bg-muted px-2 text-xs"
 							>
-								<Paperclip className="size-3 text-muted-foreground" />
-								{a.filename}
-								<span className="text-muted-foreground tabular-nums">
+								<Paperclip className="size-3 shrink-0 text-muted-foreground" />
+								<span className="min-w-0 truncate">{a.filename}</span>
+								<span className="shrink-0 text-muted-foreground tabular-nums">
 									{Math.ceil(a.size / 1024)} KB
 								</span>
 							</span>

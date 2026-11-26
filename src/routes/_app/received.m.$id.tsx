@@ -343,7 +343,7 @@ function ReceivedPage() {
 					onValueChange={setTab}
 					className="gap-0"
 				>
-					<div className="flex items-center gap-2 border-b border-border/70 pr-3 pl-5">
+					<div className="flex items-center gap-2 border-b border-border/70 pr-3 pl-3 sm:pl-5">
 						<TabsList
 							variant="line"
 							className="min-w-0 flex-1 justify-start overflow-x-auto [scrollbar-width:none] *:after:bottom-0"
@@ -359,6 +359,7 @@ function ReceivedPage() {
 							<Button
 								size="sm"
 								variant="ghost"
+								className="shrink-0"
 								onClick={() => setImages((v) => !v)}
 							>
 								<ImageOff />
@@ -409,19 +410,19 @@ function ReceivedPage() {
 					)}
 				</Tabs>
 				{attachments.length > 0 && (
-					<div className="flex flex-wrap gap-2 border-t border-border/70 px-5 py-3">
+					<div className="flex flex-wrap gap-2 border-t border-border/70 px-4 py-3 sm:px-5">
 						{attachments.map((a) => (
 							<a
 								key={a.id}
 								href={a.download_url}
-								className="inline-flex h-7 items-center gap-1.5 rounded-md bg-muted px-2 text-xs hover:text-foreground"
+								className="inline-flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-md bg-muted px-2 text-xs hover:text-foreground"
 							>
-								<Paperclip className="size-3 text-muted-foreground" />
-								{a.filename ?? a.id}
-								<span className="text-muted-foreground tabular-nums">
+								<Paperclip className="size-3 shrink-0 text-muted-foreground" />
+								<span className="min-w-0 truncate">{a.filename ?? a.id}</span>
+								<span className="shrink-0 text-muted-foreground tabular-nums">
 									{size(a.size)}
 								</span>
-								<Download className="size-3 text-muted-foreground" />
+								<Download className="size-3 shrink-0 text-muted-foreground" />
 							</a>
 						))}
 					</div>

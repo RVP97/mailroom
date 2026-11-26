@@ -204,8 +204,8 @@ export function ApiPlayground({ origin }: { origin: string }) {
 	};
 
 	return (
-		<div className="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-			<Card className="gap-5 p-5">
+		<div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+			<Card className="min-w-0 gap-5 p-4 sm:p-5">
 				<div className="flex flex-wrap items-center justify-between gap-2">
 					<div>
 						<h2 className="text-base font-semibold">Interactive API Playground</h2>
@@ -224,7 +224,10 @@ export function ApiPlayground({ origin }: { origin: string }) {
 							value={presetId}
 							onValueChange={applyPreset}
 						>
-							<SelectTrigger id="pg-preset">
+							<SelectTrigger
+								id="pg-preset"
+								className="w-full"
+							>
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
@@ -285,7 +288,7 @@ export function ApiPlayground({ origin }: { origin: string }) {
 							</Select>
 						</Field>
 					</div>
-					<div className="min-w-0 flex-1">
+					<div className="min-w-44 flex-1">
 						<Field>
 							<FieldLabel htmlFor="pg-path">Path</FieldLabel>
 							<Input
@@ -298,6 +301,7 @@ export function ApiPlayground({ origin }: { origin: string }) {
 					</div>
 					<Button
 						type="button"
+						className="max-sm:w-full"
 						disabled={busy}
 						onClick={() => void run()}
 					>

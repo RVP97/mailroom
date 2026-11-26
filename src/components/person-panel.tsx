@@ -57,7 +57,7 @@ export type Person = {
 function Line({ label, children }: { label: string; children: ReactNode }) {
 	return (
 		<div className="grid min-h-7 grid-cols-[5rem_minmax(0,1fr)] items-baseline gap-3">
-			<dt className="text-sm text-muted-foreground">{label}</dt>
+			<dt className="min-w-0 truncate text-sm text-muted-foreground">{label}</dt>
 			<dd className="min-w-0 text-sm">{children}</dd>
 		</div>
 	);
