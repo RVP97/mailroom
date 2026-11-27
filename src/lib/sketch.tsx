@@ -1,4 +1,4 @@
-import { useMatch } from "@tanstack/react-router";
+import { useMatch, useRouter } from "@tanstack/react-router";
 import { createIsomorphicFn } from "@tanstack/react-start";
 import { getCookie } from "@tanstack/react-start/server";
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
@@ -98,6 +98,7 @@ export function PhBox({ className, children }: { className?: string; children?: 
 
 type AnyPageRoute = {
 	id: string;
+	options: { loader?: unknown };
 	types: { loaderData: unknown; fullSearchSchema: unknown; allParams: unknown };
 };
 
@@ -112,15 +113,49 @@ export function usePage<R extends AnyPageRoute>(
 	search: R["types"]["fullSearchSchema"];
 	params: R["types"]["allParams"];
 } {
+	const router = useRouter();
 	const sketch = useContext(SketchContext);
 	const target = useContext(SketchTarget);
 	// biome-ignore lint/suspicious/noExplicitAny: the route's own types are restored by the signature
 	const match = useMatch({ from: route.id as any, shouldThrow: false }) as any;
+	// The router can render a page whose load failed and was retried (a reconnect, "Try again")
+	// as loaded while it still holds no data: wait on a reload, under the page's skeleton.
+	if (
+		!sketch &&
+		match?.status === "success" &&
+		match.loaderData === undefined &&
+		typeof window !== "undefined" &&
+		route.options.loader
+	)
+		throw reloadMissing(router, match.id);
 	return {
 		data: sketch ? sketch.data : match?.loaderData,
 		search: match?.search ?? target?.search ?? {},
 		params: match?.params ?? target?.params ?? {},
 	} as never;
+}
+
+const reloads = new Map<string, { done: boolean; promise: Promise<void> }>();
+
+/** A promise of `matchId`'s reload; an error if a reload already ran and still brought nothing. */
+function reloadMissing(router: ReturnType<typeof useRouter>, matchId: string) {
+	const reload = reloads.get(matchId);
+	if (reload?.done) {
+		reloads.delete(matchId);
+		return new Error("This page's data didn't load.");
+	}
+	if (reload) return reload.promise;
+	const entry = {
+		done: false,
+		promise: router
+			.invalidate({ filter: (m) => m.id === matchId })
+			.catch(() => {})
+			.finally(() => {
+				entry.done = true;
+			}),
+	};
+	reloads.set(matchId, entry);
+	return entry.promise;
 }
 
 /** `n` stand-in rows. */
